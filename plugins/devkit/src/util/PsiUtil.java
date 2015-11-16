@@ -147,7 +147,7 @@ public class PsiUtil {
       if (dir == null || !dir.isDirectory()) {
         continue;
       }
-      if (dir.findChild("idea.iml") != null || dir.findChild("bugvm-studio.iml") != null) {
+      if (dir.findChild("idea.iml") != null || dir.findChild("community-main.iml") != null) {
         return true;
       }
     }

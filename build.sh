@@ -1,4 +1,5 @@
 #/bin/sh
+#./getPlugins.sh
 set -e
 : ${IDEA_HOME?"Need to set IDEA_HOME to point to a valid IntelliJ IDEA installation."}
 
@@ -8,9 +9,8 @@ awk '!/idea-version/' src/main/resources/META-INF/plugin.xml > plugin.xml.tmp &&
 cd ..
 mvn -Didea.home="$IDEA_HOME" clean package -U
 git checkout -- idea/src/main/resources/META-INF/plugin.xml
-rm -rf target
-#mkdir target
-mv idea/target target
+mkdir target
+cp -r idea/target target
 cd ../..
 
 ## Apply versioning to IdeaApplicationInfo.xml based on
