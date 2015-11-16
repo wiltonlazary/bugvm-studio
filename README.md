@@ -37,7 +37,7 @@ You need to set two environment variables:
 
 ```bash
 export IDEA_HOME="/Applications/IntelliJ IDEA 15 CE.app/Contents"
-export BUGVM_IDEA_PLUGIN_VERSION="tags/bugvm-idea-1.0.0"
+export BUGVM_IDEA_PLUGIN_VERSION="tags/bugvm-idea-1.0.1-SNAPSHOT"
 ```
 
 If you do not specify a version tag for the IDEA plugin, the current master branch will be used for building.
