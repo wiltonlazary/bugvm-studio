@@ -2,7 +2,6 @@
 /android
 /config
 /system
-/build
 .idea/workspace.xml
 /out
 .DS_Store
