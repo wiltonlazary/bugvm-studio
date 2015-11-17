@@ -9,8 +9,6 @@ awk '!/idea-version/' src/main/resources/META-INF/plugin.xml > plugin.xml.tmp &&
 cd ..
 mvn -Didea.home="$IDEA_HOME" clean package -U
 git checkout -- idea/src/main/resources/META-INF/plugin.xml
-mkdir target
-cp -r idea/target target
 cd ../..
 
 ## Apply versioning to IdeaApplicationInfo.xml based on

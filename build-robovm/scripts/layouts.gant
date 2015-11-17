@@ -269,7 +269,7 @@ def layoutFull(String home, String targetDirectory, String patchedDescriptorDir 
     dir("plugins") {
       dir("robovm") {
         dir("lib") {
-          fileset(dir: "${home}/robovm/robovm-idea/target/", includes: "org.robovm.idea-*-plugin-dist.jar");
+          fileset(dir: "${home}/robovm/robovm-idea/idea/target/", includes: "bugvm-idea-*-plugin-dist.jar");
         }
       }
     }
