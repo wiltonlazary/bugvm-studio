@@ -6,7 +6,7 @@
     <orderEntry type="jdk" jdkName="1.8" jdkType="JavaSDK" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="annotations" />
-    <orderEntry type="module" module-name="robovm-studio-branding" />
+    <orderEntry type="module" module-name="bugvm-studio-branding" />
     <orderEntry type="module" module-name="ant" />
     <orderEntry type="module" module-name="boot" />
     <orderEntry type="module" module-name="bootstrap" />

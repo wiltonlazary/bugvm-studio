@@ -258,7 +258,7 @@ binding.setVariable("printUnusedModules", {Set<String> usedModules ->
 requireProperty("home", guessHome())
 
 String readSnapshotBuild() {
-  def file = new File("$home/build-robovm/build.txt")
+  def file = new File("$home/build-bugvm/build.txt")
   if (!file.exists()) {
     file = new File("$home/build.txt")
   }
@@ -431,7 +431,7 @@ binding.setVariable("layoutMacApp", { String path, String ch, Map args ->
   }
 
   ant.copy(todir: path) {
-    fileset(dir: "$ch/build-robovm/conf/mac/Contents")
+    fileset(dir: "$ch/build-bugvm/conf/mac/Contents")
   }
 
   ant.tstamp() {

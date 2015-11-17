@@ -11,9 +11,9 @@ cd android/tools-base
 git pull
 git checkout $ANDROID_TOOLS_BASE_COMMIT
 cd ../..
-rm -rf robovm/robovm-idea
-git clone https://github.com/bugvm/bugvm-idea robovm/robovm-idea
-cd robovm/robovm-idea
+rm -rf bugvm/bugvm-idea
+git clone https://github.com/bugvm/bugvm-idea bugvm/bugvm-idea
+cd bugvm/bugvm-idea
 : ${BUGVM_IDEA_PLUGIN_VERSION="master"}
 git checkout $BUGVM_IDEA_PLUGIN_VERSION
 cd ../..

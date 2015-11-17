@@ -26,7 +26,7 @@ npm install -g appdmg
 
 This is used to create a DMG from the output of the build process.
 
-The build scripts are located in `build-bugvm`, and are a heavily modified copy of what you find in `build`, the standard IDEA build scripts. Instead of community-main, it references the bugvm-studio-main module. Instead of community-resources it references robovm-studio-branding, which contains all BugVM Studio relevant branding and app info.
+The build scripts are located in `build-bugvm`, and are a heavily modified copy of what you find in `build`, the standard IDEA build scripts. Instead of community-main, it references the bugvm-studio-main module. Instead of community-resources it references bugvm-studio-branding, which contains all BugVM Studio relevant branding and app info.
 
 You also need IntelliJ IDEA 14+ installed somewhere, e.g. `/Applications/IntelliJ IDEA 14 CE.app/`
 
@@ -36,8 +36,8 @@ The build needs to be executed on Mac OS X as we also generate a DMG
 You need to set two environment variables:
 
 ```bash
-export IDEA_HOME="/Applications/IntelliJ IDEA 15 CE.app/Contents"
-export BUGVM_IDEA_PLUGIN_VERSION="tags/bugvm-idea-1.0.2"
+export IDEA_HOME="/Applications/IntelliJ IDEA 14 CE.app/Contents"
+export BUGVM_IDEA_PLUGIN_VERSION="tags/bugvm-idea-1.0.3"
 ```
 
 If you do not specify a version tag for the IDEA plugin, the current master branch will be used for building.
@@ -55,13 +55,13 @@ This will build BugVM Studio for Mac OS X as follows:
 4. Build BugVM Studio, integrate the branding and IDEA plugin
 6. Create a DMG
 
-The build output will be located in `out/robovm` and will not be signed (see [this issue](https://github.com/robovm/robovm-studio/issues/3)).
+The build output will be located in `out/bugvm` and will not be signed (see [this issue](https://github.com/bugvm/bugvm-studio/issues/3)).
 
 ### Update/Patch URLs
 IntelliJ IDEA has a mechanism to inform users about new releases of the IDE. These are specified in `bugvm/bugvm-studio-branding/src/idea/IdeaApplicationInfo.xml`. Our update URL is currently
-invalid until we figure out what to put there. See this [issue](https://github.com/robovm/robovm-studio/issues/2).
+invalid until we figure out what to put there. See this [issue](https://github.com/bugvm/bugvm-studio/issues/2).
 
 ### Versioning
 The version is defined in three places (:():
 1. `bugvm/bugvm-studio-branding/src/idea/IdeaApplicationInfo.xml`,
-2. `build-robovm/build.txt` which is used by the IDEA build process and follows IDEAs version notation (which is a bit wonky). Changing it to something more readable will make IDEAs fail on startup.
+2. `build-bugvm/build.txt` which is used by the IDEA build process and follows IDEAs version notation (which is a bit wonky). Changing it to something more readable will make IDEAs fail on startup.

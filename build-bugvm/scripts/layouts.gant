@@ -15,7 +15,7 @@
  */
 import static org.jetbrains.jps.idea.IdeaProjectLoader.guessHome
 
-includeTargets << new File("${guessHome(this)}/build-robovm/scripts/utils.gant")
+includeTargets << new File("${guessHome(this)}/build-bugvm/scripts/utils.gant")
 
 target('default': "Developers update") {
   //when IDEA CE is updated from IDEA UE sources project should be loaded from IDEA UE directory
@@ -36,7 +36,7 @@ String patchAppDescriptor(String targetDirectory) {
   ant.delete(dir: patchedDirectory)
 
   layout(patchedDirectory) {
-    module("robovm-studio-branding") {
+    module("bugvm-studio-branding") {
       include(name: appInfoFileName())
     }
   }
@@ -158,7 +158,7 @@ def layoutFull(String home, String targetDirectory, String patchedDescriptorDir 
         module("colorSchemes")
         module("resources")
         module("platform-resources")
-        module("robovm-studio-branding") {
+        module("bugvm-studio-branding") {
           if (patchedDescriptorDir != null) {
             exclude(name: appInfoFileName())
           }
@@ -267,9 +267,9 @@ def layoutFull(String home, String targetDirectory, String patchedDescriptorDir 
     }
 
     dir("plugins") {
-      dir("robovm") {
+      dir("bugvm") {
         dir("lib") {
-          fileset(dir: "${home}/robovm/robovm-idea/idea/target/", includes: "bugvm-idea-*-plugin-dist.jar");
+          fileset(dir: "${home}/bugvm/bugvm-idea/idea/target/", includes: "bugvm-idea-*-plugin-dist.jar");
         }
       }
     }
@@ -703,7 +703,7 @@ def moduleOptional(String name, Closure init) {
 def reorder(String home, String targetDirectory) {
   projectBuilder.info("Reordering JARs in $targetDirectory")
   ant.java(classname: "com.intellij.util.io.zip.ReorderJarsMain", fork: true, failonerror: true) {
-    arg(value: "${home}/build-robovm/order.txt")
+    arg(value: "${home}/build-bugvm/order.txt")
     arg(value: targetDirectory)
     arg(value: targetDirectory)
     arg(value: "${home}/lib")

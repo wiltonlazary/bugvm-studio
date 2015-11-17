@@ -29,6 +29,8 @@
       <module fileurl="file://$PROJECT_DIR$/android/tools-base/asset-studio/assetstudio.iml" filepath="$PROJECT_DIR$/android/tools-base/asset-studio/assetstudio.iml" group="android/sdktools" />
       <module fileurl="file://$PROJECT_DIR$/platform/boot/boot.iml" filepath="$PROJECT_DIR$/platform/boot/boot.iml" group="platform" />
       <module fileurl="file://$PROJECT_DIR$/platform/bootstrap/bootstrap.iml" filepath="$PROJECT_DIR$/platform/bootstrap/bootstrap.iml" group="platform" />
+      <module fileurl="file://$PROJECT_DIR$/bugvm/bugvm-studio-branding/bugvm-studio-branding.iml" filepath="$PROJECT_DIR$/bugvm/bugvm-studio-branding/bugvm-studio-branding.iml" />
+      <module fileurl="file://$PROJECT_DIR$/bugvm/bugvm-studio-main/bugvm-studio-main.iml" filepath="$PROJECT_DIR$/bugvm/bugvm-studio-main/bugvm-studio-main.iml" />
       <module fileurl="file://$PROJECT_DIR$/build/build.iml" filepath="$PROJECT_DIR$/build/build.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/built-in-server/built-in-server.iml" filepath="$PROJECT_DIR$/platform/built-in-server/built-in-server.iml" group="platform" />
       <module fileurl="file://$PROJECT_DIR$/platform/built-in-server-api/built-in-server-api.iml" filepath="$PROJECT_DIR$/platform/built-in-server-api/built-in-server-api.iml" group="platform" />
@@ -203,8 +205,6 @@
       <module fileurl="file://$PROJECT_DIR$/resources/resources.iml" filepath="$PROJECT_DIR$/resources/resources.iml" />
       <module fileurl="file://$PROJECT_DIR$/resources-en/resources-en.iml" filepath="$PROJECT_DIR$/resources-en/resources-en.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/rest/rest.iml" filepath="$PROJECT_DIR$/python/rest/rest.iml" group="python" />
-      <module fileurl="file://$PROJECT_DIR$/robovm/robovm-studio-branding/robovm-studio-branding.iml" filepath="$PROJECT_DIR$/robovm/robovm-studio-branding/robovm-studio-branding.iml" />
-      <module fileurl="file://$PROJECT_DIR$/robovm/robovm-studio-main/robovm-studio-main.iml" filepath="$PROJECT_DIR$/robovm/robovm-studio-main/robovm-studio-main.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/script-debugger/backend/script-debugger-backend.iml" filepath="$PROJECT_DIR$/platform/script-debugger/backend/script-debugger-backend.iml" group="platform/script-debugger" />
       <module fileurl="file://$PROJECT_DIR$/platform/script-debugger/debugger-ui/script-debugger-ui.iml" filepath="$PROJECT_DIR$/platform/script-debugger/debugger-ui/script-debugger-ui.iml" group="platform/script-debugger" />
       <module fileurl="file://$PROJECT_DIR$/android/tools-base/sdk-common/sdk-common.iml" filepath="$PROJECT_DIR$/android/tools-base/sdk-common/sdk-common.iml" group="android/sdktools" />

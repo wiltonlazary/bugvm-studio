@@ -34,15 +34,15 @@ import java.io.IOException;
 import java.io.StringWriter;
 
 /**
- * Called in build-robovm-studio.sh to apply the version found in
- * robovm/robovm-idea/pom.xml to
- * robovm/robovm-studio-branding/idea/IdeaApplicationInfo.xml
+ * Called in build-bugvm-studio.sh to apply the version found in
+ * bugvm/bugvm-idea/pom.xml to
+ * bugvm/bugvm-studio-branding/idea/IdeaApplicationInfo.xml
  */
 public class Versioning {
     public static void main(String[] args) throws ParserConfigurationException, IOException, SAXException,
             TransformerException {
         if (args.length != 3) {
-            System.out.println("Usage: Versioning <robovm-idea-pom-xml> <robovm-studio-application-xml> <dmg-json>");
+            System.out.println("Usage: Versioning <bugvm-idea-pom-xml> <bugvm-studio-application-xml> <dmg-json>");
             System.exit(-1);
         }
 

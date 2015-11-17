@@ -1,8 +1,8 @@
 {
 
-  "title": "RoboVM Studio",
+  "title": "BugVM Studio",
 
-  "icon": "build-robovm/conf/mac/Contents/Resources/idea.icns",
+  "icon": "build-bugvm/conf/mac/Contents/Resources/idea.icns",
 
   "background": "TestBkg.png",
 
