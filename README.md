@@ -1,7 +1,7 @@
 # IntelliJ IDEA Community Edition
 ### Building and Running from the IDE
 To develop IntelliJ IDEA, you can use either IntelliJ IDEA Community Edition or IntelliJ IDEA Ultimate. To build and run the code:
-* Run **getPlugins.sh** / **getPlugins.bat** from the project root directory to check out additional modules.
+* Run **getPlugins.sh** from the project root directory to check out additional modules.
 * Install the **Kotlin plugin** from the plugin manager (version 0.12.613). Parts of IntelliJ IDEA are written in Kotlin, and you need the plugin to compile the code.
 * Make sure you have the **Groovy** plugin enabled. Parts of IntelliJ IDEA are written in Groovy, and you will get compilation errors if you don't have the plugin enabled.
 * Make sure you have the **UI Designer** plugin enabled. Most of IntelliJ IDEA's UI is built using the **UI Designer**, and the version you build will not run correctly if you don't have the plugin enabled.
@@ -28,7 +28,7 @@ This is used to create a DMG from the output of the build process.
 
 The build scripts are located in `build-bugvm`, and are a heavily modified copy of what you find in `build`, the standard IDEA build scripts. Instead of community-main, it references the bugvm-studio-main module. Instead of community-resources it references robovm-studio-branding, which contains all BugVM Studio relevant branding and app info.
 
-You also need IntelliJ IDEA 14+ installed somewhere, e.g. `/Applications/IntelliJ IDEA 15 CE.app/`
+You also need IntelliJ IDEA 14+ installed somewhere, e.g. `/Applications/IntelliJ IDEA 14 CE.app/`
 
 ### Build
 The build needs to be executed on Mac OS X as we also generate a DMG 
@@ -37,7 +37,7 @@ You need to set two environment variables:
 
 ```bash
 export IDEA_HOME="/Applications/IntelliJ IDEA 15 CE.app/Contents"
-export BUGVM_IDEA_PLUGIN_VERSION="tags/bugvm-idea-1.0.1-SNAPSHOT"
+export BUGVM_IDEA_PLUGIN_VERSION="tags/bugvm-idea-1.0.2"
 ```
 
 If you do not specify a version tag for the IDEA plugin, the current master branch will be used for building.
