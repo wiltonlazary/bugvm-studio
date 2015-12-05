@@ -47,10 +47,10 @@ Once the environment variables are set, execute:
 ```
 
 This will build BugVM Studio for Mac OS X as follows:
-1. Pull in the latest changes to the Android plugin
-2. Pull in the specified bugvm-idea plugin (`bugvm/bugvm-idea`)
-3. Build BugVM Studio, integrate the branding and IDEA plugin
-4. Create a DMG
+* Pull in the latest changes to the Android plugin
+* Pull in the specified bugvm-idea plugin (`bugvm/bugvm-idea`)
+* Build BugVM Studio, integrate the branding and IDEA plugin
+* Create a DMG
 
 The build output will be located in `out/bugvm` and will not be signed (see [this issue](https://github.com/bugvm/bugvm-studio/issues/3)).
 
