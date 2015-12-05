@@ -55,5 +55,4 @@ This will build BugVM Studio for Mac OS X as follows:
 The build output will be located in `out/bugvm` and will not be signed (see [this issue](https://github.com/bugvm/bugvm-studio/issues/3)).
 
 ### Update/Patch URLs
-IntelliJ IDEA has a mechanism to inform users about new releases of the IDE. These are specified in `bugvm/bugvm-studio-branding/src/idea/IdeaApplicationInfo.xml`. Our update URL is currently
-invalid until we figure out what to put there. See this [issue](https://github.com/bugvm/bugvm-studio/issues/2).
+IntelliJ IDEA has a mechanism to inform users about new releases of the IDE. These are specified in `bugvm/bugvm-studio-branding/src/idea/IdeaApplicationInfo.xml`.
