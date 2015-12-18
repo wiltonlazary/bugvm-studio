@@ -1,5 +1,5 @@
 #!/bin/bash
-#./getPlugins.sh
+#./get_android_idea_plugins.sh
 set -e
 : ${IDEA_HOME?"Need to set IDEA_HOME to point to a valid IntelliJ IDEA installation."}
 
