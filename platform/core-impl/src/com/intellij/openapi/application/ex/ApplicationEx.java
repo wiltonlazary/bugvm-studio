@@ -33,10 +33,11 @@ public interface ApplicationEx extends Application {
   /**
    * Loads the application configuration from the specified path
    *
-   * @param optionsPath Path to /config folder
-   * @throws IOException
+   * @param configPath Path to /config folder
    */
-  void load(@Nullable String optionsPath) throws IOException;
+  void load(@Nullable String configPath);
+
+  void load() throws IOException;
 
   boolean isLoaded();
 

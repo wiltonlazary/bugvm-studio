@@ -19,18 +19,26 @@ import com.intellij.diagnostic.ThreadDumper;
 import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.mock.MockDocument;
 import com.intellij.mock.MockPsiFile;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.editor.impl.DocumentImpl;
+import com.intellij.openapi.editor.impl.TrailingSpacesStripper;
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
+import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PsiFileImpl;
@@ -41,9 +49,13 @@ import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PsiDocumentManagerImplTest extends PlatformTestCase {
@@ -58,6 +70,16 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
     super.setUp();
     DocumentCommitThread.getInstance();
     UIUtil.dispatchAllInvocationEvents();
+  }
+
+  @Override
+  protected void tearDown() throws Exception {
+    Object[] entities = LaterInvocator.getCurrentModalEntities();
+    for (int i = entities.length - 1; i >= 0; i--) {
+      Object state = entities[i];
+      LaterInvocator.leaveModal(state);
+    }
+    super.tearDown();
   }
 
   public void testGetCachedPsiFile_NoFile() throws Exception {
@@ -134,7 +156,7 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
         getPsiDocumentManager().getSynchronizer().performAtomically(file, new Runnable() {
           @Override
           public void run() {
-            getPsiDocumentManager().documentChanged(new DocumentEventImpl(document, 0, "", "", document.getModificationStamp(), false));
+            changeDocument(document, PsiDocumentManagerImplTest.this.getPsiDocumentManager());
           }
         });
       }
@@ -150,7 +172,7 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
     WriteCommandAction.runWriteCommandAction(null, new Runnable() {
       @Override
       public void run() {
-        getPsiDocumentManager().documentChanged(new DocumentEventImpl(document, 0, "", "", document.getModificationStamp(), false));
+        changeDocument(document, PsiDocumentManagerImplTest.this.getPsiDocumentManager());
       }
     });
 
@@ -166,13 +188,19 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
     WriteCommandAction.runWriteCommandAction(null, new Runnable() {
       @Override
       public void run() {
-        getPsiDocumentManager().documentChanged(new DocumentEventImpl(document, 0, "", "", document.getModificationStamp(), false));
+        changeDocument(document, PsiDocumentManagerImplTest.this.getPsiDocumentManager());
       }
     });
 
 
     getPsiDocumentManager().commitDocument(document);
     assertEquals(0, getPsiDocumentManager().getUncommittedDocuments().length);
+  }
+
+  private static void changeDocument(Document document, PsiDocumentManagerImpl manager) {
+    DocumentEventImpl event = new DocumentEventImpl(document, 0, "", "", document.getModificationStamp(), false);
+    manager.beforeDocumentChange(event);
+    manager.documentChanged(event);
   }
 
   public void testCommitAllDocument_RemovesFromUncommittedList() throws Exception {
@@ -183,7 +211,7 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
     WriteCommandAction.runWriteCommandAction(null, new Runnable() {
       @Override
       public void run() {
-        getPsiDocumentManager().documentChanged(new DocumentEventImpl(document, 0, "", "", document.getModificationStamp(), false));
+        changeDocument(document, getPsiDocumentManager());
       }
     });
 
@@ -198,7 +226,7 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
     final Document document = getPsiDocumentManager().getDocument(file);
 
     File temp = createTempDirectory();
-    final Project alienProject = createProject(new File(temp, "alien.ipr"), DebugUtil.currentStackTrace());
+    final Project alienProject = createProject(temp + "/alien.ipr", DebugUtil.currentStackTrace());
     boolean succ2 = ProjectManagerEx.getInstanceEx().openProject(alienProject);
     assertTrue(succ2);
     UIUtil.dispatchAllInvocationEvents(); // startup activities
@@ -218,20 +246,19 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
       WriteCommandAction.runWriteCommandAction(null, new Runnable() {
         @Override
         public void run() {
-          getPsiDocumentManager()
-            .documentChanged(new DocumentEventImpl(alienDocument, 0, "", "", alienDocument.getModificationStamp(), false));
+          changeDocument(alienDocument, PsiDocumentManagerImplTest.this.getPsiDocumentManager());
           assertEquals(0, getPsiDocumentManager().getUncommittedDocuments().length);
           assertEquals(0, alienDocManager.getUncommittedDocuments().length);
 
-          alienDocManager.documentChanged(new DocumentEventImpl(alienDocument, 0, "", "", alienDocument.getModificationStamp(), false));
+          changeDocument(alienDocument, alienDocManager);
           assertEquals(0, getPsiDocumentManager().getUncommittedDocuments().length);
           assertEquals(1, alienDocManager.getUncommittedDocuments().length);
 
-          getPsiDocumentManager().documentChanged(new DocumentEventImpl(document, 0, "", "", document.getModificationStamp(), false));
+          changeDocument(document, PsiDocumentManagerImplTest.this.getPsiDocumentManager());
           assertEquals(1, getPsiDocumentManager().getUncommittedDocuments().length);
           assertEquals(1, alienDocManager.getUncommittedDocuments().length);
 
-          alienDocManager.documentChanged(new DocumentEventImpl(document, 0, "", "", document.getModificationStamp(), false));
+          changeDocument(document, alienDocManager);
           assertEquals(1, getPsiDocumentManager().getUncommittedDocuments().length);
           assertEquals(1, alienDocManager.getUncommittedDocuments().length);
         }
@@ -341,7 +368,7 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
     final Document document = getPsiDocumentManager().getDocument(file);
 
     File temp = createTempDirectory();
-    final Project alienProject = createProject(new File(temp, "alien.ipr"), DebugUtil.currentStackTrace());
+    final Project alienProject = createProject(temp + "/alien.ipr", DebugUtil.currentStackTrace());
     boolean succ2 = ProjectManagerEx.getInstanceEx().openProject(alienProject);
     assertTrue(succ2);
     UIUtil.dispatchAllInvocationEvents(); // startup activities
@@ -465,5 +492,101 @@ public class PsiDocumentManagerImplTest extends PlatformTestCase {
         return null;
       }
     });
+  }
+
+  public void testCommitDocumentInModalDialog() throws IOException {
+    VirtualFile vFile = getVirtualFile(createTempFile("a.txt", "abc"));
+    PsiFile psiFile = getPsiManager().findFile(vFile);
+    final Document document = getPsiDocumentManager().getDocument(psiFile);
+
+    final DialogWrapper dialog = new DialogWrapper(getProject()) {
+      @Nullable
+      @Override
+      protected JComponent createCenterPanel() {
+        return null;
+      }
+    };
+
+    disposeOnTearDown(new Disposable() {
+      @Override
+      public void dispose() {
+        dialog.close(DialogWrapper.OK_EXIT_CODE);
+      }
+    });
+    ApplicationManager.getApplication().runWriteAction(new Runnable() {
+      @Override
+      public void run() {
+        // commit thread is paused
+        document.setText("xx");
+
+        LaterInvocator.enterModal(dialog);
+      }
+    });
+    assertNotSame(ModalityState.NON_MODAL, ApplicationManager.getApplication().getCurrentModalityState());
+
+    long start = System.currentTimeMillis();
+    while (System.currentTimeMillis() - start < 10000) {
+      UIUtil.dispatchAllInvocationEvents();
+      // must not be committed until exit modal dialog
+      assertFalse(getPsiDocumentManager().isCommitted(document));
+    }
+    LaterInvocator.leaveModal(dialog);
+    assertEquals(ModalityState.NON_MODAL, ApplicationManager.getApplication().getCurrentModalityState());
+
+    start = System.currentTimeMillis();
+
+    // must committ
+    while (System.currentTimeMillis() - start < 10000 && !getPsiDocumentManager().isCommitted(document)) {
+      UIUtil.dispatchAllInvocationEvents();
+    }
+
+    assertTrue(getPsiDocumentManager().isCommitted(document));
+
+
+
+    // check that inside modal dialog commit is possible
+    ApplicationManager.getApplication().runWriteAction(new Runnable() {
+      @Override
+      public void run() {
+        // commit thread is paused
+
+        LaterInvocator.enterModal(dialog);
+        document.setText("yyy");
+      }
+    });
+    assertNotSame(ModalityState.NON_MODAL, ApplicationManager.getApplication().getCurrentModalityState());
+
+    // must committ
+    while (System.currentTimeMillis() - start < 10000 && !getPsiDocumentManager().isCommitted(document)) {
+      UIUtil.dispatchAllInvocationEvents();
+    }
+
+    assertTrue(getPsiDocumentManager().isCommitted(document));
+    LaterInvocator.leaveModal(dialog);
+  }
+  
+  public void testReparseDoesNotModifyDocument() throws Exception {
+    VirtualFile file = createTempFile("txt", null, "1\n2\n3\n", Charset.forName("UTF-8"));
+    file.putUserData(TrailingSpacesStripper.OVERRIDE_STRIP_TRAILING_SPACES_KEY, EditorSettingsExternalizable.STRIP_TRAILING_SPACES_CHANGED);
+    final Document document = FileDocumentManager.getInstance().getDocument(file);
+    assertNotNull(document);
+    WriteCommandAction.runWriteCommandAction(myProject, new Runnable() {
+      @Override
+      public void run() {
+        document.insertString(document.getTextLength(), " ");
+      }
+    });
+    
+    PsiDocumentManager.getInstance(myProject).reparseFiles(Collections.singleton(file), false);
+    assertEquals("1\n2\n3\n ", VfsUtilCore.loadText(file));
+
+    WriteCommandAction.runWriteCommandAction(myProject, new Runnable() {
+      @Override
+      public void run() {
+        document.insertString(0, "-");
+      }
+    });
+    FileDocumentManager.getInstance().saveDocument(document);
+    assertEquals("-1\n2\n3\n", VfsUtilCore.loadText(file));
   }
 }

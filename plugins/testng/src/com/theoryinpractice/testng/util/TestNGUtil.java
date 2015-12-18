@@ -69,7 +69,7 @@ public class TestNGUtil {
   private static boolean hasDocTagsSupport() {
     String testngJarPath = PathUtil.getJarPathForClass(Test.class);
     String version = JarUtil.getJarAttribute(new File(testngJarPath), Attributes.Name.IMPLEMENTATION_VERSION);
-    return version == null || StringUtil.compareVersionNumbers(version, "5.12") <= 0;
+    return version != null && StringUtil.compareVersionNumbers(version, "5.12") <= 0;
   }
 
   public static final String TEST_ANNOTATION_FQN = Test.class.getName();
@@ -477,7 +477,7 @@ public class TestNGUtil {
   }
 
   public static boolean isTestNGClass(PsiClass psiClass) {
-    return hasTest(psiClass, true, true, false);
+    return hasTest(psiClass, true, false, false);
   }
 
   public static boolean checkTestNGInClasspath(PsiElement psiElement) {

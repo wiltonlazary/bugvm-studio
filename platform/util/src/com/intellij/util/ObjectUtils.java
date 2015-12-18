@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,15 @@ public class ObjectUtils {
     return _assertNotNull(t);
   }
 
+  public static <T> void assertAllElementsNotNull(@NotNull T[] array) {
+    for (int i = 0; i < array.length; i++) {
+      T t = array[i];
+      if (t == null) {
+        throw new NullPointerException("Element [" + i + "] is null");
+      }
+    }
+  }
+
   @NotNull
   private static <T> T _assertNotNull(@NotNull T t) {
     return t;
@@ -47,7 +56,7 @@ public class ObjectUtils {
 
   @NotNull
   public static <T> T notNull(@Nullable T value, @NotNull T defaultValue) {
-    return value != null ? value : defaultValue;
+    return value == null ? defaultValue : value;
   }
 
   @Nullable

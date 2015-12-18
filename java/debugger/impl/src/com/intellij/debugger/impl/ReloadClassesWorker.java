@@ -121,6 +121,10 @@ class ReloadClassesWorker {
 
       int processedEntriesCount = 0;
       for (final Map.Entry<String, HotSwapFile> entry : modifiedClasses.entrySet()) {
+        // stop if process is finished already
+        if (debugProcess.isDetached() || debugProcess.isDetaching()) {
+          break;
+        }
         if (redefineProcessor.getProcessedClassesCount() == 0 && myProgress.isCancelled()) {
           // once at least one class has been actually reloaded, do not interrupt the whole process
           break;
@@ -172,7 +176,7 @@ class ReloadClassesWorker {
     SuspendContextImpl suspendContext = context.getSuspendContext();
     if (suspendContext != null) {
       XExecutionStack stack = suspendContext.getActiveExecutionStack();
-      if (stack instanceof JavaExecutionStack) {
+      if (stack != null) {
         ((JavaExecutionStack)stack).initTopFrame();
       }
     }

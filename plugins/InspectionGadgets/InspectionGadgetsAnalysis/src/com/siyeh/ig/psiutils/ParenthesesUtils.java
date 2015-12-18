@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -89,6 +89,13 @@ public class ParenthesesUtils {
     s_binaryOperatorPrecedence.put(JavaTokenType.NE, EQUALITY_PRECEDENCE);
   }
 
+  public static String getText(@NotNull PsiExpression expression, int precedence) {
+    if (getPrecedence(expression) >= precedence) {
+      return '(' + expression.getText() + ')';
+    }
+    return expression.getText();
+  }
+
   @Nullable public static PsiElement getParentSkipParentheses(PsiElement element) {
     PsiElement parent = element.getParent();
     while (parent instanceof PsiParenthesizedExpression || parent instanceof PsiTypeCastExpression) {
@@ -130,9 +137,9 @@ public class ParenthesesUtils {
       return false;
     }
     if (JavaTokenType.PLUS == tokenType || JavaTokenType.ASTERISK == tokenType) {
-      return primitiveType != PsiType.FLOAT && primitiveType != PsiType.DOUBLE;
+      return !PsiType.FLOAT.equals(primitiveType) && !PsiType.DOUBLE.equals(primitiveType);
     } else if (JavaTokenType.EQEQ == tokenType || JavaTokenType.NE == tokenType) {
-      return primitiveType == PsiType.BOOLEAN;
+      return PsiType.BOOLEAN.equals(primitiveType);
     } else if (JavaTokenType.AND == tokenType || JavaTokenType.OR == tokenType || JavaTokenType.XOR == tokenType) {
       return true;
     } else if (JavaTokenType.OROR == tokenType || JavaTokenType.ANDAND == tokenType) {

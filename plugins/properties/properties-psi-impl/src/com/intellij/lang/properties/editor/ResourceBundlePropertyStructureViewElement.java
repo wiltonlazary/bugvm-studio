@@ -22,19 +22,16 @@ package com.intellij.lang.properties.editor;
 import com.intellij.ide.structureView.StructureViewTreeElement;
 import com.intellij.lang.properties.*;
 import com.intellij.lang.properties.ResourceBundle;
-import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.navigation.ColoredItemPresentation;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.TextAttributes;
-import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.ui.JBColor;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
-
-import java.util.ArrayList;
-import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -73,9 +70,16 @@ public class ResourceBundlePropertyStructureViewElement implements StructureView
     return getValue().getRepresentative();
   }
 
+  @NotNull
   @Override
-  public PsiElement[] getPsiElements() {
-    return new PsiElement[] {getProperty().getPsiElement()};
+  public IProperty[] getProperties() {
+    return new IProperty[] {getProperty()};
+  }
+
+  @Nullable
+  @Override
+  public PsiFile[] getFiles() {
+    return null;
   }
 
   public void setPresentableName(final String presentableName) {
@@ -114,14 +118,13 @@ public class ResourceBundlePropertyStructureViewElement implements StructureView
 
       @Override
       public TextAttributesKey getTextAttributesKey() {
+        final IgnoredPropertiesFilesSuffixesManager
+          ignoredPropertiesFilesSuffixesManager = IgnoredPropertiesFilesSuffixesManager.getInstance(myResourceBundle.getProject());
+        final boolean isPropertyComplete = ignoredPropertiesFilesSuffixesManager.isPropertyComplete(myResourceBundle, getProperty().getName());
         if (myPresentableName != null && myPresentableName.isEmpty()) {
-          return PropertiesUtil.isPropertyComplete(myResourceBundle, getProperty().getName())
-                 ? GROUP_KEY
-                 : INCOMPLETE_GROUP_KEY;
+          return isPropertyComplete ? GROUP_KEY : INCOMPLETE_GROUP_KEY;
         }
-        return PropertiesUtil.isPropertyComplete(myResourceBundle, getProperty().getName())
-               ? PropertiesHighlighter.PROPERTY_KEY
-               : INCOMPLETE_PROPERTY_KEY;
+        return isPropertyComplete ? PropertiesHighlighter.PROPERTY_KEY : INCOMPLETE_PROPERTY_KEY;
       }
     };
   }

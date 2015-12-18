@@ -86,7 +86,6 @@ public abstract class KeymapsTestCase extends PlatformTestCase {
     { "control 2",                "FileChooser.GotoProject", "GotoBookmark2", "DuplicatesForm.SendToRight"},
     { "control 3",                "GotoBookmark3", "FileChooser.GotoModule"},
     { "control ADD",              "ExpandAll", "ExpandRegion"},
-    { "control DELETE",           "EditorDeleteToWordEnd", "RemoveFromFavorites"},
     { "control DIVIDE",           "CommentByLineComment", "Images.Editor.ActualSize"},
     { "control DOWN",             "EditorScrollDown", "EditorLookupDown"},
     { "control ENTER",            "EditorSplitLine", "ViewSource", "Console.Execute.Multiline"},
@@ -142,6 +141,8 @@ public abstract class KeymapsTestCase extends PlatformTestCase {
     { "meta BACK_SPACE",          "EditorDeleteLine", "$Delete"},
     { "control DOWN",             "ShowContent", "EditorLookupDown", "MethodDown"},
     { "control UP",               "EditorLookupUp", "MethodUp"},
+    { "control TAB",              "Switcher", "Diff.FocusOppositePane"},
+    { "shift control TAB",        "Switcher", "Diff.FocusOppositePaneAndScroll"},
     { "meta R",                   "Refresh", "Rerun", "Replace", "org.jetbrains.plugins.ruby.rails.console.ReloadSources"},
     { "control O",                "ExportToTextFile", "OverrideMethods", },
     { "control ENTER",            "Generate", "NewElement"},
@@ -155,6 +156,7 @@ public abstract class KeymapsTestCase extends PlatformTestCase {
     { "shift meta RIGHT",         "EditorLineEndWithSelection", "ResizeToolWindowRight", },
     { "meta E",                   "RecentFiles", "Vcs.ShowMessageHistory"},
     { "alt R",                    "Django.RunManageTaskAction", "org.jetbrains.plugins.ruby.tasks.rake.actions.RakeTasksPopupAction"},
+    { "ctrl m",                   "EditorMatchBrace", "Vcs.ShowMessageHistory"},
     });
     put("Mac OS X", new String[][] {
     { "BACK_SPACE",               "$Delete", "EditorBackSpace", "Images.Thumbnails.UpFolder"},
@@ -162,6 +164,8 @@ public abstract class KeymapsTestCase extends PlatformTestCase {
     { "control UP",               "EditorLookupUp", "MethodUp"},
     { "control ENTER",            "Generate", "NewElement"},
     { "control F5",               "Refresh", "Rerun"},
+    { "control TAB",              "Switcher", "Diff.FocusOppositePane"},
+    { "shift control TAB",        "Switcher", "Diff.FocusOppositePaneAndScroll"},
     { "meta 1",                   "ActivateProjectToolWindow", "FileChooser.GotoHome", "DuplicatesForm.SendToLeft"},
     { "meta 2",                   "ActivateFavoritesToolWindow", "FileChooser.GotoProject", "DuplicatesForm.SendToRight"},
     { "meta 3",                   "ActivateFindToolWindow", "FileChooser.GotoModule"},
@@ -171,6 +175,8 @@ public abstract class KeymapsTestCase extends PlatformTestCase {
     { "alt R",                    "Django.RunManageTaskAction", "org.jetbrains.plugins.ruby.tasks.rake.actions.RakeTasksPopupAction"},
     });
     put("Emacs", new String[][] {
+    { "ENTER",                    "EditorChooseLookupItem", "NextTemplateVariable", "EditorEnter", "Images.Thumbnails.EnterAction",
+                                  "PropertyInspectorActions.EditValue", "Console.Execute", "Console.TableResult.EditValue"},
     { "F2",                       "GotoNextError", "GuiDesigner.EditComponent", "GuiDesigner.EditGroup", "Console.TableResult.EditValue"},
     { "alt ENTER",                "ShowIntentionActions", "Console.TableResult.EditValue", "DatabaseView.PropertiesAction"},
     { "TAB",                      "EditorChooseLookupItemReplace", "NextTemplateVariable", "NextParameter", "EditorIndentSelection", 
@@ -182,6 +188,7 @@ public abstract class KeymapsTestCase extends PlatformTestCase {
     { "control 3",                "GotoBookmark3", "FileChooser.GotoModule"},
     { "control D",                "$Delete", "Diff.ShowDiff", "CompareTwoFiles", "SendEOF", "FileChooser.GotoDesktop"},
     { "control K",                "EditorCutLineEnd", "CheckinProject"},
+    { "control M",                "EditorEnter", "EditorChooseLookupItem", "NextTemplateVariable", "Console.Execute"},
     { "control N",                "EditorDown", "FileChooser.NewFolder"},
     { "control P",                "EditorUp", "FileChooser.TogglePathShowing"},
     { "control R",                "Console.TableResult.Reload", "org.jetbrains.plugins.ruby.rails.console.ReloadSources", "FindPrevious"},
@@ -200,7 +207,6 @@ public abstract class KeymapsTestCase extends PlatformTestCase {
     { "shift alt G",              "GotoChangedFile", "GotoClass", "hg4idea.QGotoFromPatches"},
     { "shift alt P",              "ParameterInfo", "hg4idea.QPushAction"},
     { "shift control X",          "GotoPreviousError", "com.jetbrains.php.framework.FrameworkRunConsoleAction"},
-    { "shift control alt F",      "EditorCodeBlockEndWithSelection", "Console.TableResult.EditFilterCriteria"},
     });
     put("Visual Studio", new String[][] {
     { "F5",                       "Resume", "UML.ApplyCurrentLayout"},

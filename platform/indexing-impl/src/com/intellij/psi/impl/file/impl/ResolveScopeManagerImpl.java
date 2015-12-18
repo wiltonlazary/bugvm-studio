@@ -15,9 +15,11 @@
  */
 package com.intellij.psi.impl.file.impl;
 
+import com.intellij.injected.editor.VirtualFileWindow;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.OrderEntry;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.impl.LibraryScopeCache;
@@ -29,8 +31,10 @@ import com.intellij.psi.impl.ResolveScopeManager;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.util.containers.ConcurrentFactoryMap;
+import com.intellij.util.indexing.AdditionalIndexableFileSet;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.List;
 import java.util.Map;
 
 public class ResolveScopeManagerImpl extends ResolveScopeManager {
@@ -57,11 +61,13 @@ public class ResolveScopeManagerImpl extends ResolveScopeManager {
       return scope;
     }
   };
+  private final AdditionalIndexableFileSet myAdditionalIndexableFileSet;
 
   public ResolveScopeManagerImpl(Project project, ProjectRootManager projectRootManager, PsiManager psiManager) {
     myProject = project;
     myProjectRootManager = projectRootManager;
     myManager = psiManager;
+    myAdditionalIndexableFileSet = new AdditionalIndexableFileSet(project);
 
     ((PsiManagerImpl) psiManager).registerRunnableToRunOnChange(new Runnable() {
       @Override
@@ -82,6 +88,10 @@ public class ResolveScopeManagerImpl extends ResolveScopeManager {
     if (module != null) {
       boolean includeTests = projectFileIndex.isInTestSourceContent(vFile);
       return GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module, includeTests);
+    }
+
+    if (!projectFileIndex.isInLibrarySource(vFile) && !projectFileIndex.isInLibraryClasses(vFile)) {
+      return GlobalSearchScope.allScope(myProject);
     }
     
     return LibraryScopeCache.getInstance(myProject).getLibraryScope(projectFileIndex.getOrderEntriesForFile(vFile));
@@ -156,6 +166,9 @@ public class ResolveScopeManagerImpl extends ResolveScopeManager {
       if (containingFile == null) return allScope;
       virtualFile = containingFile.getVirtualFile();
       if (virtualFile == null) return allScope;
+      if (virtualFile instanceof VirtualFileWindow) {
+        return GlobalSearchScope.fileScope(myProject, ((VirtualFileWindow)virtualFile).getDelegate());
+      }
       vDirectory = virtualFile.getParent();
     }
 
@@ -163,8 +176,15 @@ public class ResolveScopeManagerImpl extends ResolveScopeManager {
     final ProjectFileIndex projectFileIndex = myProjectRootManager.getFileIndex();
     final Module module = projectFileIndex.getModuleForFile(vDirectory);
     if (module == null) {
-      return containingFile == null || virtualFile.isDirectory() || allScope.contains(virtualFile)
-             ? allScope : GlobalSearchScope.fileScope(containingFile).uniteWith(allScope);
+      VirtualFile notNullVFile = virtualFile != null ? virtualFile : vDirectory;
+      final List<OrderEntry> entries = projectFileIndex.getOrderEntriesForFile(notNullVFile);
+      if (entries.isEmpty() && myAdditionalIndexableFileSet.isInSet(notNullVFile)) {
+        return allScope;
+      }
+
+      GlobalSearchScope result = LibraryScopeCache.getInstance(myProject).getLibraryUseScope(entries);
+      return containingFile == null || virtualFile.isDirectory() || result.contains(virtualFile)
+             ? result : GlobalSearchScope.fileScope(containingFile).uniteWith(result);
     }
     boolean isTest = projectFileIndex.isInTestSourceContent(vDirectory);
     GlobalSearchScope scope = isTest

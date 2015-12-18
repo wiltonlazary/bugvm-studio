@@ -22,7 +22,10 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.RedundantCastUtil;
 import com.intellij.psi.util.TypeConversionUtil;
@@ -49,9 +52,22 @@ public class InlineUtil {
 
     PsiClass thisClass = RefactoringChangeUtil.getThisClass(initializer);
     PsiClass refParent = RefactoringChangeUtil.getThisClass(ref);
-    boolean insertCastWhenUnchecked = ref.getParent() instanceof PsiForeachStatement;
+    final PsiElement parent = ref.getParent();
+    boolean insertCastWhenUnchecked = parent instanceof PsiForeachStatement;
     final PsiType varType = variable.getType();
     initializer = RefactoringUtil.convertInitializerToNormalExpression(initializer, varType);
+    if (initializer instanceof PsiPolyadicExpression) {
+      final IElementType operationTokenType = ((PsiPolyadicExpression)initializer).getOperationTokenType();
+      if ((operationTokenType == JavaTokenType.PLUS || operationTokenType == JavaTokenType.MINUS) &&
+          parent instanceof PsiPolyadicExpression && ((PsiPolyadicExpression)parent).getOperationTokenType() == JavaTokenType.PLUS) {
+        final PsiType type = ((PsiPolyadicExpression)parent).getType();
+        if (type != null && type.equalsToText(CommonClassNames.JAVA_LANG_STRING)) {
+          final PsiElementFactory factory = JavaPsiFacade.getElementFactory(initializer.getProject());
+          initializer = factory.createExpressionFromText("(" + initializer.getText() + ")", initializer);
+        }
+      }
+    }
+    solveVariableNameConflicts(initializer, ref, initializer);
 
     ChangeContextUtil.encodeContextInfo(initializer, false);
     PsiExpression expr = (PsiExpression)replaceDiamondWithInferredTypesIfNeeded(initializer, ref);
@@ -340,6 +356,12 @@ public class InlineUtil {
           PsiElement resolved = resolveResult.getElement();
           if (resolved instanceof PsiTypeParameter) {
             PsiType newType = resolveResult.getSubstitutor().putAll(substitutor).substitute((PsiTypeParameter)resolved);
+            if (newType instanceof PsiCapturedWildcardType) {
+              newType = ((PsiCapturedWildcardType)newType).getUpperBound();
+            }
+            if (newType instanceof PsiWildcardType) {
+              newType = ((PsiWildcardType)newType).getBound();
+            }
             if (newType == null) {
               newType = PsiType.getJavaLangObject(resolved.getManager(), resolved.getResolveScope());
             }
@@ -397,7 +419,35 @@ public class InlineUtil {
         }
       }
     }
-    return ref.replace(initializer);
+    return ref != initializer ? ref.replace(initializer) : initializer;
+  }
+
+  public static void solveVariableNameConflicts(final PsiElement scope,
+                                                final PsiElement placeToInsert,
+                                                final PsiElement renameScope) throws IncorrectOperationException {
+    if (scope instanceof PsiVariable) {
+      PsiVariable var = (PsiVariable)scope;
+      String name = var.getName();
+      String oldName = name;
+      final JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(scope.getProject());
+      while (true) {
+        String newName = codeStyleManager.suggestUniqueVariableName(name, placeToInsert, true);
+        if (newName.equals(name)) break;
+        name = newName;
+        newName = codeStyleManager.suggestUniqueVariableName(name, var, true);
+        if (newName.equals(name)) break;
+        name = newName;
+      }
+      if (!name.equals(oldName)) {
+        RefactoringUtil.renameVariableReferences(var, name, new LocalSearchScope(renameScope), true);
+        var.getNameIdentifier().replace(JavaPsiFacade.getElementFactory(scope.getProject()).createIdentifier(name));
+      }
+    }
+
+    PsiElement[] children = scope.getChildren();
+    for (PsiElement child : children) {
+      solveVariableNameConflicts(child, placeToInsert, renameScope);
+    }
   }
 
   public enum TailCallType {

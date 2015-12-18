@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,6 +62,7 @@ public class XFramesView extends XDebugView {
   private final Set<XExecutionStack> myExecutionStacks = ContainerUtil.newHashSet();
   private XExecutionStack mySelectedStack;
   private int mySelectedFrameIndex;
+  private Rectangle myVisibleRect;
   private boolean myListenersEnabled;
   private final Map<XExecutionStack, StackFramesListBuilder> myBuilders = new HashMap<XExecutionStack, StackFramesListBuilder>();
   private final ActionToolbarImpl myToolbar;
@@ -179,8 +180,8 @@ public class XFramesView extends XDebugView {
     final DefaultActionGroup framesGroup = new DefaultActionGroup();
 
     CommonActionsManager actionsManager = CommonActionsManager.getInstance();
-    framesGroup.add(actionsManager.createPrevOccurenceAction(getFramesList()));
-    framesGroup.add(actionsManager.createNextOccurenceAction(getFramesList()));
+    framesGroup.add(actionsManager.createPrevOccurenceAction(myFramesList));
+    framesGroup.add(actionsManager.createNextOccurenceAction(myFramesList));
 
     framesGroup.addAll(ActionManager.getInstance().getAction(XDebuggerActions.FRAMES_TOP_TOOLBAR_GROUP));
 
@@ -223,6 +224,10 @@ public class XFramesView extends XDebugView {
     if (event != SessionEvent.SETTINGS_CHANGED) {
       mySelectedFrameIndex = 0;
       mySelectedStack = null;
+      myVisibleRect = null;
+    }
+    else {
+      myVisibleRect = myFramesList.getVisibleRect();
     }
 
     myListenersEnabled = false;
@@ -293,10 +298,6 @@ public class XFramesView extends XDebugView {
   public void dispose() {
   }
 
-  public XDebuggerFramesList getFramesList() {
-    return myFramesList;
-  }
-
   public JPanel getMainPanel() {
     return myMainPanel;
   }
@@ -318,7 +319,7 @@ public class XFramesView extends XDebugView {
     private final List<XStackFrame> myStackFrames;
     private String myErrorMessage;
     private int myNextFrameIndex = 0;
-    private boolean myRunning;
+    private volatile boolean myRunning;
     private boolean myAllFramesLoaded;
     private final XDebugSession mySession;
 
@@ -330,15 +331,20 @@ public class XFramesView extends XDebugView {
 
     @Override
     public void addStackFrames(@NotNull final List<? extends XStackFrame> stackFrames, final boolean last) {
+      if (isObsolete()) return;
       myLaterInvocator.offer(new Runnable() {
         @Override
         public void run() {
+          if (isObsolete()) return;
           myStackFrames.addAll(stackFrames);
           addFrameListElements(stackFrames, last);
           selectCurrentFrame();
           myNextFrameIndex += stackFrames.size();
           myAllFramesLoaded = last;
           if (last) {
+            if (myVisibleRect != null) {
+              myFramesList.scrollRectToVisible(myVisibleRect);
+            }
             myRunning = false;
             myListenersEnabled = true;
           }
@@ -348,9 +354,11 @@ public class XFramesView extends XDebugView {
 
     @Override
     public void errorOccurred(@NotNull final String errorMessage) {
+      if (isObsolete()) return;
       myLaterInvocator.offer(new Runnable() {
         @Override
         public void run() {
+          if (isObsolete()) return;
           if (myErrorMessage == null) {
             myErrorMessage = errorMessage;
             addFrameListElements(Collections.singletonList(errorMessage), true);

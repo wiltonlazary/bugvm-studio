@@ -15,25 +15,31 @@
  */
 package com.intellij.openapi.externalSystem.service.project
 
-import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.externalSystem.model.DataNode
 import com.intellij.openapi.externalSystem.model.project.ProjectData
 import com.intellij.openapi.externalSystem.test.AbstractExternalSystemTest
 import com.intellij.openapi.externalSystem.test.ExternalSystemTestUtil
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
-import com.intellij.openapi.roots.JavadocOrderRootType
-import com.intellij.openapi.roots.LibraryOrderEntry
-import com.intellij.openapi.roots.ModuleSourceOrderEntry
-import com.intellij.openapi.roots.OrderEntry
-import com.intellij.openapi.roots.OrderRootType
+import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.io.FileUtil
+import junit.framework.Test
+import junit.framework.TestSuite
 
 import static com.intellij.openapi.externalSystem.model.project.ExternalSystemSourceType.*
+
 /**
  * @author Denis Zhdanov
  * @since 8/8/13 5:17 PM
  */
 public class ExternalProjectServiceTest extends AbstractExternalSystemTest {
+
+//  public static Test suite() throws ClassNotFoundException {
+//    return new TestSuite(
+//      Class.forName("_FirstInSuiteTest"),
+//      ExternalProjectServiceTest.class,
+//      Class.forName("_LastInSuiteTest")
+//    );
+//  }
 
   void 'test no duplicate library dependency is added on subsequent refresh when there is an unresolved library'() {
     DataNode<ProjectData> projectNode = buildExternalProjectInfo {
@@ -44,12 +50,11 @@ public class ExternalProjectServiceTest extends AbstractExternalSystemTest {
 
     applyProjectState([projectNode, projectNode])
 
-    def helper = ServiceManager.getService(ProjectStructureHelper.class)
-    def module = helper.findIdeModule('module', project)
+    def modelsProvider = new IdeModelsProviderImpl(project);
+    def module = modelsProvider.findIdeModule('module')
     assertNotNull(module)
-    
-    def facade = ServiceManager.getService(PlatformFacade.class)
-    def entries = facade.getOrderEntries(module)
+
+    def entries = modelsProvider.getOrderEntries(module)
     def dependencies = [:].withDefault { 0 }
     for (OrderEntry entry : entries) {
       if (entry instanceof LibraryOrderEntry) {
@@ -86,18 +91,16 @@ public class ExternalProjectServiceTest extends AbstractExternalSystemTest {
 
     applyProjectState([projectNodeInitial, projectNodeRefreshed])
 
-    def helper = ServiceManager.getService(ProjectStructureHelper.class)
-    def module = helper.findIdeModule('module', project)
+    def modelsProvider = new IdeModelsProviderImpl(project);
+    def module = modelsProvider.findIdeModule('module')
     assertNotNull(module)
-
-    def facade = ServiceManager.getService(PlatformFacade.class)
-    def entries = facade.getOrderEntries(module)
+    def entries = modelsProvider.getOrderEntries(module)
     def folders = [:].withDefault { 0 }
     for (OrderEntry entry : entries) {
       if (entry instanceof ModuleSourceOrderEntry) {
         def contentEntry = (entry as ModuleSourceOrderEntry).getRootModel().getContentEntries().first()
-        folders['source']+=contentEntry.sourceFolders.length
-        folders['excluded']+=contentEntry.excludeFolders.length
+        folders['source'] += contentEntry.sourceFolders.length
+        folders['excluded'] += contentEntry.excludeFolders.length
       }
     }
     ExternalSystemTestUtil.assertMapsEqual(['source': 4, 'excluded': 2], folders)
@@ -128,12 +131,11 @@ public class ExternalProjectServiceTest extends AbstractExternalSystemTest {
             lib('lib1', level: 'module', bin: [libBinPath.absolutePath], src: [libSrcPath.absolutePath],  doc: [libDocPath.absolutePath]) } } }
     ])
 
-    def helper = ServiceManager.getService(ProjectStructureHelper.class)
-    def module = helper.findIdeModule('module', project)
+    def modelsProvider = new IdeModelsProviderImpl(project);
+    def module = modelsProvider.findIdeModule('module')
     assertNotNull(module)
 
-    def facade = ServiceManager.getService(PlatformFacade.class)
-    def entries = facade.getOrderEntries(module)
+    def entries = modelsProvider.getOrderEntries(module)
     def dependencies = [:].withDefault { 0 }
     entries.each { OrderEntry entry ->
       if (entry instanceof LibraryOrderEntry) {
@@ -156,5 +158,40 @@ public class ExternalProjectServiceTest extends AbstractExternalSystemTest {
       }
     }
     ExternalSystemTestUtil.assertMapsEqual(['Test_external_system_id: lib1': 1], dependencies)
+  }
+
+  void 'test excluded directories merge'() {
+    String rootPath = ExternalSystemApiUtil.toCanonicalPath(project.basePath);
+    def contentRoots = [
+      (EXCLUDED): ['.gradle', 'build']
+    ]
+
+    def projectRootBuilder = {
+      buildExternalProjectInfo {
+        project {
+          module {
+            contentRoot(rootPath) {
+              contentRoots.each { key, values -> values.each { folder(type: key, path: "$rootPath/$it") } }
+            } } } } }
+
+    DataNode<ProjectData> projectNodeInitial = projectRootBuilder()
+
+    contentRoots[(EXCLUDED)].remove(0)
+    contentRoots[(EXCLUDED)].add("newExclDir")
+
+    DataNode<ProjectData> projectNodeRefreshed = projectRootBuilder()
+    applyProjectState([projectNodeInitial, projectNodeRefreshed])
+
+    def modelsProvider = new IdeModelsProviderImpl(project);
+    def module = modelsProvider.findIdeModule('module')
+    assertNotNull(module)
+    def folders = []
+    for (OrderEntry entry : modelsProvider.getOrderEntries(module)) {
+      if (entry instanceof ModuleSourceOrderEntry) {
+        def contentEntry = (entry as ModuleSourceOrderEntry).getRootModel().getContentEntries().first()
+        folders = contentEntry.excludeFolders.collect {new File(it.url).name}
+      }
+    }
+    assertEquals(new HashSet<>(folders), new HashSet<>([".gradle", "build", "newExclDir"]));
   }
 }

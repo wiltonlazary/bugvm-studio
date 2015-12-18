@@ -16,13 +16,12 @@
 package com.intellij.compiler;
 
 import com.intellij.compiler.server.BuildManager;
+import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
-import com.intellij.openapi.application.impl.ApplicationImpl;
-import com.intellij.openapi.components.impl.stores.ComponentStoreImpl;
+import com.intellij.openapi.components.ServiceKt;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
@@ -32,8 +31,11 @@ import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ModuleRootModificationUtil;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.util.SmartList;
+import com.intellij.util.ThrowableRunnable;
+import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -55,61 +57,70 @@ public class CompilerTestUtil {
   }
 
   public static void saveApplicationSettings() {
-    ApplicationManager.getApplication().invokeAndWait(new Runnable() {
+    EdtTestUtil.runInEdtAndWait(new Runnable() {
       @Override
       public void run() {
         doSaveComponent(ProjectJdkTable.getInstance());
         doSaveComponent(FileTypeManager.getInstance());
       }
-    }, ModalityState.any());
+    });
   }
 
   public static void saveApplicationComponent(final Object appComponent) {
-    ApplicationManager.getApplication().invokeAndWait(new Runnable() {
+    EdtTestUtil.runInEdtAndWait(new Runnable() {
       @Override
       public void run() {
         doSaveComponent(appComponent);
       }
-    }, ModalityState.any());
+    });
   }
 
   private static void doSaveComponent(Object appComponent) {
     //noinspection TestOnlyProblems
-    ((ComponentStoreImpl)((ApplicationImpl)ApplicationManager.getApplication()).getStateStore()).saveApplicationComponent(appComponent);
+    ServiceKt.getStateStore(ApplicationManager.getApplication()).saveApplicationComponent(appComponent);
   }
 
   public static void enableExternalCompiler() {
+    ApplicationManagerEx.getApplicationEx().doNotSave(false);
+    final JavaAwareProjectJdkTableImpl table = JavaAwareProjectJdkTableImpl.getInstanceEx();
     new WriteAction() {
       @Override
-      protected void run(final Result result) {
-        ApplicationManagerEx.getApplicationEx().doNotSave(false);
-        JavaAwareProjectJdkTableImpl table = JavaAwareProjectJdkTableImpl.getInstanceEx();
+      protected void run(@NotNull final Result result) {
         table.addJdk(table.getInternalJdk());
       }
     }.execute();
   }
 
-  public static void disableExternalCompiler(final Project project) {
-    new WriteAction() {
-      @Override
-      protected void run(final Result result) {
-        ApplicationManagerEx.getApplicationEx().doNotSave(true);
-        Module[] modules = ModuleManager.getInstance(project).getModules();
-        JavaAwareProjectJdkTableImpl table = JavaAwareProjectJdkTableImpl.getInstanceEx();
-        Sdk internalJdk = table.getInternalJdk();
-        List<Module> modulesToRestore = new ArrayList<Module>();
-        for (Module module : modules) {
-          Sdk sdk = ModuleRootManager.getInstance(module).getSdk();
-          if (sdk != null && sdk.equals(internalJdk)) {
-            modulesToRestore.add(module);
+  public static void disableExternalCompiler(@NotNull  final Project project) {
+    try {
+      EdtTestUtil.runInEdtAndWait(new ThrowableRunnable<Throwable>() {
+        @Override
+        public void run() throws Throwable {
+          JavaAwareProjectJdkTableImpl table = JavaAwareProjectJdkTableImpl.getInstanceEx();
+          AccessToken token = WriteAction.start();
+          try {
+            Sdk internalJdk = table.getInternalJdk();
+            List<Module> modulesToRestore = new SmartList<Module>();
+            for (Module module : ModuleManager.getInstance(project).getModules()) {
+              Sdk sdk = ModuleRootManager.getInstance(module).getSdk();
+              if (sdk != null && sdk.equals(internalJdk)) {
+                modulesToRestore.add(module);
+              }
+            }
+            table.removeJdk(internalJdk);
+            for (Module module : modulesToRestore) {
+              ModuleRootModificationUtil.setModuleSdk(module, internalJdk);
+            }
+            BuildManager.getInstance().clearState(project);
+          }
+          finally {
+            token.finish();
           }
         }
-        table.removeJdk(internalJdk);
-        for (Module module : modulesToRestore) {
-          ModuleRootModificationUtil.setModuleSdk(module, internalJdk);
-        }
-        BuildManager.getInstance().clearState(project);
-      }
-    }.execute();
+      });
+    }
+    finally {
+      ApplicationManagerEx.getApplicationEx().doNotSave(true);
+    }
   }
 }

@@ -400,17 +400,22 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
   }
 
   @Override
-  public long getLength(@NotNull final VirtualFile file) {
+  public long getLength(@NotNull VirtualFile file) {
     long len;
     if (mustReloadContent(file)) {
       len = reloadLengthFromDelegate(file, getDelegate(file));
     }
     else {
-      final int id = getFileId(file);
-      len = FSRecords.getLength(id);
+      len = getLastRecordedLength(file);
     }
 
     return len;
+  }
+
+  @Override
+  public long getLastRecordedLength(@NotNull VirtualFile file) {
+    int id = getFileId(file);
+    return FSRecords.getLength(id);
   }
 
   @NotNull
@@ -908,14 +913,14 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
       try {
         VfsData.initFile(rootId, segment, -1, directoryData);
       }
-      catch (AssertionError e) {
+      catch (VfsData.FileAlreadyCreatedException e) {
         for (Map.Entry<String, VirtualFileSystemEntry> entry : myRoots.entrySet()) {
           final VirtualFileSystemEntry existingRoot = entry.getValue();
           if (Math.abs(existingRoot.getId()) == rootId) {
             throw new RuntimeException("Duplicate FS roots: " + rootUrl + " and " + entry.getKey() + ", id=" + rootId + ", valid=" + existingRoot.isValid(), e);
           }
         }
-        throw new RuntimeException("No root duplication", e);
+        throw new RuntimeException("No root duplication, roots=" + Arrays.toString(FSRecords.listAll(1)), e);
       }
       incStructuralModificationCount();
       mark = writeAttributesToRecord(rootId, 0, newRoot, fs, attributes);
@@ -978,8 +983,8 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
     VirtualFileSystemEntry result = myIdToDirCache.get(parentId);
 
     for (int i=parents.size() - 2; i>=0; i--) {
-      if (result == null) {
-        break;
+      if (!(result instanceof VirtualDirectoryImpl)) {
+        return null;
       }
       parentId = parents.get(i);
       result = ((VirtualDirectoryImpl)result).findChildById(parentId, cachedOnly);
@@ -1027,6 +1032,9 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
   }
 
   private VirtualFileSystemEntry applyEvent(@NotNull VFileEvent event) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Applying " + event);
+    }
     try {
       if (event instanceof VFileCreateEvent) {
         final VFileCreateEvent createEvent = (VFileCreateEvent)event;
@@ -1050,17 +1058,22 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
       }
       else if (event instanceof VFilePropertyChangeEvent) {
         final VFilePropertyChangeEvent propertyChangeEvent = (VFilePropertyChangeEvent)event;
+        VirtualFile file = propertyChangeEvent.getFile();
+        Object newValue = propertyChangeEvent.getNewValue();
         if (VirtualFile.PROP_NAME.equals(propertyChangeEvent.getPropertyName())) {
-          executeRename(propertyChangeEvent.getFile(), (String)propertyChangeEvent.getNewValue());
+          executeRename(file, (String)newValue);
         }
         else if (VirtualFile.PROP_WRITABLE.equals(propertyChangeEvent.getPropertyName())) {
-          executeSetWritable(propertyChangeEvent.getFile(), ((Boolean)propertyChangeEvent.getNewValue()).booleanValue());
+          executeSetWritable(file, ((Boolean)newValue).booleanValue());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("File " + file + " writable=" + file.isWritable() + " id=" + getFileId(file));
+          }
         }
         else if (VirtualFile.PROP_HIDDEN.equals(propertyChangeEvent.getPropertyName())) {
-          executeSetHidden(propertyChangeEvent.getFile(), ((Boolean)propertyChangeEvent.getNewValue()).booleanValue());
+          executeSetHidden(file, ((Boolean)newValue).booleanValue());
         }
         else if (VirtualFile.PROP_SYMLINK_TARGET.equals(propertyChangeEvent.getPropertyName())) {
-          executeSetTarget(propertyChangeEvent.getFile(), (String)propertyChangeEvent.getNewValue());
+          executeSetTarget(file, (String)newValue);
         }
       }
     }

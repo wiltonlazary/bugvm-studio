@@ -29,7 +29,6 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actions.EditorActionUtil;
 import com.intellij.openapi.editor.event.EditorMouseEvent;
 import com.intellij.openapi.editor.ex.EditorEx;
@@ -73,7 +72,7 @@ public class TextDiffViewerUtil {
   public static TextDiffSettings getTextSettings(@NotNull DiffContext context) {
     TextDiffSettings settings = context.getUserData(TextDiffSettingsHolder.KEY);
     if (settings == null) {
-      settings = TextDiffSettings.getSettings(context.getUserData(DiffUserDataKeysEx.PLACE));
+      settings = TextDiffSettings.getSettings(context.getUserData(DiffUserDataKeys.PLACE));
       context.putUserData(TextDiffSettingsHolder.KEY, settings);
       if (DiffUtil.isUserDataFlagSet(DiffUserDataKeys.DO_NOT_IGNORE_WHITESPACES, context)) {
         settings.setIgnorePolicy(IgnorePolicy.DEFAULT);
@@ -123,7 +122,7 @@ public class TextDiffViewerUtil {
       for (DiffContent content : contents) {
         message.append(content.toString()).append("\n");
       }
-      LOG.error(new Throwable(message.toString()));
+      LOG.warn(new Throwable(message.toString()));
     }
   }
 
@@ -441,10 +440,11 @@ public class TextDiffViewerUtil {
       myEditorPopupActions = editorPopupActions;
     }
 
-    public void install(@NotNull List<? extends Editor> editors) {
-      for (Editor editor : editors) {
+    public void install(@NotNull List<? extends EditorEx> editors) {
+      for (EditorEx editor : editors) {
         if (editor == null) continue;
         editor.addEditorMouseListener(this);
+        editor.setContextMenuGroupId(null); // disabling default context menu
       }
     }
 

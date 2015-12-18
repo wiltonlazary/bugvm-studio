@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import com.intellij.execution.runners.ExecutionUtil;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.execution.ui.RunContentManager;
 import com.intellij.ide.DataManager;
+import com.intellij.ide.scratch.ScratchFileService;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
@@ -35,6 +36,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.content.Content;
 import com.intellij.util.Consumer;
@@ -48,6 +50,8 @@ import javax.swing.*;
  */
 public class AutoTestManager {
   private static final String AUTO_TEST_MANAGER_DELAY = "auto.test.manager.delay";
+  private static final int AUTO_TEST_MANAGER_DELAY_DEFAULT = 3000;
+
   private static final Key<ProcessListener> ON_TERMINATION_RESTARTER_KEY = Key.create("auto.test.manager.on.termination.restarter");
   private static final Key<ExecutionEnvironment> EXECUTION_ENVIRONMENT_KEY = Key.create("auto.test.manager.execution.environment");
 
@@ -62,7 +66,7 @@ public class AutoTestManager {
 
   public AutoTestManager(@NotNull Project project) {
     myProject = project;
-    myDelayMillis = PropertiesComponent.getInstance(project).getOrInitInt(AUTO_TEST_MANAGER_DELAY, 3000);
+    myDelayMillis = StringUtilRt.parseInt(PropertiesComponent.getInstance(project).getValue(AUTO_TEST_MANAGER_DELAY), AUTO_TEST_MANAGER_DELAY_DEFAULT);
     myDocumentWatcher = createWatcher();
   }
 
@@ -76,6 +80,9 @@ public class AutoTestManager {
     }, new Condition<VirtualFile>() {
       @Override
       public boolean value(VirtualFile file) {
+        if (ScratchFileService.getInstance().getRootType(file) != null) {
+          return false;
+        }
         // Vladimir.Krivosheev - I don't know, why AutoTestManager checks it, but old behavior is preserved
         return FileEditorManager.getInstance(myProject).isFileOpen(file);
       }
@@ -226,6 +233,6 @@ public class AutoTestManager {
     if (hasEnabledAutoTests()) {
       myDocumentWatcher.activate();
     }
-    PropertiesComponent.getInstance(myProject).setValue(AUTO_TEST_MANAGER_DELAY, String.valueOf(myDelayMillis));
+    PropertiesComponent.getInstance(myProject).setValue(AUTO_TEST_MANAGER_DELAY, myDelayMillis, AUTO_TEST_MANAGER_DELAY_DEFAULT);
   }
 }

@@ -8,9 +8,7 @@
 message()
 {
   TITLE="Cannot start @@product_full@@"
-  if [ -t 1 ]; then
-    echo "ERROR: $TITLE\n$1"
-  elif [ -n `which zenity` ]; then
+  if [ -n `which zenity` ]; then
     zenity --error --title="$TITLE" --text="$1"
   elif [ -n `which kdialog` ]; then
     kdialog --error --title "$TITLE" "$1"
@@ -107,13 +105,18 @@ else
   fi
 fi
 
-if [ -z "$JDK" ]; then
+JAVA_BIN="$JDK/bin/java"
+if [ ! -x "$JAVA_BIN" ]; then
+  JAVA_BIN="$JDK/jre/bin/java"
+fi
+
+if [ -z "$JDK" ] || [ ! -x "$JAVA_BIN" ]; then
   message "No JDK found. Please validate either @@product_uc@@_JDK, JDK_HOME or JAVA_HOME environment variable points to valid JDK installation."
   exit 1
 fi
 
 VERSION_LOG=`"$MKTEMP" -t java.version.log.XXXXXX`
-"$JDK/jre/bin/java" -version 2> "$VERSION_LOG"
+JAVA_TOOL_OPTIONS= "$JAVA_BIN" -version 2> "$VERSION_LOG"
 "$GREP" "64-Bit|x86_64|amd64" "$VERSION_LOG" > /dev/null
 BITS=$?
 "$RM" -f "$VERSION_LOG"
@@ -136,23 +139,25 @@ if [ -n "$@@product_uc@@_PROPERTIES" ]; then
   IDE_PROPERTIES_PROPERTY="-Didea.properties.file=$@@product_uc@@_PROPERTIES"
 fi
 
-MAIN_CLASS_NAME="$@@product_uc@@_MAIN_CLASS_NAME"
-if [ -z "$MAIN_CLASS_NAME" ]; then
-  MAIN_CLASS_NAME="com.intellij.idea.Main"
+vm_options_file="$IDE_BIN_HOME/@@vm_options@@$BITS.vmoptions"
+if [ ! -r "$vm_options_file" ]; then
+  vm_options_file="$OS_SPECIFIC_BIN_DIR/@@vm_options@@$BITS.vmoptions"
+fi
+user_vm_options_file="$HOME/.@@system_selector@@/@@vm_options@@$BITS.vmoptions"
+if [ -r "$user_vm_options_file" ]; then
+  vm_options_file="$user_vm_options_file"
+fi
+if [ -n "$@@product_uc@@_VM_OPTIONS" ] && [ -r "$@@product_uc@@_VM_OPTIONS" ]; then
+  vm_options_file="$@@product_uc@@_VM_OPTIONS"
 fi
 
 VM_OPTIONS=""
-VM_OPTIONS_FILES_USED=""
-for vm_opts_file in "$IDE_BIN_HOME/@@vm_options@@$BITS.vmoptions" "$OS_SPECIFIC_BIN_DIR/@@vm_options@@$BITS.vmoptions" "$HOME/.@@system_selector@@/@@vm_options@@$BITS.vmoptions" "$@@product_uc@@_VM_OPTIONS"; do
-  if [ -r "$vm_opts_file" ]; then
-    VM_OPTIONS_DATA=`"$CAT" "$vm_opts_file" | "$GREP" -v "^#.*" | "$TR" '\n' ' '`
-    VM_OPTIONS="$VM_OPTIONS $VM_OPTIONS_DATA"
-    if [ -n "$VM_OPTIONS_FILES_USED" ]; then
-      VM_OPTIONS_FILES_USED="$VM_OPTIONS_FILES_USED,"
-    fi
-    VM_OPTIONS_FILES_USED="$VM_OPTIONS_FILES_USED$vm_opts_file"
-  fi
-done
+if [ -r "$vm_options_file" ]; then
+  VM_OPTIONS_DATA=`"$CAT" "$vm_options_file" | "$GREP" -v "^#.*" | "$TR" '\n' ' '`
+  VM_OPTIONS="$VM_OPTIONS $VM_OPTIONS_DATA"
+else
+  message "Cannot find VM options file."
+fi
 
 IS_EAP="@@isEap@@"
 if [ "$IS_EAP" = "true" ]; then
@@ -170,21 +175,33 @@ if [ -n "$@@product_uc@@_CLASSPATH" ]; then
   CLASSPATH="$CLASSPATH:$@@product_uc@@_CLASSPATH"
 fi
 
+if [ -n "$JAVA_TOOL_OPTIONS" -a "$JAVA_TOOL_OPTIONS" != "${JAVA_TOOL_OPTIONS%-javaagent*jayatanaag.jar*}" ] ; then
+  export _ORIGINAL_JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS"
+  JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS%-javaagent*jayatanaag.jar*}${JAVA_TOOL_OPTIONS#*jayatanaag.jar}"
+fi
+
 # ---------------------------------------------------------------------
 # Run the IDE.
 # ---------------------------------------------------------------------
-LD_LIBRARY_PATH="$IDE_BIN_HOME:$LD_LIBRARY_PATH" "$JDK/jre/bin/java" \
+LD_LIBRARY_PATH="$IDE_BIN_HOME:$LD_LIBRARY_PATH" "$JAVA_BIN" \
   $AGENT \
   "-Xbootclasspath/a:$IDE_HOME/lib/boot.jar" \
   -classpath "$CLASSPATH" \
-  $VM_OPTIONS "-Djb.vmOptionsFile=$VM_OPTIONS_FILES_USED" \
+  $VM_OPTIONS "-Djb.vmOptionsFile=$vm_options_file" \
   "-XX:ErrorFile=$HOME/java_error_in_@@product_uc@@_%p.log" \
   -Djb.restart.code=88 -Didea.paths.selector=@@system_selector@@ \
   $IDE_PROPERTIES_PROPERTY \
   $IDE_JVM_ARGS \
-  $REQUIRED_JVM_ARGS \
-  $MAIN_CLASS_NAME \
+  com.intellij.idea.Main \
   "$@"
 EC=$?
+
 test $EC -ne 88 && exit $EC
+
+RESTARTER="$HOME/.@@system_selector@@/restart/restarter.sh"
+if [ -x "$RESTARTER" ]; then
+  "$RESTARTER"
+  "$RM" -f "$RESTARTER"
+fi
+
 exec "$0" "$@"

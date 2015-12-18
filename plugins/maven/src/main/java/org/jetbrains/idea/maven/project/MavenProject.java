@@ -53,21 +53,6 @@ public class MavenProject {
   @NotNull private final VirtualFile myFile;
   @NotNull private volatile State myState = new State();
 
-  private static Map<String, String> COMPILER_LEVEL_TABLE = ContainerUtil.<String,String>immutableMapBuilder()
-    .put("1.1", "1.1")
-    .put("1.2", "1.2")
-    .put("1.3", "1.3")
-    .put("1.4", "1.4")
-    .put("1.5", "1.5")
-    .put("5", "1.5")
-    .put("1.6", "1.6")
-    .put("6", "1.6")
-    .put("1.7", "1.7")
-    .put("7", "1.7")
-    .put("1.8", "1.8")
-    .put("8", "1.8")
-    .build();
-
   public enum ProcMode {BOTH, ONLY, NONE}
 
   @Nullable
@@ -454,7 +439,7 @@ public class MavenProject {
   }
 
   private static Map<String, String> getAnnotationProcessorOptionsFromCompilerConfig(Element compilerConfig) {
-    Map<String, String> res = null;
+    Map<String, String> res = new LinkedHashMap<String, String>();
 
     String compilerArgument = compilerConfig.getChildText("compilerArgument");
     if (!StringUtil.isEmptyOrSpaces(compilerArgument)) {
@@ -462,16 +447,16 @@ public class MavenProject {
       parametersList.addParametersString(compilerArgument);
 
       for (String param : parametersList.getParameters()) {
-        if (param.startsWith("-A")) {
-          int idx = param.indexOf('=', 3);
-          if (idx >= 0) {
-            if (res == null) {
-              res = new LinkedHashMap<String, String>();
-            }
+        addAnnotationProcessorOption(param, res);
+      }
+    }
 
-            res.put(param.substring(2, idx), param.substring(idx + 1));
-          }
-        }
+    Element compilerArgs = compilerConfig.getChild("compilerArgs");
+    if (compilerArgs != null) {
+      for (Element e : compilerArgs.getChildren()) {
+        if (!StringUtil.equals(e.getName(), "arg")) continue;
+        String arg = e.getTextTrim();
+        addAnnotationProcessorOption(arg, res);
       }
     }
 
@@ -484,18 +469,24 @@ public class MavenProject {
         }
 
         if (name.length() > 1 && name.charAt(0) == 'A') {
-          if (res == null) {
-            res = new LinkedHashMap<String, String>();
-          }
-
           res.put(name.substring(1), e.getTextTrim());
         }
       }
     }
-
-    if (res == null) return Collections.emptyMap();
-
     return res;
+  }
+
+  private static void addAnnotationProcessorOption(String compilerArg, Map<String, String> optionsMap) {
+    if (compilerArg == null || compilerArg.trim().isEmpty()) return;
+
+    if (compilerArg.startsWith("-A")) {
+      int idx = compilerArg.indexOf('=', 3);
+      if (idx >= 0) {
+        optionsMap.put(compilerArg.substring(2, idx), compilerArg.substring(idx + 1));
+      } else {
+        optionsMap.put(compilerArg.substring(2), "");
+      }
+    }
   }
 
   private static Map<String, String> getAnnotationProcessorOptionsFromProcessorPlugin(MavenPlugin bscMavenPlugin) {
@@ -994,17 +985,12 @@ public class MavenProject {
       result = myState.myProperties.getProperty("maven.compiler." + level);
     }
 
-    return normalizeCompilerLevel(result);
+    return result;
   }
 
   @Nullable
   private Element getCompilerConfig() {
     return getPluginConfiguration("org.apache.maven.plugins", "maven-compiler-plugin");
-  }
-
-  @Nullable
-  public static String normalizeCompilerLevel(@Nullable String level) {
-    return COMPILER_LEVEL_TABLE.get(level);
   }
 
   @NotNull

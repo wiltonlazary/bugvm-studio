@@ -31,6 +31,7 @@ import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.StackingPopupDispatcher;
+import com.intellij.openapi.ui.popup.util.PopupUtil;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
@@ -306,7 +307,6 @@ public abstract class DialogWrapper {
   private boolean myDisposed = false;
   private boolean myValidationStarted = false;
   private final ErrorPainter myErrorPainter = new ErrorPainter();
-  private JComponent myErrorPane;
   private boolean myErrorPainterInstalled = false;
 
   /**
@@ -356,7 +356,7 @@ public abstract class DialogWrapper {
     UIUtil.invokeLaterIfNeeded(new Runnable() {
       @Override
       public void run() {
-        IdeGlassPaneUtil.installPainter(myErrorPane, myErrorPainter, myDisposable);
+        IdeGlassPaneUtil.installPainter(getContentPanel(), myErrorPainter, myDisposable);
       }
     });
   }
@@ -483,7 +483,7 @@ public abstract class DialogWrapper {
 
     JPanel panel = new JPanel(new BorderLayout());
     final JPanel lrButtonsPanel = new JPanel(new GridBagLayout());
-    final Insets insets = SystemInfo.isMacOSLeopard ? JBUI.emptyInsets() : new Insets(8, 0, 0, 0); //don't wrap to JBInsets
+    final Insets insets = SystemInfo.isMacOSLeopard ? UIUtil.isUnderIntelliJLaF() ? JBUI.insets(0, 8) : JBUI.emptyInsets() : new Insets(8, 0, 0, 0); //don't wrap to JBInsets
 
     if (actions.length > 0 || leftSideActions.length > 0) {
       int gridX = 0;
@@ -637,7 +637,7 @@ public abstract class DialogWrapper {
       }
     }
 
-    JPanel buttonsPanel = new JPanel(new GridLayout(1, actions.length, SystemInfo.isMacOSLeopard ? 0 : 5, 0));
+    JPanel buttonsPanel = new JPanel(new GridLayout(1, actions.length, SystemInfo.isMacOSLeopard ? UIUtil.isUnderIntelliJLaF() ? 8 : 0 : 5, 0));
     for (final Action action : actions) {
       JButton button = createJButtonForAction(action);
       final Object value = action.getValue(Action.MNEMONIC_KEY);
@@ -687,13 +687,16 @@ public abstract class DialogWrapper {
       for (final JBOptionButton.OptionInfo eachInfo : infos) {
         if (eachInfo.getMnemonic() >= 0) {
           final char mnemonic = (char)eachInfo.getMnemonic();
-          new AnAction() {
-            @Override
-            public void actionPerformed(AnActionEvent e) {
-              final JBOptionButton buttonToActivate = eachInfo.getButton();
-              buttonToActivate.showPopup(eachInfo.getAction(), true);
-            }
-          }.registerCustomShortcutSet(MnemonicHelper.createShortcut(mnemonic), getPeer().getRootPane());
+          JRootPane rootPane = getPeer().getRootPane();
+          if (rootPane != null) {
+            new AnAction() {
+              @Override
+              public void actionPerformed(AnActionEvent e) {
+                final JBOptionButton buttonToActivate = eachInfo.getButton();
+                buttonToActivate.showPopup(eachInfo.getAction(), true);
+              }
+            }.registerCustomShortcutSet(MnemonicHelper.createShortcut(mnemonic), rootPane, myDisposable);
+          }
         }
       }
     }
@@ -1182,7 +1185,7 @@ public abstract class DialogWrapper {
     ensureEventDispatchThread();
     myErrorText = new ErrorText();
     myErrorText.setVisible(false);
-    myErrorText.myLabel.addComponentListener(new ComponentAdapter() {
+    final ComponentAdapter resizeListener = new ComponentAdapter() {
       private int myHeight;
 
       @Override
@@ -1192,13 +1195,23 @@ public abstract class DialogWrapper {
           myHeight = height;
           myResizeInProgress = true;
           myErrorText.setMinimumSize(new Dimension(0, height));
-          myPeer.getRootPane().validate();
+          JRootPane root = myPeer.getRootPane();
+          if (root != null) {
+            root.validate();
+          }
           if (myActualSize != null) {
             myPeer.setSize(myActualSize.width, myActualSize.height + height);
           }
           myErrorText.revalidate();
           myResizeInProgress = false;
         }
+      }
+    };
+    myErrorText.myLabel.addComponentListener(resizeListener);
+    Disposer.register(myDisposable, new Disposable() {
+      @Override
+      public void dispose() {
+        myErrorText.myLabel.removeComponentListener(resizeListener);
       }
     });
 
@@ -1221,7 +1234,7 @@ public abstract class DialogWrapper {
         expandNextOptionButton();
       }
     };
-    toggleShowOptions.registerCustomShortcutSet(sc, root);
+    toggleShowOptions.registerCustomShortcutSet(sc, root, myDisposable);
 
     JComponent titlePane = createTitlePane();
     if (titlePane != null) {
@@ -1244,10 +1257,6 @@ public abstract class DialogWrapper {
     final JComponent c = createCenterPanel();
     if (c != null) {
       centerSection.add(c, BorderLayout.CENTER);
-      myErrorPane = c;
-    }
-    if (myErrorPane == null) {
-      myErrorPane = root;
     }
 
     final JPanel southSection = new JPanel(new BorderLayout());
@@ -1264,7 +1273,7 @@ public abstract class DialogWrapper {
       startTrackingValidation();
     }
     if (SystemInfo.isWindows) {
-      installEnterHook(root);
+      installEnterHook(root, myDisposable);
     }
     myErrorTextAlarm.setActivationComponent(root);
   }
@@ -1274,7 +1283,7 @@ public abstract class DialogWrapper {
     return new BorderLayout();
   }
 
-  private static void installEnterHook(JComponent root) {
+  private static void installEnterHook(JComponent root, Disposable disposable) {
     new AnAction() {
       @Override
       public void actionPerformed(AnActionEvent e) {
@@ -1289,7 +1298,7 @@ public abstract class DialogWrapper {
         final Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
         e.getPresentation().setEnabled(owner instanceof JButton && owner.isEnabled());
       }
-    }.registerCustomShortcutSet(CustomShortcutSet.fromString("ENTER"), root);
+    }.registerCustomShortcutSet(CustomShortcutSet.fromString("ENTER"), root, disposable);
   }
 
   private void expandNextOptionButton() {
@@ -1339,7 +1348,12 @@ public abstract class DialogWrapper {
     };
 
     if (getValidationThreadToUse() == Alarm.ThreadToUse.SWING_THREAD) {
-      myValidationAlarm.addRequest(validateRequest, myValidationDelay, ModalityState.current());
+      // null if headless
+      JRootPane rootPane = getRootPane();
+      myValidationAlarm.addRequest(validateRequest, myValidationDelay,
+                                   ApplicationManager.getApplication() == null
+                                   ? null
+                                   : rootPane == null ? ModalityState.current() : ModalityState.stateForComponent(rootPane));
     }
     else {
       myValidationAlarm.addRequest(validateRequest, myValidationDelay);
@@ -1563,14 +1577,24 @@ public abstract class DialogWrapper {
   }
 
   /**
-   * Show the dialog
+   * Show the dialog.
    *
-   * @throws IllegalStateException if the dialog is invoked not on the event dispatch thread
+   * @throws IllegalStateException if the method is invoked not on the event dispatch thread
+   * @see #showAndGet()
+   * @see #showAndGetOk()
    */
   public void show() {
     invokeShow();
   }
 
+  /**
+   * Show the modal dialog and check if it was closed with OK.
+   *
+   * @return true if the {@link #getExitCode() exit code} is {@link #OK_EXIT_CODE}.
+   * @throws IllegalStateException if the dialog is non-modal, or if the method is invoked not on the EDT.
+   * @see #show()
+   * @see #showAndGetOk()
+   */
   public boolean showAndGet() {
     if (!isModal()) {
       throw new IllegalStateException("The showAndGet() method is for modal dialogs only");
@@ -1686,20 +1710,8 @@ public abstract class DialogWrapper {
     return new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent e) {
-          MenuSelectionManager menuSelectionManager = MenuSelectionManager.defaultManager();
-          MenuElement[] selectedPath = menuSelectionManager.getSelectedPath();
-          if (selectedPath.length > 0) { // hide popup menu if any
-            menuSelectionManager.clearSelectedPath();
-          }
-          else {
-            if (ApplicationManager.getApplication() == null) {
-              doCancelAction(e);
-              return;
-            }
-            final StackingPopupDispatcher popupDispatcher = StackingPopupDispatcher.getInstance();
-            if (popupDispatcher != null && !popupDispatcher.isPopupFocused()) {
-              doCancelAction(e);
-            }
+          if (!PopupUtil.handleEscKeyEvent()) {
+            doCancelAction(e);
           }
         }
       };
@@ -2036,12 +2048,12 @@ public abstract class DialogWrapper {
 
     @Override
     public boolean isToBeShown() {
-      return PropertiesComponent.getInstance().getBoolean(myProperty, false);
+      return PropertiesComponent.getInstance().getBoolean(myProperty);
     }
 
     @Override
     public void setToBeShown(boolean value, int exitCode) {
-      PropertiesComponent.getInstance().setValue(myProperty, Boolean.toString(value));
+      PropertiesComponent.getInstance().setValue(myProperty, value);
     }
 
     @Override

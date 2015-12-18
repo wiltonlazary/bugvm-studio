@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,12 @@ import com.intellij.openapi.application.Result;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
+import com.intellij.util.PathUtilRt;
 import com.intellij.util.containers.HashSet;
 import com.intellij.util.graph.Graph;
 import org.jetbrains.annotations.NotNull;
@@ -54,7 +56,7 @@ public class ModuleUtilCore {
   public static String getModuleNameInReadAction(@NotNull final Module module) {
     return new ReadAction<String>(){
       @Override
-      protected void run(final Result<String> result) throws Throwable {
+      protected void run(@NotNull final Result<String> result) throws Throwable {
         result.setResult(module.getName());
       }
     }.execute().getResultObject();
@@ -212,6 +214,19 @@ public class ModuleUtilCore {
     else {
       return moduleRootManager.getFileIndex().isInContent(file);
     }
+  }
+
+  public static boolean isModuleFile(@NotNull Module module, @NotNull VirtualFile file) {
+    return FileUtil.namesEqual(file.getPath(), module.getModuleFilePath());
+  }
+
+  public static boolean isModuleDir(@NotNull Module module, @NotNull VirtualFile dir) {
+    return FileUtil.namesEqual(dir.getPath(), getModuleDirPath(module));
+  }
+
+  @NotNull
+  public static String getModuleDirPath(@NotNull Module module) {
+    return PathUtilRt.getParentPath(module.getModuleFilePath());
   }
 
   public interface ModuleVisitor {

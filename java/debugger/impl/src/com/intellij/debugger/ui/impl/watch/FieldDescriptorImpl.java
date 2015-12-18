@@ -37,6 +37,7 @@ import com.sun.jdi.ObjectCollectedException;
 import com.sun.jdi.ObjectReference;
 import com.sun.jdi.Value;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class FieldDescriptorImpl extends ValueDescriptorImpl implements FieldDescriptor{
   public static final String OUTER_LOCAL_VAR_FIELD_PREFIX = "val$";
@@ -105,11 +106,16 @@ public class FieldDescriptorImpl extends ValueDescriptorImpl implements FieldDes
 
   @Override
   public String getName() {
-    final String fieldName = myField.name();
-    if (isOuterLocalVariableValue() && NodeRendererSettings.getInstance().getClassRenderer().SHOW_VAL_FIELDS_AS_LOCAL_VARIABLES) {
-      return StringUtil.trimStart(fieldName, OUTER_LOCAL_VAR_FIELD_PREFIX);
+    return myField.name();
+  }
+
+  @Override
+  public String calcValueName() {
+    String res = super.calcValueName();
+    if (Boolean.TRUE.equals(getUserData(SHOW_DECLARING_TYPE))) {
+      return NodeRendererSettings.getInstance().getClassRenderer().renderTypeName(myField.declaringType().name()) + "." + res;
     }
-    return fieldName;
+    return res;
   }
 
   public boolean isOuterLocalVariableValue() {
@@ -121,12 +127,10 @@ public class FieldDescriptorImpl extends ValueDescriptorImpl implements FieldDes
     }
   }
 
+  @Nullable
   @Override
-  public String calcValueName() {
-    if (NodeRendererSettings.getInstance().getClassRenderer().SHOW_DECLARED_TYPE) {
-      return addDeclaredType(myField.typeName());
-    }
-    return super.calcValueName();
+  public String getDeclaredType() {
+    return myField.typeName();
   }
 
   @Override

@@ -125,7 +125,7 @@ public class MethodReferenceResolver implements ResolveCache.PolyVariantContextR
                     return substitutor;
                   }
 
-                  if (includeReturnConstraint && interfaceMethodReturnType != PsiType.VOID && interfaceMethodReturnType != null) {
+                  if (includeReturnConstraint && !PsiType.VOID.equals(interfaceMethodReturnType) && interfaceMethodReturnType != null) {
                     final PsiType returnType = method.isConstructor() ? composeReturnType(containingClass, substitutor) : method.getReturnType();
                     if (returnType != null) {
                       session.registerReturnTypeConstraints(returnType, interfaceMethodReturnType);
@@ -272,11 +272,19 @@ public class MethodReferenceResolver implements ResolveCache.PolyVariantContextR
 
     private boolean resolveConflicts(List<CandidateInfo> firstCandidates, List<CandidateInfo> secondCandidates, int applicabilityLevel) {
 
-      checkApplicability(firstCandidates);
+      final int firstApplicability = checkApplicability(firstCandidates);
       checkSpecifics(firstCandidates, applicabilityLevel, myLanguageLevel);
 
-      checkApplicability(secondCandidates);
+      final int secondApplicability = checkApplicability(secondCandidates);
       checkSpecifics(secondCandidates, applicabilityLevel, myLanguageLevel);
+      
+      if (firstApplicability < secondApplicability) {
+        return secondCandidates.size() == 1;
+      }
+      
+      if (secondApplicability < firstApplicability) {
+        return firstCandidates.size() == 1;
+      }
 
       return firstCandidates.size() + secondCandidates.size() == 1;
     }

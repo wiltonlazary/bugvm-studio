@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,19 +16,24 @@
 
 package com.intellij.ui;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
@@ -62,6 +67,16 @@ public class StringComboboxEditor extends EditorComboBoxEditor {
   }
 
   @Override
+  protected void onEditorCreate(final EditorEx editor) {
+    Disposer.register(((EditorImpl)editor).getDisposable(), new Disposable() {
+      @Override
+      public void dispose() {
+        editor.getDocument().putUserData(COMBO_BOX_KEY, null);
+      }
+    });
+  }
+
+  @Override
   public Object getItem() {
     final String text = ((Document) super.getItem()).getText();
     LOG.assertTrue(text != null);
@@ -75,7 +90,7 @@ public class StringComboboxEditor extends EditorComboBoxEditor {
     final String s = (String)anObject;
     new WriteCommandAction(myProject) {
       @Override
-      protected void run(Result result) throws Throwable {
+      protected void run(@NotNull Result result) throws Throwable {
         getDocument().setText(s);
       }
     }.execute();

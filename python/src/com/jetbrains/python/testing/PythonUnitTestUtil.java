@@ -197,14 +197,14 @@ public class PythonUnitTestUtil {
         final VirtualFile virtualFile = containingFile.getVirtualFile();
         final String clsFileName = virtualFile == null? containingFile.getName() : virtualFile.getPath();
         final String clsFileNameWithoutExt = FileUtil.getNameWithoutExtension(clsFileName);
-        if (!clsFileNameWithoutExt.endsWith(fileName)) {
+        if (!clsFileNameWithoutExt.endsWith(fileName) && ! fileName.equals(clsFileName)) {
           continue;
         }
         if (methodName == null) {
           locations.add(new PsiLocation<PyClass>(project, cls));
         }
         else {
-          final PyFunction method = cls.findMethodByName(methodName, true);
+          final PyFunction method = cls.findMethodByName(methodName, true, null);
           if (method == null) {
             continue;
           }

@@ -47,14 +47,12 @@ import com.intellij.openapi.util.Getter;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiPackage;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.GlobalSearchScopesCore;
-import com.intellij.rt.execution.CommandLineWrapper;
 import com.intellij.util.PathUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -64,6 +62,7 @@ import org.jetbrains.jps.model.serialization.PathMacroUtil;
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -117,11 +116,15 @@ public abstract class JavaTestFrameworkRunnableState<T extends ModuleBasedConfig
 
     final OSProcessHandler handler = createHandler(executor);
     consoleView.attachToProcess(handler);
+    final AbstractTestProxy root = viewer.getRoot();
+    if (root instanceof TestProxyRoot) {
+      ((TestProxyRoot)root).setHandler(handler);
+    }
     handler.addProcessListener(new ProcessAdapter() {
       @Override
       public void startNotified(ProcessEvent event) {
         if (getConfiguration().isSaveOutputToFile()) {
-          viewer.getRoot().setOutputFilePath(getConfiguration().getOutputFilePath());
+          root.setOutputFilePath(getConfiguration().getOutputFilePath());
         }
       }
 
@@ -129,7 +132,7 @@ public abstract class JavaTestFrameworkRunnableState<T extends ModuleBasedConfig
       public void processTerminated(ProcessEvent event) {
         Runnable runnable = new Runnable() {
           public void run() {
-            viewer.getRoot().flush();
+            root.flush();
             deleteTempFiles();
             clear();
           }
@@ -164,6 +167,7 @@ public abstract class JavaTestFrameworkRunnableState<T extends ModuleBasedConfig
   @Override
   protected JavaParameters createJavaParameters() throws ExecutionException {
     final JavaParameters javaParameters = new JavaParameters();
+    javaParameters.setUseClasspathJar(true);
     final Module module = getConfiguration().getConfigurationModule().getModule();
 
     Project project = getConfiguration().getProject();
@@ -192,10 +196,14 @@ public abstract class JavaTestFrameworkRunnableState<T extends ModuleBasedConfig
     }
 
     if (!StringUtil.isEmptyOrSpaces(parameters)) {
-      javaParameters.getProgramParametersList().add("@name" + parameters);
+      javaParameters.getProgramParametersList().addAll(getNamedParams(parameters));
     }
 
     return javaParameters;
+  }
+
+  protected List<String> getNamedParams(String parameters) {
+    return Collections.singletonList("@name" + parameters);
   }
 
   private ServerSocket myForkSocket = null;
@@ -247,12 +255,7 @@ public abstract class JavaTestFrameworkRunnableState<T extends ModuleBasedConfig
       final PrintWriter writer = new PrintWriter(tempFile, CharsetToolkit.UTF8);
       try {
         if (JdkUtil.useDynamicClasspath(getConfiguration().getProject())) {
-          String classpath = PathUtil.getJarPathForClass(CommandLineWrapper.class);
-          final String utilRtPath = PathUtil.getJarPathForClass(StringUtilRt.class);
-          if (!classpath.equals(utilRtPath)) {
-            classpath += File.pathSeparator + utilRtPath;
-          }
-          writer.println(classpath);
+          writer.println("use classpath jar");
         }
         else {
           writer.println("");

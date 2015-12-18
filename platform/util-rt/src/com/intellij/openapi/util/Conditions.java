@@ -17,27 +17,37 @@
 package com.intellij.openapi.util;
 
 import com.intellij.reference.SoftReference;
-import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Function;
-import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 
 /**
  * @author max
+ * @noinspection unchecked
  */
 public class Conditions {
   private Conditions() {
   }
 
-  @NotNull
+  public final static Condition<Object> TRUE = Condition.TRUE;
+  public final static Condition<Object> FALSE = Condition.FALSE;
+
   public static <T> Condition<T> alwaysTrue() {
     return (Condition<T>)TRUE;
   }
 
-  @NotNull
   public static <T> Condition<T> alwaysFalse() {
     return (Condition<T>)FALSE;
+  }
+
+  public static <T> Condition<T> notNull() {
+    return (Condition<T>)Condition.NOT_NULL;
+  }
+
+  public static <T> Condition<T> constant(boolean value) {
+    return (Condition<T>)(value ? TRUE : FALSE);
   }
 
   public static <T> Condition<T> instanceOf(final Class<?> clazz) {
@@ -45,6 +55,15 @@ public class Conditions {
       @Override
       public boolean value(T t) {
         return clazz.isInstance(t);
+      }
+    };
+  }
+
+  public static <T> Condition<T> notInstanceOf(final Class<?> clazz) {
+    return new Condition<T>() {
+      @Override
+      public boolean value(T t) {
+        return !clazz.isInstance(t);
       }
     };
   }
@@ -71,6 +90,10 @@ public class Conditions {
   }
 
   public static <T> Condition<T> is(final T option) {
+    return equalTo(option);
+  }
+
+  public static <T> Condition<T> equalTo(final Object option) {
     return new Condition<T>() {
       @Override
       public boolean value(T t) {
@@ -79,48 +102,52 @@ public class Conditions {
     };
   }
 
-  public static <T> Condition<T> oneOf(final T... options) {
+  public static <T> Condition<T> notEqualTo(final Object option) {
     return new Condition<T>() {
       @Override
       public boolean value(T t) {
-        return ArrayUtilRt.find(options, t) >= 0;
+        return !Comparing.equal(t, option);
       }
     };
   }
 
-  public static <T> Condition<T> oneOf(final Iterable<? extends T> options) {
+  public static <T> Condition<T> oneOf(T... options) {
+    return oneOf(Arrays.asList(options));
+  }
+
+  public static <T> Condition<T> oneOf(final Collection<? extends T> options) {
     return new Condition<T>() {
       @Override
       public boolean value(T t) {
-        for (T option : options) {
-          if (Comparing.equal(option, t)) return true;
-        }
-        return false;
+        return options.contains(t);
       }
     };
   }
 
   public static <T> Condition<T> not(Condition<T> c) {
+    if (c == TRUE) return alwaysFalse();
+    if (c == FALSE) return alwaysTrue();
+    if (c instanceof Not) return ((Not)c).c;
     return new Not<T>(c);
   }
 
   public static <T> Condition<T> and(Condition<T> c1, Condition<T> c2) {
-    return new And<T>(c1, c2);
+    return and2(c1, c2);
   }
 
   public static <T> Condition<T> and2(Condition<? super T> c1, Condition<? super T> c2) {
-    if (c1 == alwaysTrue() || c2 == alwaysFalse()) return (Condition<T>)c2;
-    if (c2 == alwaysTrue() || c1 == alwaysFalse()) return (Condition<T>)c1;
+    if (c1 == TRUE || c2 == FALSE) return (Condition<T>)c2;
+    if (c2 == TRUE || c1 == FALSE) return (Condition<T>)c1;
     return new And<T>(c1, c2);
   }
 
   public static <T> Condition<T> or(Condition<T> c1, Condition<T> c2) {
-    return new Or<T>(c1, c2);
+    return or2(c1, c2);
   }
 
   public static <T> Condition<T> or2(Condition<? super T> c1, Condition<? super T> c2) {
-    if (c1 == alwaysFalse() || c2 == alwaysTrue()) return (Condition<T>)c2;
-    if (c2 == alwaysFalse() || c1 == alwaysFalse()) return (Condition<T>)c1;
+    if (c1 == FALSE || c2 == TRUE) return (Condition<T>)c2;
+    if (c2 == FALSE || c1 == TRUE) return (Condition<T>)c1;
     return new Or<T>(c1, c2);
   }
 
@@ -138,60 +165,47 @@ public class Conditions {
   }
 
   private static class Not<T> implements Condition<T> {
-    private final Condition<T> myCondition;
+    final Condition<T> c;
 
-    public Not(Condition<T> condition) {
-      myCondition = condition;
+    Not(Condition<T> c) {
+      this.c = c;
     }
 
     @Override
     public boolean value(T value) {
-      return !myCondition.value(value);
+      return !c.value(value);
     }
   }
 
   private static class And<T> implements Condition<T> {
-    private final Condition<? super T> t1;
-    private final Condition<? super T> t2;
+    final Condition<? super T> c1;
+    final Condition<? super T> c2;
 
-    public And(Condition<? super T> t1, Condition<? super T> t2) {
-      this.t1 = t1;
-      this.t2 = t2;
+    And(Condition<? super T> c1, Condition<? super T> c2) {
+      this.c1 = c1;
+      this.c2 = c2;
     }
 
     @Override
-    public boolean value(final T object) {
-      return t1.value(object) && t2.value(object);
+    public boolean value(T object) {
+      return c1.value(object) && c2.value(object);
     }
   }
 
   private static class Or<T> implements Condition<T> {
-    private final Condition<? super T> t1;
-    private final Condition<? super T> t2;
+    final Condition<? super T> c1;
+    final Condition<? super T> c2;
 
-    public Or(Condition<? super T> t1, Condition<? super T> t2) {
-      this.t1 = t1;
-      this.t2 = t2;
+    Or(Condition<? super T> c1, Condition<? super T> c2) {
+      this.c1 = c1;
+      this.c2 = c2;
     }
 
     @Override
-    public boolean value(final T object) {
-      return t1.value(object) || t2.value(object);
+    public boolean value(T object) {
+      return c1.value(object) || c2.value(object);
     }
   }
-
-  public static Condition<Object> TRUE = new Condition<Object>() {
-    @Override
-    public boolean value(final Object object) {
-      return true;
-    }
-  };
-  public static Condition<Object> FALSE = new Condition<Object>() {
-    @Override
-    public boolean value(final Object object) {
-      return false;
-    }
-  };
 
   private static class SoftRefCache<T> implements Condition<T> {
     private final HashMap<Integer, Pair<SoftReference<T>, Boolean>> myCache = new HashMap<Integer, Pair<SoftReference<T>, Boolean>>();

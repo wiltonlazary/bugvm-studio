@@ -157,7 +157,7 @@ public final class PyClassRefactoringUtil {
 
     for (final PyFunction method : methods) {
 
-      final PyFunction existingMethod = destination.findMethodByName(method.getName(), false);
+      final PyFunction existingMethod = destination.findMethodByName(method.getName(), false, null);
       if ((existingMethod != null) && skipIfExist) {
         result.add(existingMethod);
         continue; //We skip adding if class already has this method.
@@ -252,7 +252,7 @@ public final class PyClassRefactoringUtil {
       if (target instanceof PyFunction) {
         final PyFunction f = (PyFunction)target;
         final PyClass c = f.getContainingClass();
-        if (c != null && c.findInitOrNew(false) == f) {
+        if (c != null && c.findInitOrNew(false, null) == f) {
           target = c;
         }
       }
@@ -589,7 +589,7 @@ public final class PyClassRefactoringUtil {
     @NotNull final PyClass aClass,
     @NotNull final String attributeName,
     @NotNull final String value) {
-    if (aClass.findClassAttribute(attributeName, false) != null) {
+    if (aClass.findClassAttribute(attributeName, false, null) != null) {
       return null; //Do not add any if exist already
     }
     final PyElementGenerator generator = PyElementGenerator.getInstance(aClass.getProject());

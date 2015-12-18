@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,11 +25,9 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiPackage;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.gradle.service.execution.GradleExternalTaskConfigurationType;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
-import java.util.List;
 
 /**
  * @author Vladislav.Soroka
@@ -37,17 +35,14 @@ import java.util.List;
  */
 public class AllInPackageGradleConfigurationProducer extends GradleTestRunConfigurationProducer {
 
-  private static final List<String> TASKS_TO_RUN = ContainerUtil.newArrayList("cleanTest", "test");
-
   public AllInPackageGradleConfigurationProducer() {
     super(GradleExternalTaskConfigurationType.getInstance());
   }
 
   @Override
-  protected boolean setupConfigurationFromContext(ExternalSystemRunConfiguration configuration,
-                                                  ConfigurationContext context,
-                                                  Ref<PsiElement> sourceElement) {
-
+  protected boolean doSetupConfigurationFromContext(ExternalSystemRunConfiguration configuration,
+                                                    ConfigurationContext context,
+                                                    Ref<PsiElement> sourceElement) {
     final PsiPackage psiPackage = JavaRuntimeConfigurationProducerBase.checkPackage(context.getPsiLocation());
     if (psiPackage == null) return false;
     sourceElement.set(psiPackage);
@@ -64,7 +59,7 @@ public class AllInPackageGradleConfigurationProducer extends GradleTestRunConfig
     final String linkedGradleProject = module.getOptionValue(ExternalSystemConstants.LINKED_PROJECT_PATH_KEY);
     if (linkedGradleProject == null) return false;
     configuration.getSettings().setExternalProjectPath(linkedGradleProject);
-    configuration.getSettings().setTaskNames(TASKS_TO_RUN);
+    configuration.getSettings().setTaskNames(TEST_SOURCE_SET_TASKS);
     if (psiPackage.getQualifiedName().isEmpty()) {
       configuration.getSettings().setScriptParameters("--tests *");
     }
@@ -77,10 +72,7 @@ public class AllInPackageGradleConfigurationProducer extends GradleTestRunConfig
   }
 
   @Override
-  public boolean isConfigurationFromContext(ExternalSystemRunConfiguration configuration, ConfigurationContext context) {
-    if (configuration == null) return false;
-    if (!GradleConstants.SYSTEM_ID.equals(configuration.getSettings().getExternalSystemId())) return false;
-
+  protected boolean doIsConfigurationFromContext(ExternalSystemRunConfiguration configuration, ConfigurationContext context) {
     final PsiPackage psiPackage = JavaRuntimeConfigurationProducerBase.checkPackage(context.getPsiLocation());
     if (psiPackage == null) return false;
 
@@ -91,7 +83,7 @@ public class AllInPackageGradleConfigurationProducer extends GradleTestRunConfig
       configuration.getSettings().getExternalProjectPath())) {
       return false;
     }
-    if (!configuration.getSettings().getTaskNames().containsAll(TASKS_TO_RUN)) return false;
+    if (!configuration.getSettings().getTaskNames().containsAll(TEST_SOURCE_SET_TASKS)) return false;
 
     final String scriptParameters = configuration.getSettings().getScriptParameters() + ' ';
     return psiPackage.getQualifiedName().isEmpty()

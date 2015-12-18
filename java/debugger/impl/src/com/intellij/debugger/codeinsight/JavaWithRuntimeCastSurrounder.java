@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -70,7 +71,7 @@ public class JavaWithRuntimeCastSurrounder extends JavaExpressionSurrounder {
     return null;
   }
 
-  private class SurroundWithCastWorker extends RuntimeTypeEvaluator {
+  private static class SurroundWithCastWorker extends RuntimeTypeEvaluator {
     private final Editor myEditor;
 
     public SurroundWithCastWorker(Editor editor, PsiExpression expression, DebuggerContextImpl context, final ProgressIndicator indicator) {
@@ -79,7 +80,7 @@ public class JavaWithRuntimeCastSurrounder extends JavaExpressionSurrounder {
     }
 
     @Override
-    protected void typeCalculationFinished(@Nullable final PsiClass type) {
+    protected void typeCalculationFinished(@Nullable final PsiType type) {
       if (type == null) {
         return;
       }
@@ -89,13 +90,13 @@ public class JavaWithRuntimeCastSurrounder extends JavaExpressionSurrounder {
       DebuggerInvocationUtil.invokeLater(project, new Runnable() {
         public void run() {
           new WriteCommandAction(project, CodeInsightBundle.message("command.name.surround.with.runtime.cast")) {
-            protected void run(Result result) throws Throwable {
+            protected void run(@NotNull Result result) throws Throwable {
               try {
                 PsiElementFactory factory = JavaPsiFacade.getInstance(myElement.getProject()).getElementFactory();
                 PsiParenthesizedExpression parenth =
-                  (PsiParenthesizedExpression)factory.createExpressionFromText("((" + type.getQualifiedName() + ")expr)", null);
-                PsiTypeCastExpression cast = (PsiTypeCastExpression)parenth.getExpression();
-                cast.getOperand().replace(myElement);
+                  (PsiParenthesizedExpression)factory.createExpressionFromText("((" + type.getCanonicalText() + ")expr)", null);
+                //noinspection ConstantConditions
+                ((PsiTypeCastExpression)parenth.getExpression()).getOperand().replace(myElement);
                 parenth = (PsiParenthesizedExpression)JavaCodeStyleManager.getInstance(project).shortenClassReferences(parenth);
                 PsiExpression expr = (PsiExpression)myElement.replace(parenth);
                 TextRange range = expr.getTextRange();

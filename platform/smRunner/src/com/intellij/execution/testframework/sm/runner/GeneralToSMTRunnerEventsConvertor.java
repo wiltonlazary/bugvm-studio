@@ -16,17 +16,13 @@
 package com.intellij.execution.testframework.sm.runner;
 
 import com.intellij.execution.process.ProcessOutputTypes;
-import com.intellij.execution.testframework.AbstractTestProxy;
 import com.intellij.execution.testframework.sm.SMTestRunnerConnectionUtil;
-import com.intellij.execution.testframework.sm.SMTestsRunnerBundle;
 import com.intellij.execution.testframework.sm.runner.events.*;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -39,31 +35,27 @@ import java.util.*;
  * @author: Roman Chernyatchik
  */
 public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcessor {
-  private static final Logger LOG = Logger.getInstance(GeneralToSMTRunnerEventsConvertor.class.getName());
 
   private final Map<String, SMTestProxy> myRunningTestsFullNameToProxy = new HashMap<String, SMTestProxy>();
-  private final Set<AbstractTestProxy> myFailedTestsSet = new HashSet<AbstractTestProxy>();
-  private final TestSuiteStack mySuitesStack = new TestSuiteStack();
-  private final List<SMTRunnerEventsListener> myEventsListeners = ContainerUtil.createLockFreeCopyOnWriteList();
+  private final TestSuiteStack mySuitesStack;
+  private final Set<SMTestProxy> myCurrentChildren = new LinkedHashSet<SMTestProxy>();
+  private boolean myGetChildren = true;
   private final SMTestProxy.SMRootTestProxy myTestsRootNode;
-  private final String myTestFrameworkName;
 
   private boolean myIsTestingFinished;
   private SMTestLocator myLocator = null;
   private boolean myTreeBuildBeforeStart = false;
 
-  public GeneralToSMTRunnerEventsConvertor(@NotNull SMTestProxy.SMRootTestProxy testsRootNode, @NotNull String testFrameworkName) {
+  public GeneralToSMTRunnerEventsConvertor(Project project, @NotNull SMTestProxy.SMRootTestProxy testsRootNode,
+                                           @NotNull String testFrameworkName) {
+    super(project, testFrameworkName);
     myTestsRootNode = testsRootNode;
-    myTestFrameworkName = testFrameworkName;
+    mySuitesStack = new TestSuiteStack(testFrameworkName);
   }
 
   @Override
   public void setLocator(@NotNull SMTestLocator locator) {
     myLocator = locator;
-  }
-
-  public void addEventsListener(@NotNull final SMTRunnerEventsListener listener) {
-    myEventsListeners.add(listener);
   }
 
   public void onStartTesting() {
@@ -73,7 +65,7 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
         myTestsRootNode.setStarted();
 
         //fire
-        fireOnTestingStarted();
+        fireOnTestingStarted(myTestsRootNode);
       }
     });
   }
@@ -82,7 +74,7 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
   public void onTestsReporterAttached() {
     addToInvokeLater(new Runnable() {
       public void run() {
-        myTestsRootNode.setTestsReporterAttached();
+        fireOnTestsReporterAttached(myTestsRootNode);
       }
     });
   }
@@ -109,7 +101,7 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
 
 
         //fire events
-        fireOnTestingFinished();
+        fireOnTestingFinished(myTestsRootNode);
       }
     });
     stopEventProcessing();
@@ -130,10 +122,12 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
     });
   }
 
+  private final List<Runnable> myBuildTreeRunnables = new ArrayList<Runnable>();
+  
   @Override
   public void onSuiteTreeNodeAdded(final String testName, final String locationHint) {
     myTreeBuildBeforeStart = true;
-    addToInvokeLater(new Runnable() {
+    myBuildTreeRunnables.add(new Runnable() {
       @Override
       public void run() {
         final SMTestProxy testProxy = new SMTestProxy(testName, false, locationHint);
@@ -141,7 +135,10 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
           testProxy.setLocator(myLocator);
         }
         getCurrentSuite().addChild(testProxy);
-        fireOnSuiteTreeNodeAdded(testProxy);
+        myEventPublisher.onSuiteTreeNodeAdded(testProxy);
+        for (SMTRunnerEventsListener adapter : myListenerAdapters) {
+          adapter.onSuiteTreeNodeAdded(testProxy);
+        }
       }
     });
   }
@@ -149,7 +146,7 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
   @Override
   public void onSuiteTreeStarted(final String suiteName, final String locationHint) {
     myTreeBuildBeforeStart = true;
-    addToInvokeLater(new Runnable() {
+    myBuildTreeRunnables.add(new Runnable() {
       @Override
       public void run() {
         final SMTestProxy parentSuite = getCurrentSuite();
@@ -161,17 +158,43 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
 
         mySuitesStack.pushSuite(newSuite);
 
-        fireOnSuiteTreeStarted(newSuite);
+        myEventPublisher.onSuiteTreeStarted(newSuite);
+        for (SMTRunnerEventsListener adapter : myListenerAdapters) {
+          adapter.onSuiteTreeStarted(newSuite);
+        }
       }
     });
   }
 
   @Override
   public void onSuiteTreeEnded(final String suiteName) {
-    addToInvokeLater(new Runnable() {
+    myBuildTreeRunnables.add(new Runnable() {
       @Override
       public void run() {
         mySuitesStack.popSuite(suiteName);
+      }
+    });
+    
+    if (myBuildTreeRunnables.size() > 100) {
+      final ArrayList<Runnable> runnables = new ArrayList<Runnable>(myBuildTreeRunnables);
+      myBuildTreeRunnables.clear();
+      processTreeBuildEvents(runnables);
+    }
+  }
+
+  @Override
+  public void onBuildTreeEnded() {
+    processTreeBuildEvents(myBuildTreeRunnables);
+  }
+
+  private void processTreeBuildEvents(final List<Runnable> runnables) {
+    addToInvokeLater(new Runnable() {
+      @Override
+      public void run() {
+        for (Runnable runnable : runnables) {
+          runnable.run();
+        }
+        runnables.clear();
       }
     });
   }
@@ -208,6 +231,15 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
           }
 
           parentSuite.addChild(testProxy);
+
+          if (myTreeBuildBeforeStart && myGetChildren) {
+            for (SMTestProxy proxy : parentSuite.getChildren()) {
+              if (!proxy.isFinal()) {
+                myCurrentChildren.add(proxy);
+              }
+            }
+            myGetChildren = false;
+          }
         }
 
         // adds to running tests map
@@ -241,10 +273,11 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
           parentSuite.addChild(newSuite);
         }
 
+        myGetChildren = true;
         mySuitesStack.pushSuite(newSuite);
 
         //Progress started
-        newSuite.setStarted();
+        newSuite.setSuiteStarted();
 
         //fire event
         fireOnSuiteStarted(newSuite);
@@ -254,7 +287,8 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
 
   private SMTestProxy findChildByName(SMTestProxy parentSuite, String fullName) {
     if (myTreeBuildBeforeStart) {
-      for (SMTestProxy proxy : parentSuite.getChildren()) {
+      final Collection<? extends SMTestProxy> children = myGetChildren ? parentSuite.getChildren() : myCurrentChildren;
+      for (SMTestProxy proxy : children) {
         if (fullName.equals(proxy.getName()) && !proxy.isFinal()) {
           return proxy;
         }
@@ -278,8 +312,10 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
         }
 
         testProxy.setDuration(duration);
+        testProxy.setFrameworkOutputFile(testFinishedEvent.getOutputFile());
         testProxy.setFinished();
         myRunningTestsFullNameToProxy.remove(fullTestName);
+        myCurrentChildren.remove(testProxy);
 
         //fire events
         fireOnTestFinished(testProxy);
@@ -294,6 +330,8 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
         final SMTestProxy mySuite = mySuitesStack.popSuite(suiteName);
         if (mySuite != null) {
           mySuite.setFinished();
+          myCurrentChildren.clear();
+          myGetChildren = true;
 
           //fire events
           fireOnSuiteFinished(mySuite);
@@ -328,40 +366,7 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
       }
     });
   }
-
-  public void onCustomProgressTestsCategory(@Nullable final String categoryName,
-                                            final int testCount) {
-    addToInvokeLater(new Runnable() {
-      public void run() {
-        fireOnCustomProgressTestsCategory(categoryName, testCount);
-      }
-    });
-  }
-
-  public void onCustomProgressTestStarted() {
-    addToInvokeLater(new Runnable() {
-      public void run() {
-        fireOnCustomProgressTestStarted();
-      }
-    });
-  }
-
-  public void onCustomProgressTestFinished() {
-    addToInvokeLater(new Runnable() {
-      public void run() {
-        fireOnCustomProgressTestFinished();
-      }
-    });
-  }
-
-
-  public void onCustomProgressTestFailed() {
-    addToInvokeLater(new Runnable() {
-      public void run() {
-        fireOnCustomProgressTestFailed();
-      }
-    });
-  }
+  
 
   public void onTestFailure(@NotNull final TestFailedEvent testFailedEvent) {
     addToInvokeLater(new Runnable() {
@@ -387,15 +392,13 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
                              cannotFindFullTestNameMsg(fullTestName));
           if (inDebugMode) {
             return;
-          } else {
-            // try to fix the problem:
-            if (!myFailedTestsSet.contains(testProxy)) {
-              // if hasn't been already reported
-              // 1. report
-              onTestStarted(new TestStartedEvent(testName, null));
-              // 2. add failure
-              testProxy = getProxyByFullTestName(fullTestName);
-            }
+          }
+          else {
+            // if hasn't been already reported
+            // 1. report
+            onTestStarted(new TestStartedEvent(testName, null));
+            // 2. add failure
+            testProxy = getProxyByFullTestName(fullTestName);
           }
         }
 
@@ -404,28 +407,20 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
         }
 
         if (comparisionFailureActualText != null && comparisionFailureExpectedText != null) {
-          if (myFailedTestsSet.contains(testProxy)) {
-            // duplicate message
-            logProblem("Duplicate failure for test [" + fullTestName + "]: msg = " + localizedMessage + ", stacktrace = " + stackTrace);
-
-            if (inDebugMode) {
-              return;
-            }
-          }
-
           testProxy.setTestComparisonFailed(localizedMessage, stackTrace,
-                                            comparisionFailureActualText, comparisionFailureExpectedText, testFailedEvent.getFilePath());
-        } else if (comparisionFailureActualText == null && comparisionFailureExpectedText == null) {
+                                            comparisionFailureActualText, comparisionFailureExpectedText, 
+                                            testFailedEvent.getFilePath(), testFailedEvent.getActualFilePath());
+        }
+        else if (comparisionFailureActualText == null && comparisionFailureExpectedText == null) {
           testProxy.setTestFailed(localizedMessage, stackTrace, isTestError);
-        } else {
+        }
+        else {
           logProblem("Comparison failure actual and expected texts should be both null or not null.\n"
                      + "Expected:\n"
                      + comparisionFailureExpectedText + "\n"
                      + "Actual:\n"
                      + comparisionFailureActualText);
         }
-
-        myFailedTestsSet.add(testProxy);
 
         // fire event
         fireOnTestFailed(testProxy);
@@ -514,6 +509,7 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
     // current suite shouldn't be null otherwise test runner isn't correct
     // or may be we are in debug mode
     logProblem("Current suite is undefined. Root suite will be used.");
+    myGetChildren = true;
     return myTestsRootNode;
 
   }
@@ -525,10 +521,6 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
 
   protected int getRunningTestsQuantity() {
     return myRunningTestsFullNameToProxy.size();
-  }
-
-  protected Set<AbstractTestProxy> getFailedTestsSet() {
-    return Collections.unmodifiableSet(myFailedTestsSet);
   }
 
   @Nullable
@@ -557,97 +549,6 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
     return namesDump;
   }
 
-  private void fireOnTestingStarted() {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onTestingStarted(myTestsRootNode);
-    }
-  }
-
-  private void fireOnTestingFinished() {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onTestingFinished(myTestsRootNode);
-    }
-  }
-
-  private void fireOnTestsCountInSuite(final int count) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onTestsCountInSuite(count);
-    }
-  }
-
-  private void fireOnSuiteTreeNodeAdded(SMTestProxy testProxy) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onSuiteTreeNodeAdded(testProxy);
-    }
-  }
-
-  private void fireOnSuiteTreeStarted(SMTestProxy suite) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onSuiteTreeStarted(suite);
-    }
-  }
-
-
-  private void fireOnTestStarted(final SMTestProxy test) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onTestStarted(test);
-    }
-  }
-
-  private void fireOnTestFinished(final SMTestProxy test) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onTestFinished(test);
-    }
-  }
-
-  private void fireOnTestFailed(final SMTestProxy test) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onTestFailed(test);
-    }
-  }
-
-  private void fireOnTestIgnored(final SMTestProxy test) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onTestIgnored(test);
-    }
-  }
-
-  private void fireOnSuiteStarted(final SMTestProxy suite) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onSuiteStarted(suite);
-    }
-  }
-
-  private void fireOnSuiteFinished(final SMTestProxy suite) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onSuiteFinished(suite);
-    }
-  }
-
-
-  private void fireOnCustomProgressTestsCategory(@Nullable final String categoryName, int testCount) {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onCustomProgressTestsCategory(categoryName, testCount);
-    }
-  }
-
-  private void fireOnCustomProgressTestStarted() {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onCustomProgressTestStarted();
-    }
-  }
-
-  private void fireOnCustomProgressTestFinished() {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onCustomProgressTestFinished();
-    }
-  }
-
-  private void fireOnCustomProgressTestFailed() {
-    for (SMTRunnerEventsListener listener : myEventsListeners) {
-      listener.onCustomProgressTestFailed();
-    }
-  }
 
   /*
    * Remove listeners,  etc
@@ -656,8 +557,8 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
     super.dispose();
      addToInvokeLater(new Runnable() {
       public void run() {
-        myEventsListeners.clear();
 
+        disconnectListeners();
         if (!myRunningTestsFullNameToProxy.isEmpty()) {
           final Application application = ApplicationManager.getApplication();
           if (!application.isHeadlessEnvironment() && !application.isUnitTestMode()) {
@@ -684,27 +585,5 @@ public class GeneralToSMTRunnerEventsConvertor extends GeneralTestEventsProcesso
       currentProxy = mySuitesStack.isEmpty() ? myTestsRootNode : getCurrentSuite();
     }
     return currentProxy;
-  }
-
-  public static String getTFrameworkPrefix(final String testFrameworkName) {
-    return "[" + testFrameworkName + "]: ";
-  }
-
-  private void logProblem(final String msg) {
-    logProblem(LOG, msg, myTestFrameworkName);
-  }
-
-  public static void logProblem(final Logger log, final String msg, final String testFrameworkName) {
-    logProblem(log, msg, SMTestRunnerConnectionUtil.isInDebugMode(), testFrameworkName);
-  }
-
-  public static void logProblem(final Logger log, final String msg, boolean throwError, final String testFrameworkName) {
-    final String text = getTFrameworkPrefix(testFrameworkName) + msg;
-    if (throwError) {
-      log.error(text);
-    }
-    else {
-      log.warn(text);
-    }
   }
 }

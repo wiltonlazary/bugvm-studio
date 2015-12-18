@@ -51,7 +51,8 @@
         <option name="FOREGROUND" value="3AD900" />
       </value>
     </option>
-    <option name="OC.CLASS_REFERENCE">
+    <option baseAttributes="TEXT" name="CLASS_NAME_ATTRIBUTES" />
+    <option name="CLASS_REFERENCE">
       <value>
         <option name="FOREGROUND" value="FFDD00" />
       </value>
@@ -138,11 +139,6 @@
         <option name="FOREGROUND" value="CCCCCC" />
       </value>
     </option>
-    <option name="COFFEESCRIPT.PARAMETER">
-      <value>
-        <option name="FOREGROUND" value="CCCCCC" />
-      </value>
-    </option>
     <option name="COFFEESCRIPT.HEREDOC_CONTENT">
       <value>
         <option name="FOREGROUND" value="3AD900" />
@@ -168,6 +164,7 @@
         <option name="FOREGROUND" value="FFFFFF" />
       </value>
     </option>
+    <option baseAttributes="DEFAULT_STRING" name="COFFEESCRIPT.JAVASCRIPT_CONTENT" />
     <option name="COFFEESCRIPT.JAVASCRIPT_ID">
       <value>
         <option name="FOREGROUND" value="E1EFFF" />
@@ -259,7 +256,7 @@
         <option name="FOREGROUND" value="FF80E1" />
       </value>
     </option>
-    <option name="OC.CONDITIONALLY_NOT_COMPILED">
+    <option name="CONDITIONALLY_NOT_COMPILED">
       <value>
         <option name="FOREGROUND" value="0088FF" />
         <option name="FONT_TYPE" value="2" />
@@ -641,6 +638,7 @@
         <option name="FOREGROUND" value="E1EFFF" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="DEFAULT_TEMPLATE_LANGUAGE_COLOR" />
     <option name="DEFAULT_VALID_STRING_ESCAPE">
       <value>
         <option name="FOREGROUND" value="FF628C" />
@@ -722,7 +720,7 @@
         <option name="BACKGROUND" value="30322b" />
       </value>
     </option>
-    <option name="OC.ENUM_CONST">
+    <option name="ENUM_CONST">
       <value>
         <option name="FOREGROUND" value="FF628C" />
       </value>
@@ -797,6 +795,7 @@
         <option name="FOREGROUND" value="3AD900" />
       </value>
     </option>
+    <option baseAttributes="GHERKIN_TEXT" name="GHERKIN_TABLE_CELL" />
     <option name="GHERKIN_TABLE_HEADER_CELL">
       <value>
         <option name="FOREGROUND" value="CCCCCC" />
@@ -812,6 +811,7 @@
         <option name="FOREGROUND" value="FFEE80" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="GHERKIN_TEXT" />
     <option name="GQL_ID">
       <value>
         <option name="FOREGROUND" value="FF628C" />
@@ -843,11 +843,14 @@
         <option name="FONT_TYPE" value="2" />
       </value>
     </option>
+    <option baseAttributes="HAML_TEXT" name="HAML_FILTER" />
+    <option baseAttributes="HAML_TEXT" name="HAML_FILTER_CONTENT" />
     <option name="HAML_ID">
       <value>
         <option name="FOREGROUND" value="FFDD00" />
       </value>
     </option>
+    <option baseAttributes="HAML_TEXT" name="HAML_LINE_CONTINUATION" />
     <option name="HAML_PARENTHS">
       <value>
         <option name="FOREGROUND" value="E1EFFF" />
@@ -858,6 +861,7 @@
         <option name="BACKGROUND" value="223545" />
       </value>
     </option>
+    <option baseAttributes="HAML_TEXT" name="HAML_RUBY_START" />
     <option name="HAML_STRING">
       <value>
         <option name="FOREGROUND" value="3AD900" />
@@ -878,11 +882,13 @@
         <option name="FOREGROUND" value="9EFFFF" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="HAML_TEXT" />
     <option name="HAML_WS_REMOVAL">
       <value>
         <option name="FOREGROUND" value="E1EFFF" />
       </value>
     </option>
+    <option baseAttributes="HAML_TEXT" name="HAML_XHTML" />
     <option name="HTML_ATTRIBUTE_NAME">
       <value>
         <option name="FOREGROUND" value="FFDD00" />
@@ -953,7 +959,7 @@
         <option name="FONT_TYPE" value="1" />
       </value>
     </option>
-    <option name="OC.IVAR">
+    <option name="IVAR">
       <value>
         <option name="FOREGROUND" value="CCCCCC" />
       </value>
@@ -1074,7 +1080,7 @@
         <option name="FOREGROUND" value="80FFC2" />
       </value>
     </option>
-    <option name="OC.LABEL">
+    <option name="LABEL">
       <value>
         <option name="FOREGROUND" value="FF9D00" />
       </value>
@@ -1095,17 +1101,19 @@
         <option name="FOREGROUND" value="CCCCCC" />
       </value>
     </option>
-    <option name="OC.MACRONAME">
+    <option baseAttributes="TEXT" name="LOCAL_VARIABLE_ATTRIBUTES" />
+    <option name="MACRONAME">
       <value>
         <option name="FOREGROUND" value="FFDD00" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="MACRO_PARAMETER" />
     <option name="MATCHED_BRACE_ATTRIBUTES">
       <value>
         <option name="BACKGROUND" value="3a6da0" />
       </value>
     </option>
-    <option name="OC.MESSAGE_ARGUMENT">
+    <option name="MESSAGE_ARGUMENT">
       <value>
         <option name="FOREGROUND" value="FFDD00" />
       </value>
@@ -1127,6 +1135,9 @@
         <option name="FONT_TYPE" value="2" />
       </value>
     </option>
+    <option baseAttributes="OC.DOT" name="OC.BRACES" />
+    <option baseAttributes="OC.DOT" name="OC.BRACKETS" />
+    <option baseAttributes="OC.DOT" name="OC.COMMA" />
     <option name="OC.CPP_KEYWORD">
       <value>
         <option name="FOREGROUND" value="FF9D00" />
@@ -1137,6 +1148,7 @@
         <option name="FOREGROUND" value="FF9D00" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="OC.DOT" />
     <option name="OC.EXTERN_VARIABLE">
       <value>
         <option name="FOREGROUND" value="CCCCCC" />
@@ -1178,11 +1190,13 @@
         <option name="FOREGROUND" value="FF628C" />
       </value>
     </option>
+    <option baseAttributes="OC.DOT" name="OC.OPERATION_SIGN" />
     <option name="OC.PARAMETER">
       <value>
         <option name="FOREGROUND" value="CCCCCC" />
       </value>
     </option>
+    <option baseAttributes="OC.DOT" name="OC.PARENTHS" />
     <option name="OC.PROPERTY">
       <value>
         <option name="FOREGROUND" value="CCCCCC" />
@@ -1193,6 +1207,7 @@
         <option name="FOREGROUND" value="FF80E1" />
       </value>
     </option>
+    <option baseAttributes="OC.DOT" name="OC.SEMICOLON" />
     <option name="OC.STRING">
       <value>
         <option name="FOREGROUND" value="3AD900" />
@@ -1203,7 +1218,23 @@
         <option name="FOREGROUND" value="FF628C" />
       </value>
     </option>
-    <option name="OC.PROTOCOL_REFERENCE">
+    <option name="OC_FORMAT_TOKEN">
+      <value>
+        <option name="FOREGROUND" value="3AD900" />
+      </value>
+    </option>
+    <option baseAttributes="TEXT" name="PARAMETER_ATTRIBUTES" />
+    <option name="PHP_PARAMETER">
+      <value>
+        <option name="FOREGROUND" value="CCCCCC" />
+      </value>
+    </option>
+    <option name="PHP_VAR">
+      <value>
+        <option name="FOREGROUND" value="FF80E1" />
+      </value>
+    </option>
+    <option name="PROTOCOL_REFERENCE">
       <value>
         <option name="FOREGROUND" value="FFDD00" />
       </value>
@@ -1275,6 +1306,7 @@
         <option name="FOREGROUND" value="80FFC2" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="PUPPET_RESOURCE_REFERENCE" />
     <option name="PUPPET_SEMICOLON">
       <value>
         <option name="FOREGROUND" value="E1EFFF" />
@@ -1378,6 +1410,7 @@
         <option name="FOREGROUND" value="E1EFFF" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="PY.PREDEFINED_DEFINITION" />
     <option name="PY.PREDEFINED_USAGE">
       <value>
         <option name="FOREGROUND" value="FFB054" />
@@ -1491,16 +1524,6 @@
         <option name="FOREGROUND" value="E1EFFF" />
       </value>
     </option>
-    <option name="RUBY_BRACES">
-      <value>
-        <option name="FOREGROUND" value="E1EFFF" />
-      </value>
-    </option>
-    <option name="RUBY_PARENTHESES">
-      <value>
-        <option name="FOREGROUND" value="E1EFFF" />
-      </value>
-    </option>
     <option name="RUBY_COLON">
       <value>
         <option name="FOREGROUND" value="E1EFFF" />
@@ -1609,6 +1632,7 @@
         <option name="FOREGROUND" value="FFDD00" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="RUBY_NTH_REF" />
     <option name="RUBY_NUMBER">
       <value>
         <option name="FOREGROUND" value="FF628C" />
@@ -1746,6 +1770,7 @@
         <option name="BACKGROUND" value="800F00" />
       </value>
     </option>
+    <option baseAttributes="SLIM_STATIC_CONTENT" name="SLIM_CALL" />
     <option name="SLIM_CLASS">
       <value>
         <option name="FOREGROUND" value="FFDD00" />
@@ -1767,6 +1792,7 @@
         <option name="FOREGROUND" value="FFDD00" />
       </value>
     </option>
+    <option baseAttributes="SLIM_STATIC_CONTENT" name="SLIM_FILTER_CONTENT" />
     <option name="SLIM_ID">
       <value>
         <option name="FOREGROUND" value="FFDD00" />
@@ -1787,6 +1813,7 @@
         <option name="BACKGROUND" value="223545" />
       </value>
     </option>
+    <option baseAttributes="TEXT" name="SLIM_STATIC_CONTENT" />
     <option name="SLIM_STRING_INTERPOLATED">
       <value>
         <option name="FOREGROUND" value="3AD900" />
@@ -1805,42 +1832,6 @@
     <option name="SLIM_TAG_START">
       <value>
         <option name="FOREGROUND" value="E1EFFF" />
-      </value>
-    </option>
-    <option name="SPY-JS.FUNCTION_SCOPE">
-      <value>
-        <option name="BACKGROUND" value="3A3A3A"/>
-        <option name="EFFECT_TYPE" value="2"/>
-      </value>
-    </option>
-    <option name="SPY-JS.PROGRAM_SCOPE">
-      <value>
-        <option name="BACKGROUND" value="3A3A3A"/>
-        <option name="EFFECT_TYPE" value="2"/>
-      </value>
-    </option>
-    <option name="SPY-JS.EXCEPTION">
-      <value>
-        <option name="BACKGROUND" value="532B2E"/>
-        <option name="EFFECT_TYPE" value="2"/>
-      </value>
-    </option>
-    <option name="SPY-JS.PATH_LEVEL_ONE">
-      <value>
-        <option name="BACKGROUND" value="425F44"/>
-        <option name="EFFECT_TYPE" value="2"/>
-      </value>
-    </option>
-    <option name="SPY-JS.PATH_LEVEL_TWO">
-      <value>
-        <option name="EFFECT_COLOR" value="a9b7c6" />
-        <option name="EFFECT_TYPE" value="1"/>
-      </value>
-    </option>
-    <option name="SPY-JS.VALUE_HINT">
-      <value>
-        <option name="EFFECT_COLOR" value="a9b7c6" />
-        <option name="EFFECT_TYPE" value="0"/>
       </value>
     </option>
     <option name="STATIC_FIELD_ATTRIBUTES">
@@ -1878,7 +1869,7 @@
         <option name="ERROR_STRIPE_COLOR" value="ff" />
       </value>
     </option>
-    <option name="OC.TYPEDEF">
+    <option name="TYPEDEF">
       <value>
         <option name="FOREGROUND" value="FFEE80" />
       </value>

@@ -36,6 +36,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FileStatusManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -75,6 +76,7 @@ public class ImplementationViewComponent extends JPanel {
   private int myIndex;
 
   private final Editor myEditor;
+  private volatile boolean myEditorReleased;
   private final JPanel myViewingPanel;
   private final JLabel myLocationLabel;
   private final JLabel myCountLabel;
@@ -100,23 +102,19 @@ public class ImplementationViewComponent extends JPanel {
   private static class FileDescriptor {
     public final PsiFile myFile;
     public final String myElementPresentation;
+    private final String myLocationString;
 
     public FileDescriptor(PsiFile file, PsiElement element) {
       myFile = file;
-      myElementPresentation = getPresentation(element);
-    }
-
-    @Nullable
-    private static String getPresentation(PsiElement element) {
-      if (element instanceof NavigationItem) {
-        final ItemPresentation presentation = ((NavigationItem)element).getPresentation();
-        if (presentation != null) {
-          return presentation.getPresentableText();
-        }
+      final ItemPresentation presentation = element instanceof NavigationItem ? ((NavigationItem)element).getPresentation() : null;
+      if (presentation != null) {
+        myElementPresentation = presentation.getPresentableText();
+        myLocationString = presentation.getLocationString();
       }
-
-      if (element instanceof PsiNamedElement) return ((PsiNamedElement)element).getName();
-      return null;
+      else {
+        myElementPresentation = element instanceof PsiNamedElement ? ((PsiNamedElement)element).getName() : null;
+        myLocationString = null;
+      }
     }
 
     public String getPresentableName(VirtualFile vFile) {
@@ -126,7 +124,7 @@ public class ImplementationViewComponent extends JPanel {
       }
 
       if (Comparing.strEqual(vFile.getName(), myElementPresentation + "." + vFile.getExtension())){
-        return presentableName;
+        return presentableName + (!StringUtil.isEmptyOrSpaces(myLocationString) ? " " + myLocationString : "");
       }
 
       return presentableName + " (" + myElementPresentation + ")";
@@ -464,10 +462,11 @@ public class ImplementationViewComponent extends JPanel {
   @Override
   public void removeNotify() {
     super.removeNotify();
-    if (!ScreenUtil.isStandardAddRemoveNotify(this))
-      return;
-    EditorFactory.getInstance().releaseEditor(myEditor);
-    disposeNonTextEditor();
+    if (ScreenUtil.isStandardAddRemoveNotify(this) && !myEditorReleased) {
+      myEditorReleased = true; // remove notify can be called several times for popup windows
+      EditorFactory.getInstance().releaseEditor(myEditor);
+      disposeNonTextEditor();
+    }
   }
 
   private void updateLabels() {

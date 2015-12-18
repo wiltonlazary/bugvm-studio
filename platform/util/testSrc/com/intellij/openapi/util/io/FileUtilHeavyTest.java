@@ -22,8 +22,8 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
+import java.nio.channels.FileLock;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -181,6 +181,37 @@ public class FileUtilHeavyTest {
   }
 
   @Test
+  public void testDeleteFail() throws Exception {
+    File targetDir = IoTestUtil.createTestDir(myTempDirectory, "failed_delete");
+    File file = IoTestUtil.createTestFile(targetDir, "file");
+
+    if (SystemInfo.isWindows) {
+      @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
+      RandomAccessFile rw = new RandomAccessFile(file, "rw");
+      FileLock lock = null;
+      try {
+        lock = rw.getChannel().tryLock();
+        assertFalse(FileUtil.delete(file));
+      }
+      finally {
+        if (lock != null) {
+          lock.release();
+        }
+        rw.close();
+      }
+    }
+    else { // on unix use chmod
+      assertEquals(0, new ProcessBuilder("chmod", "a-w", file.getParentFile().getPath()).start().waitFor());
+      try {
+        assertFalse(FileUtil.delete(file));
+      }
+      finally {
+        assertEquals(0, new ProcessBuilder("chmod", "a+w", file.getParentFile().getPath()).start().waitFor());
+      }
+    }
+  }
+
+  @Test
   public void testRepeatableOperation() throws IOException {
     abstract class CountableIOOperation implements FileUtilRt.RepeatableIOOperation<Boolean, IOException> {
       private int count = 0;
@@ -215,7 +246,7 @@ public class FileUtilHeavyTest {
 
   @Test
   public void testSymlinkDeletion() throws Exception {
-    assumeTrue(SystemInfo.isWin7OrNewer || SystemInfo.isUnix);
+    assumeTrue(SystemInfo.areSymLinksSupported);
 
     File targetDir = IoTestUtil.createTestDir(myTempDirectory, "link_del_test_1");
     IoTestUtil.createTestFile(targetDir, "file");

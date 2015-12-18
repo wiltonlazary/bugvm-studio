@@ -15,10 +15,13 @@
  */
 package com.intellij.execution.testframework.export;
 
+import com.intellij.execution.DefaultExecutionTarget;
 import com.intellij.execution.ExecutionBundle;
+import com.intellij.execution.ExecutionTarget;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.filters.*;
 import com.intellij.execution.filters.Filter;
+import com.intellij.execution.impl.ConsoleBuffer;
 import com.intellij.execution.impl.RunManagerImpl;
 import com.intellij.execution.impl.RunnerAndConfigurationSettingsImpl;
 import com.intellij.execution.testframework.*;
@@ -71,6 +74,7 @@ public class TestResultsXmlFormatter {
   private final ContentHandler myResultHandler;
   private final AbstractTestProxy myTestRoot;
   private final boolean myHidePassedConfig;
+  private final ExecutionTarget myExecutionTarget;
 
   public static void execute(AbstractTestProxy root, RunConfiguration runtimeConfiguration, TestConsoleProperties properties, ContentHandler resultHandler)
     throws SAXException {
@@ -85,6 +89,7 @@ public class TestResultsXmlFormatter {
     myTestRoot = root;
     myResultHandler = resultHandler;
     myHidePassedConfig = TestConsoleProperties.HIDE_SUCCESSFUL_CONFIG.value(properties);
+    myExecutionTarget = properties.getExecutionTarget();
   }
 
   private void execute() throws SAXException {
@@ -129,6 +134,9 @@ public class TestResultsXmlFormatter {
       myRuntimeConfiguration.writeExternal(config);
       config.setAttribute("configId", myRuntimeConfiguration.getType().getId());
       config.setAttribute("name", myRuntimeConfiguration.getName());
+      if (!DefaultExecutionTarget.INSTANCE.equals(myExecutionTarget)) {
+        config.setAttribute("target", myExecutionTarget.getId());
+      }
     }
     catch (WriteExternalException ignore) {}
     processJDomElement(config);
@@ -156,6 +164,7 @@ public class TestResultsXmlFormatter {
           rootAttrs.put("location", rootLocation);
         }
         startElement(ROOT_ELEM, rootAttrs);
+        writeOutput(myTestRoot, f);
         endElement(ROOT_ELEM);
       }
     }
@@ -211,45 +220,7 @@ public class TestResultsXmlFormatter {
     if (node.isLeaf()) {
       started = true;
       startElement(elemName, attrs);
-      final StringBuilder buffer = new StringBuilder();
-      final Ref<ConsoleViewContentType> lastType = new Ref<ConsoleViewContentType>();
-      final Ref<SAXException> error = new Ref<SAXException>();
-
-      node.printOn(new Printer() {
-        @Override
-        public void print(String text, ConsoleViewContentType contentType) {
-          if (contentType != lastType.get()) {
-            if (buffer.length() > 0) {
-              try {
-                writeOutput(lastType.get(), buffer, filter);
-              }
-              catch (SAXException e) {
-                error.set(e);
-              }
-            }
-            lastType.set(contentType);
-          }
-          buffer.append(text);
-        }
-
-        @Override
-        public void onNewAvailable(@NotNull Printable printable) {
-        }
-
-        @Override
-        public void printHyperlink(String text, HyperlinkInfo info) {
-        }
-
-        @Override
-        public void mark() {
-        }
-      });
-      if (!error.isNull()) {
-        throw error.get();
-      }
-      if (buffer.length() > 0) {
-        writeOutput(lastType.get(), buffer, filter);
-      }
+      writeOutput(node, filter);
     }
     else {
       for (AbstractTestProxy child : node.getChildren()) {
@@ -266,6 +237,53 @@ public class TestResultsXmlFormatter {
     }
     if (started) {
       endElement(elemName);
+    }
+  }
+
+  private void writeOutput(AbstractTestProxy node, final Filter filter) throws SAXException {
+    final StringBuilder buffer = new StringBuilder();
+    final Ref<ConsoleViewContentType> lastType = new Ref<ConsoleViewContentType>();
+    final Ref<SAXException> error = new Ref<SAXException>();
+
+    final int bufferSize = ConsoleBuffer.useCycleBuffer() ? ConsoleBuffer.getCycleBufferSize() : -1;
+    final Printer printer = new Printer() {
+      @Override
+      public void print(String text, ConsoleViewContentType contentType) {
+        ProgressManager.checkCanceled();
+        if (contentType != lastType.get()) {
+          if (buffer.length() > 0) {
+            try {
+              writeOutput(lastType.get(), buffer, filter);
+            }
+            catch (SAXException e) {
+              error.set(e);
+            }
+          }
+          lastType.set(contentType);
+        }
+        if (bufferSize < 0 || buffer.length() < bufferSize) {
+          buffer.append(text);
+        }
+      }
+
+      @Override
+      public void onNewAvailable(@NotNull Printable printable) {
+      }
+
+      @Override
+      public void printHyperlink(String text, HyperlinkInfo info) {
+      }
+
+      @Override
+      public void mark() {
+      }
+    };
+    node.printOwnPrintablesOn(printer);
+    if (!error.isNull()) {
+      throw error.get();
+    }
+    if (buffer.length() > 0) {
+      writeOutput(lastType.get(), buffer, filter);
     }
   }
 

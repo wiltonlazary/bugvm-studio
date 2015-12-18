@@ -1,136 +1,176 @@
 package org.jetbrains.protocolReader
 
+import com.intellij.openapi.util.text.StringUtil
 import gnu.trove.THashSet
 import org.jetbrains.jsonProtocol.JsonField
-import org.jetbrains.jsonProtocol.JsonOptionalField
 import org.jetbrains.jsonProtocol.JsonSubtypeCasting
+import org.jetbrains.jsonProtocol.Optional
+import org.jetbrains.jsonProtocol.ProtocolName
 import java.lang.reflect.Method
 import java.lang.reflect.ParameterizedType
-import java.util.ArrayList
-import java.util.Arrays
-import java.util.LinkedHashMap
+import java.util.*
+import kotlin.reflect.KCallable
+import kotlin.reflect.KFunction
+import kotlin.reflect.KProperty
+import kotlin.reflect.jvm.javaGetter
+import kotlin.reflect.jvm.javaMethod
+import kotlin.reflect.jvm.javaType
 
-class FieldProcessor(private val reader: InterfaceReader, typeClass: Class<*>) {
+internal class FieldLoader(val name: String, val jsonName: String, val valueReader: ValueReader, val skipRead: Boolean, val asImpl: Boolean, val defaultValue: String?)
+
+internal fun TextOutput.appendName(loader: FieldLoader): TextOutput {
+  if (!loader.asImpl) {
+    append(FIELD_PREFIX)
+  }
+  append(loader.name)
+  return this
+}
+
+internal class FieldProcessor(private val reader: InterfaceReader, typeClass: Class<*>) {
   val fieldLoaders = ArrayList<FieldLoader>()
   val methodHandlerMap = LinkedHashMap<Method, MethodHandler>()
   val volatileFields = ArrayList<VolatileFieldBinding>()
   var lazyRead: Boolean = false
 
   init {
-    val methods = typeClass.getMethods()
+    val methods = typeClass.methods
     // todo sort by source location
-    Arrays.sort(methods, { o1, o2 -> o1.getName().compareTo(o2.getName()) })
+    Arrays.sort(methods, { o1, o2 -> o1.name.compareTo(o2.name) })
 
     val skippedNames = THashSet<String>()
     for (method in methods) {
-      val annotation = method.getAnnotation<JsonField>(javaClass<JsonField>())
-      if (annotation != null && !annotation.primitiveValue().isEmpty()) {
-        skippedNames.add(annotation.primitiveValue())
-        skippedNames.add(annotation.primitiveValue() + "Type")
+      val annotation = method.getAnnotation<JsonField>(JsonField::class.java)
+      if (annotation != null && !annotation.primitiveValue.isEmpty()) {
+        skippedNames.add(annotation.primitiveValue)
+        skippedNames.add("${annotation.primitiveValue}Type")
       }
     }
 
-    val classPackage = typeClass.getPackage()
-    for (method in methods) {
-      val methodClass = method.getDeclaringClass()
+    val classPackage = typeClass.`package`
+    val kClass = typeClass.kotlin
+    for (member in  kClass.members) {
+      val method = if (member is KProperty<*>) {
+        member.javaGetter!!
+      }
+      else if (member is KFunction<*>) {
+        member.javaMethod!!
+      }
+      else {
+        continue
+      }
+
+      val methodClass = method.declaringClass
       // use method from super if super located in the same package
       if (methodClass != typeClass) {
-        val methodPackage = methodClass.getPackage()
-        // may be it will be useful later
-        // && !methodPackage.getName().equals("org.jetbrains.debugger.adapters")
-        if (methodPackage != classPackage) {
+        val methodPackage = methodClass.`package`
+        if (methodPackage != classPackage && !classPackage.name.startsWith("${methodPackage.name}.")) {
           continue
         }
       }
 
-      if (method.getParameterCount() != 0) {
-        throw JsonProtocolModelParseException("No parameters expected in " + method)
+      if (method.parameterCount != 0) {
+        throw JsonProtocolModelParseException("No parameters expected in $method")
       }
 
       try {
         val methodHandler: MethodHandler
-        val jsonSubtypeCaseAnnotation = method.getAnnotation<JsonSubtypeCasting>(javaClass<JsonSubtypeCasting>())
+        val jsonSubtypeCaseAnnotation = method.getAnnotation(JsonSubtypeCasting::class.java)
         if (jsonSubtypeCaseAnnotation == null) {
-          methodHandler = createMethodHandler(method, skippedNames.contains(method.getName()))
+          methodHandler = createMethodHandler(member, method, skippedNames.contains(method.name)) ?: continue
         }
         else {
-          methodHandler = processManualSubtypeMethod(method, jsonSubtypeCaseAnnotation)
+          methodHandler = processManualSubtypeMethod(member, method, jsonSubtypeCaseAnnotation)
           lazyRead = true
         }
         methodHandlerMap.put(method, methodHandler)
       }
       catch (e: Exception) {
-        throw JsonProtocolModelParseException("Problem with method " + method, e)
+        throw JsonProtocolModelParseException("Problem with method $method", e)
       }
-
     }
   }
 
-  private fun createMethodHandler(method: Method, skipRead: Boolean): MethodHandler {
-    var jsonName = method.getName()
-    val fieldAnnotation = method.getAnnotation<JsonField>(javaClass<JsonField>())
-    if (fieldAnnotation != null && !fieldAnnotation.name().isEmpty()) {
-      jsonName = fieldAnnotation.name()
-    }
-
-    val genericReturnType = method.getGenericReturnType()
-    val addNotNullAnnotation: Boolean
-    val isPrimitive = if (genericReturnType is Class<*>) genericReturnType.isPrimitive() else genericReturnType !is ParameterizedType
-    if (isPrimitive) {
-      addNotNullAnnotation = false
-    }
-    else if (fieldAnnotation != null) {
-      addNotNullAnnotation = !fieldAnnotation.optional() && !fieldAnnotation.allowAnyPrimitiveValue() && !fieldAnnotation.allowAnyPrimitiveValueAndMap()
+  private fun createMethodHandler(member: KCallable<*>, method: Method, skipRead: Boolean): MethodHandler? {
+    var protocolName = member.annotation<ProtocolName>()?.name ?: member.name
+    val genericReturnType = member.returnType.javaType
+    val isNotNull: Boolean
+    val isPrimitive = if (genericReturnType is Class<*>) genericReturnType.isPrimitive else genericReturnType !is ParameterizedType
+    val optionalAnnotation = member.annotation<Optional>()
+    if (isPrimitive || optionalAnnotation != null) {
+      isNotNull = false
     }
     else {
-      addNotNullAnnotation = method.getAnnotation<JsonOptionalField>(javaClass<JsonOptionalField>()) == null
+      val fieldAnnotation = member.annotation<JsonField>()
+      if (fieldAnnotation == null) {
+        isNotNull = !member.returnType.isMarkedNullable
+      }
+      else {
+        isNotNull = !fieldAnnotation.allowAnyPrimitiveValue && !fieldAnnotation.allowAnyPrimitiveValueAndMap
+      }
     }
 
-    val fieldTypeParser = reader.getFieldTypeParser(genericReturnType, false, method)
+    val fieldTypeParser = reader.getFieldTypeParser(member, genericReturnType, false, method)
+    val isProperty = member is KProperty<*>
+    val isAsImpl = isProperty && !isNotNull
     if (fieldTypeParser != VOID_PARSER) {
-      fieldLoaders.add(FieldLoader(method.getName(), jsonName, fieldTypeParser, skipRead))
+      fieldLoaders.add(FieldLoader(member.name, protocolName, fieldTypeParser, skipRead, isAsImpl, StringUtil.nullize(optionalAnnotation?.default)))
     }
 
-    val effectiveFieldName = if (fieldTypeParser == VOID_PARSER) null else method.getName()
+    if (isAsImpl) {
+      return null
+    }
+
+    val effectiveFieldName = if (fieldTypeParser == VOID_PARSER) null else member.name
     return object : MethodHandler {
       override fun writeMethodImplementationJava(scope: ClassScope, method: Method, out: TextOutput) {
-        if (addNotNullAnnotation) {
-          out.append("@NotNull").newLine()
+        out.append("override ").append(if (isProperty) "val" else "fun")
+        out.append(" ").appendEscapedName(method.name)
+
+        if (isProperty) {
+          out.newLine()
+          out.indentIn()
+          out.append("get()")
+          // todo append type name
+        }
+        else {
+          out.append("()")
         }
 
-        out.append("@Override").newLine().append("public ")
-        fieldTypeParser.appendFinishedValueTypeName(out)
-        out.space()
-        out.append(method.getName())
-        out.append("()")
-
-        out.openBlock()
-        if (effectiveFieldName != null) {
-          out.append("return ").append(FIELD_PREFIX).append(effectiveFieldName).semi()
+        if (effectiveFieldName == null) {
+          out.openBlock()
+          out.closeBlock()
         }
-        out.closeBlock()
+        else {
+          out.append(" = ").append(FIELD_PREFIX).append(effectiveFieldName)
+          if (isNotNull) {
+            out.append("!!")
+          }
+
+          if (isProperty) {
+            out.indentOut()
+          }
+        }
       }
     }
   }
 
-  private fun processManualSubtypeMethod(m: Method, jsonSubtypeCaseAnn: JsonSubtypeCasting): MethodHandler {
-    val fieldTypeParser = reader.getFieldTypeParser(m.getGenericReturnType(), !jsonSubtypeCaseAnn.reinterpret(), null)
+  private fun processManualSubtypeMethod(member: KCallable<*>, m: Method, jsonSubtypeCaseAnn: JsonSubtypeCasting): MethodHandler {
+    val fieldTypeParser = reader.getFieldTypeParser(member, m.genericReturnType, !jsonSubtypeCaseAnn.reinterpret, null)
     val fieldInfo = allocateVolatileField(fieldTypeParser, true)
     val handler = LazyCachedMethodHandler(fieldTypeParser, fieldInfo)
     val parserAsObjectValueParser = fieldTypeParser.asJsonTypeParser()
     if (parserAsObjectValueParser != null && parserAsObjectValueParser.isSubtyping()) {
-      val subtypeCaster = object : SubtypeCaster(parserAsObjectValueParser.type) {
+      reader.subtypeCasters.add(object : SubtypeCaster(parserAsObjectValueParser.type) {
         override fun writeJava(out: TextOutput) {
-          out.append(m.getName()).append("()")
+          out.append(m.name).append("()")
         }
-      }
-      reader.subtypeCasters.add(subtypeCaster)
+      })
     }
     return handler
   }
 
   private fun allocateVolatileField(fieldTypeParser: ValueReader, internalType: Boolean): VolatileFieldBinding {
-    val position = volatileFields.size()
+    val position = volatileFields.size
     val fieldTypeInfo: (scope: FileScope, out: TextOutput)->Unit
     if (internalType) {
       fieldTypeInfo = {scope, out -> fieldTypeParser.appendInternalValueTypeName(scope, out)}
@@ -142,4 +182,16 @@ class FieldProcessor(private val reader: InterfaceReader, typeClass: Class<*>) {
     volatileFields.add(binding)
     return binding
   }
+}
+
+internal inline fun <reified T : Annotation> KCallable<*>.annotation(): T? = annotations.firstOrNull() { it is T } as? T ?: (this as? KFunction<*>)?.javaMethod?.getAnnotation<T>(T::class.java)
+
+/**
+ * An internal facility for navigating from object of base type to object of subtype. Used only
+ * when user wants to parse JSON object as subtype.
+ */
+internal abstract class SubtypeCaster(private val subtypeRef: TypeRef<*>) {
+  abstract fun writeJava(out: TextOutput)
+
+  fun getSubtypeHandler() = subtypeRef.type!!
 }

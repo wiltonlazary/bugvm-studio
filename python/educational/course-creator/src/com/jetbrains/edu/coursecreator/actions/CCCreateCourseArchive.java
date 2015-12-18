@@ -15,6 +15,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.util.containers.hash.HashMap;
 import com.intellij.util.io.ZipUtil;
 import com.jetbrains.edu.EduNames;
 import com.jetbrains.edu.EduUtils;
@@ -76,6 +77,7 @@ public class CCCreateCourseArchive extends DumbAwareAction {
     final VirtualFile baseDir = project.getBaseDir();
     final List<Lesson> lessons = course.getLessons();
 
+    final Map<TaskFile, TaskFile> savedTaskFiles = new HashMap<TaskFile, TaskFile>();
     for (Lesson lesson : lessons) {
       final VirtualFile lessonDir = baseDir.findChild(EduNames.LESSON + String.valueOf(lesson.getIndex()));
       if (lessonDir == null) continue;
@@ -86,15 +88,27 @@ public class CCCreateCourseArchive extends DumbAwareAction {
           ApplicationManager.getApplication().runWriteAction(new Runnable() {
             @Override
             public void run() {
-              EduUtils.createStudentFileFromAnswer(project, taskDir, taskDir, entry);
+              TaskFile taskFileCopy = new TaskFile();
+              TaskFile taskFile = entry.getValue();
+              TaskFile.copy(taskFile, taskFileCopy);
+              savedTaskFiles.put(taskFile, taskFileCopy);
+              EduUtils.createStudentFileFromAnswer(project, taskDir, taskDir, entry.getKey(), taskFile);
             }
           });
         }
       }
     }
     generateJson(project);
+    VirtualFileManager.getInstance().refreshWithoutFileWatcher(false);
     packCourse(baseDir, course);
     synchronize(project);
+    resetTaskFiles(savedTaskFiles);
+  }
+
+  private static void resetTaskFiles(Map<TaskFile, TaskFile> savedTaskFiles) {
+    for (Map.Entry<TaskFile, TaskFile> entry : savedTaskFiles.entrySet()) {
+      entry.getKey().setAnswerPlaceholders(entry.getValue().getAnswerPlaceholders());
+    }
   }
 
   private static void synchronize(@NotNull final Project project) {
@@ -104,31 +118,23 @@ public class CCCreateCourseArchive extends DumbAwareAction {
 
   private void packCourse(@NotNull final VirtualFile baseDir, @NotNull final Course course) {
     try {
-      File zipFile = new File(myLocationDir, myZipName + ".zip");
+      final File zipFile = new File(myLocationDir, myZipName + ".zip");
       ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(zipFile)));
       final CCLanguageManager manager = CCUtils.getStudyLanguageManager(course);
-      for (Lesson lesson : course.getLessons()) {
-        final VirtualFile lessonDir = baseDir.findChild(EduNames.LESSON + String.valueOf(lesson.getIndex()));
-        if (lessonDir == null) continue;
-        ZipUtil.addFileOrDirRecursively(zos, null, new File(lessonDir.getPath()), lessonDir.getName(), new FileFilter() {
+      VirtualFile[] courseFiles = baseDir.getChildren();
+      for (VirtualFile file : courseFiles) {
+        ZipUtil.addFileOrDirRecursively(zos, null, new File(file.getPath()), file.getName(), new FileFilter() {
           @Override
           public boolean accept(File pathname) {
             String name = pathname.getName();
             String nameWithoutExtension = FileUtil.getNameWithoutExtension(pathname);
-            if (nameWithoutExtension.endsWith(".answer") || name.contains("_windows")) {
+            if (nameWithoutExtension.endsWith(".answer") || name.contains(EduNames.WINDOWS_POSTFIX) || name.contains(".idea")
+              || FileUtil.filesEqual(pathname, zipFile)) {
               return false;
             }
-            return manager == null || manager.packFile(pathname);
+            return manager != null && !manager.doNotPackFile(pathname);
           }
         }, null);
-      }
-      packFile("hints", zos, baseDir);
-      packFile("course.json", zos, baseDir);
-      if (manager != null) {
-        String[] additionalFilesToPack = manager.getAdditionalFilesToPack();
-        for (String filename: additionalFilesToPack) {
-          packFile(filename, zos, baseDir);
-        }
       }
       zos.close();
       Messages.showInfoMessage("Course archive was saved to " + zipFile.getPath(), "Course Archive Was Created Successfully");
@@ -144,7 +150,7 @@ public class CCCreateCourseArchive extends DumbAwareAction {
     final Course course = service.getCourse();
     final Gson gson = new GsonBuilder().setPrettyPrinting().excludeFieldsWithoutExposeAnnotation().create();
     final String json = gson.toJson(course);
-    final File courseJson = new File(project.getBasePath(), "course.json");
+    final File courseJson = new File(project.getBasePath(), EduNames.COURSE_META_FILE);
     OutputStreamWriter outputStreamWriter = null;
     try {
       outputStreamWriter = new OutputStreamWriter(new FileOutputStream(courseJson), "UTF-8");
@@ -163,21 +169,6 @@ public class CCCreateCourseArchive extends DumbAwareAction {
       catch (IOException e1) {
         //close silently
       }
-    }
-  }
-
-  private static void packFile(@NotNull final String filename,
-                               @NotNull final ZipOutputStream zipOutputStream,
-                               @NotNull final VirtualFile baseDir) {
-    try {
-      File file = new File(baseDir.getPath(), filename);
-      if (!file.exists()) {
-        return;
-      }
-      ZipUtil.addFileOrDirRecursively(zipOutputStream, null, file, filename, null, null);
-    }
-    catch (IOException e) {
-      LOG.error(e);
     }
   }
 }

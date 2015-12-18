@@ -48,7 +48,7 @@ final class SsiFsize implements SsiCommand {
         writer.write(formatSize(state.ssiExternalResolver.getFileSize(substitutedValue, virtual), state.configSizeFmt));
       }
       else {
-        SsiProcessor.LOG.info("#fsize--Invalid attribute: " + paramName);
+        SsiProcessorKt.getLOG().info("#fsize--Invalid attribute: " + paramName);
         writer.write(configErrMsg);
       }
     }

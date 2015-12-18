@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 package org.jetbrains.plugins.groovy.lang.resolve
+
 import com.intellij.psi.*
 import com.intellij.psi.util.PropertyUtil
 import org.jetbrains.plugins.groovy.GroovyFileType
@@ -23,14 +24,15 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrClassDefinition
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrAccessorMethod
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrEnumConstant
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrGdkMethod
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrBindingVariable
-import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrTraitMethod
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil
 import org.jetbrains.plugins.groovy.util.TestUtils
+
 /**
  * @author ven
  */
@@ -718,17 +720,56 @@ print map.cla<caret>ss''')
     assert !ref.resolve()
   }
 
-  public void testResolveInsideWith0() {
-    def resolved = resolve('a.groovy')
+  void 'test custom map properties'() {
+    myFixture.addFileToProject 'classes.groovy', '''\
+class Pojo {
+    def pojoProperty
+    def anotherPojoProperty
+}
 
-    assertInstanceOf(resolved, GrAccessorMethod)
+class SomeMapClass extends HashMap<String, Pojo> {
+
+    public static final CONSTANT = 1
+
+    static class Inner {
+        public static final INNER_CONSTANT = 4
+    }
+}
+'''
+    (configureByText('SomeMapClass.CONST<caret>ANT').element as GrReferenceExpression).with { ref ->
+      assert ref.resolve() instanceof GrField
+      assert ref.type.equalsToText('java.lang.Integer')
+    }
+    (configureByText('SomeMapClass.Inn<caret>er').element as GrReferenceExpression).with { ref ->
+      assert ref.resolve() instanceof GrClassDefinition
+      assert ref.type.equalsToText('java.lang.Class<SomeMapClass.Inner>')
+    }
+    assert configureByText('SomeMapClass.Inner.INNER_<caret>CONSTANT').resolve() instanceof GrField
+
+    assert !configureByText('def m = new SomeMapClass(); m.CONS<caret>TANT').resolve()
+    assert !configureByText('def m = new SomeMapClass(); m.In<caret>ner').resolve()
+
+    configureByText('def m = new SomeMapClass(); m.CONSTANT.pojo<caret>Property').resolve().with { resolved ->
+      assert resolved instanceof GrAccessorMethod
+      assert resolved.containingClass.name == 'Pojo'
+    }
+    configureByText('def m = new SomeMapClass(); m.Inner.anotherPojo<caret>Property').resolve().with { resolved ->
+      assert resolved instanceof GrAccessorMethod
+      assert resolved.containingClass.name == 'Pojo'
+    }
+    configureByText('def <T extends SomeMapClass> void foo(T a) { a.CONS<caret>TANT }').with { ref ->
+      assert !ref.resolve()
+      assert (ref as GrReferenceExpression).type.equalsToText('Pojo')
+    }
+  }
+
+  public void testResolveInsideWith0() {
+    def resolved = resolve('a.groovy', GrAccessorMethod)
     assertEquals(resolved.containingClass.name, 'A')
   }
 
   public void testResolveInsideWith1() {
-    def resolved = resolve('a.groovy')
-
-    assertInstanceOf(resolved, GrField)
+    def resolved = resolve('a.groovy', GrField)
     assertEquals(resolved.containingClass.name, 'B')
   }
 
@@ -934,9 +975,7 @@ def tw = new Twin(one: new Person(name:'Tom'),
 assert tw*.nam<caret>e == ['Tom', 'Tim']
 ''')
 
-    final resolved = ref.resolve()
-
-    assertInstanceOf(resolved, PsiMember)
+    final resolved = assertInstanceOf(ref.resolve(), PsiMember)
     assertNotNull(resolved.containingClass)
     assertEquals('Person', resolved.containingClass.name)
   }
@@ -1436,7 +1475,7 @@ class B {
 
 def v = new B() as A
 print v.fo<caret>o
-''', GrTraitMethod)
+''', GrAccessorMethod)
   }
 
   void testTraitPropertyFromAsOperator2() {

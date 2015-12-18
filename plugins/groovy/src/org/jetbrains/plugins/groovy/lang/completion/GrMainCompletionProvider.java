@@ -229,6 +229,9 @@ public class GrMainCompletionProvider extends CompletionProvider<CompletionParam
 
     final List<LookupElement> zeroPriority = ContainerUtil.newArrayList();
 
+    PsiClass qualifierClass = com.intellij.psi.util.PsiUtil.resolveClassInClassTypeOnly(qualifierType);
+    final boolean honorExcludes = qualifierClass == null || !JavaCompletionUtil.isInExcludedPackage(qualifierClass, false);
+
     GroovyCompletionUtil.processVariants(reference, matcher, parameters, new Consumer<LookupElement>() {
       @Override
       public void consume(LookupElement lookupElement) {
@@ -245,7 +248,7 @@ public class GrMainCompletionProvider extends CompletionProvider<CompletionParam
           return;
         }
 
-        if (object instanceof PsiMember && JavaCompletionUtil.isInExcludedPackage((PsiMember)object, true)) {
+        if (honorExcludes && object instanceof PsiMember && JavaCompletionUtil.isInExcludedPackage((PsiMember)object, true)) {
           return;
         }
 
@@ -470,7 +473,7 @@ public class GrMainCompletionProvider extends CompletionProvider<CompletionParam
     if (reference == null) {
       if (parameters.getInvocationCount() >= 2) {
         result.stopHere();
-        addAllClasses(parameters, result.withPrefixMatcher(CompletionUtil.findJavaIdentifierPrefix(parameters)), new InheritorsHolder(parameters.getPosition(), result));
+        addAllClasses(parameters, result.withPrefixMatcher(CompletionUtil.findJavaIdentifierPrefix(parameters)), new InheritorsHolder(result));
       }
       return;
     }
@@ -479,7 +482,7 @@ public class GrMainCompletionProvider extends CompletionProvider<CompletionParam
       result.addElement(LookupElementBuilder.create("*"));
     }
 
-    InheritorsHolder inheritors = new InheritorsHolder(position, result);
+    InheritorsHolder inheritors = new InheritorsHolder(result);
     if (GroovySmartCompletionContributor.AFTER_NEW.accepts(position)) {
       GroovySmartCompletionContributor.generateInheritorVariants(parameters, result.getPrefixMatcher(), inheritors);
     }

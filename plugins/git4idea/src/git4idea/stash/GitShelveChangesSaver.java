@@ -25,9 +25,6 @@ import com.intellij.openapi.vcs.changes.shelf.ShelvedChangeList;
 import com.intellij.openapi.vcs.changes.shelf.ShelvedChangesViewManager;
 import com.intellij.openapi.vcs.impl.LocalChangesUnderRoots;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.continuation.ContinuationContext;
-import com.intellij.util.continuation.TaskDescriptor;
-import com.intellij.util.continuation.Where;
 import git4idea.GitPlatformFacade;
 import git4idea.commands.Git;
 import git4idea.i18n.GitBundle;
@@ -87,26 +84,22 @@ public class GitShelveChangesSaver extends GitChangesSaver {
     myProgressIndicator.setText(oldProgressTitle);
   }
 
-  protected void load(ContinuationContext context) {
+  @Override
+  public void load() {
     if (myShelvedLists != null) {
       LOG.info("load ");
-      final String oldProgressTitle = myProgressIndicator.getText();
+      String oldProgressTitle = myProgressIndicator.getText();
       myProgressIndicator.setText(GitBundle.getString("update.unshelving.changes"));
-      context.next(new TaskDescriptor("", Where.AWT) {
-        @Override
-        public void run(ContinuationContext context) {
-          myProgressIndicator.setText(oldProgressTitle);
-        }
-      });
       for (ShelvedChangeList list : myShelvedLists.values()) {
-        GitShelveUtils.doSystemUnshelve(myProject, list, myShelveManager, context,
+        GitShelveUtils.doSystemUnshelve(myProject, list, myShelveManager,
                                         getConflictLeftPanelTitle(), getConflictRightPanelTitle());
       }
+      myProgressIndicator.setText(oldProgressTitle);
     }
   }
 
   @Override
-  protected boolean wereChangesSaved() {
+  public boolean wereChangesSaved() {
     return myShelvedLists != null && !myShelvedLists.isEmpty();
   }
 
@@ -115,14 +108,14 @@ public class GitShelveChangesSaver extends GitChangesSaver {
     return "shelf";
   }
 
+  @NotNull
   @Override
-  protected void showSavedChanges() {
+  public String getOperationName() {
+    return "shelve";
+  }
+
+  @Override
+  public void showSavedChanges() {
     myShelveViewManager.activateView(myShelvedLists.get(myShelvedLists.keySet().iterator().next()));
   }
-
-  @Override
-  public void refresh() {
-    // refreshed inside shelve manager
-  }
-
 }

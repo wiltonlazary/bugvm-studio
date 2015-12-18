@@ -28,6 +28,7 @@ import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.profile.Profile;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
+import com.intellij.profile.codeInspection.ui.header.InspectionToolsConfigurable;
 import com.intellij.testFramework.LightIdeaTestCase;
 import org.jdom.Element;
 import org.jdom.JDOMException;
@@ -78,6 +79,27 @@ public class InspectionProfileTest extends LightIdeaTestCase {
   }
   private static InspectionProfileImpl createProfile(@NotNull InspectionProfileImpl base) {
     return new InspectionProfileImpl(PROFILE, InspectionToolRegistrar.getInstance(), InspectionProfileManager.getInstance(), base);
+  }
+
+  public void testSameNameSharedProfile() throws Exception {
+    InspectionProfileManager profileManager = InspectionProfileManager.getInstance();
+    InspectionProfileImpl localProfile = createProfile();
+    profileManager.updateProfile(localProfile);
+
+    InspectionProjectProfileManager projectProfileManager = InspectionProjectProfileManager.getInstance(getProject());
+    try {
+      //normally on open project profile wrappers are init for both managers
+      profileManager.updateProfile(localProfile);
+      InspectionProfileImpl profile = new InspectionProfileImpl(PROFILE, InspectionToolRegistrar.getInstance(), projectProfileManager,
+                                                                InspectionProfileImpl.getDefaultProfile());
+      projectProfileManager.updateProfile(profile);
+      projectProfileManager.setProjectProfile(profile.getName());
+
+      assertTrue(projectProfileManager.getInspectionProfile() == profile);
+    }
+    finally {
+      projectProfileManager.deleteProfile(PROFILE);
+    }
   }
 
   public void testConvertOldProfile() throws Exception {
@@ -265,6 +287,11 @@ public class InspectionProfileTest extends LightIdeaTestCase {
                         "</profile>";
     assertEquals(mergedText, serialize(profile));
 
+    Element toImportElement = new Element("profile");
+    profile.writeExternal(toImportElement);
+    final InspectionProfileImpl importedProfile =
+      InspectionToolsConfigurable.importInspectionProfile(toImportElement, InspectionProfileManager.getInstance(), getProject(), null);
+
     //check merged
     Element mergedElement = JDOMUtil.loadDocument(mergedText).getRootElement();
     profile = createProfile(new InspectionProfileImpl("foo"));
@@ -274,6 +301,10 @@ public class InspectionProfileTest extends LightIdeaTestCase {
     Element copyMerged = new Element("profile");
     profile.writeExternal(copyMerged);
     assertElementsEqual(mergedElement, copyMerged);
+
+    Element imported = new Element("profile");
+    importedProfile.writeExternal(imported);
+    assertElementsEqual(mergedElement, imported);
   }
 
   public void testDisabledUnusedDeclarationWithoutChanges() throws Exception {

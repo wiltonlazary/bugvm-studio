@@ -103,6 +103,11 @@ public class PyProtectedMemberInspection extends PyInspection {
       if (name != null && name.startsWith("_") && !name.startsWith("__") && !name.endsWith("__")) {
         final PsiReference reference = node.getReference(getResolveContext());
         if (reference == null) return;
+        for (final PyInspectionExtension inspectionExtension : PyInspectionExtension.EP_NAME.getExtensions()) {
+          if (inspectionExtension.ignoreProtectedSymbol(node, myTypeEvalContext)) {
+            return;
+          }
+        }
         final PsiElement resolvedExpression = reference.resolve();
         final PyClass resolvedClass = getClassOwner(resolvedExpression);
         if (resolvedExpression instanceof PyTargetExpression) {
@@ -123,12 +128,12 @@ public class PyProtectedMemberInspection extends PyInspection {
         if (parentClass != null) {
           if (PyTestUtil.isPyTestClass(parentClass) && ignoreTestFunctions) return;
 
-          if (parentClass.isSubclass(resolvedClass))
+          if (parentClass.isSubclass(resolvedClass, null))
             return;
 
           PyClass outerClass = getClassOwner(parentClass);
           while (outerClass != null) {
-            if (outerClass.isSubclass(resolvedClass))
+            if (outerClass.isSubclass(resolvedClass, null))
               return;
 
             outerClass = getClassOwner(outerClass);

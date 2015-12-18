@@ -18,8 +18,7 @@ package com.jetbrains.python.run;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.remote.RemoteProcessHandlerBase;
-import com.intellij.util.PathMappingSettings;
+import com.intellij.remote.RemoteProcessControl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,9 +26,9 @@ import org.jetbrains.annotations.Nullable;
  * @author traff
  */
 public class PyRemoteTracebackFilter extends PythonTracebackFilter {
-  private final RemoteProcessHandlerBase myHandler;
+  private final RemoteProcessControl myHandler;
 
-  public PyRemoteTracebackFilter(Project project, String workingDirectory, RemoteProcessHandlerBase remoteProcessHandler) {
+  public PyRemoteTracebackFilter(Project project, String workingDirectory, RemoteProcessControl remoteProcessHandler) {
     super(project, workingDirectory);
 
     myHandler = remoteProcessHandler;
@@ -42,17 +41,11 @@ public class PyRemoteTracebackFilter extends PythonTracebackFilter {
     if (vFile != null) {
       return vFile;
     }
-    for (PathMappingSettings.PathMapping m : myHandler.getMappingSettings().getPathMappings()) {
-      if (m.canReplaceRemote(fileName)) {
-        VirtualFile file = LocalFileSystem.getInstance().findFileByPath(m.mapToLocal(fileName));
-        if (file != null && file.exists()) {
-          return file;
-        }
-      }
+    String localFile = myHandler.getMappingSettings().convertToLocal(fileName);
+    VirtualFile file = LocalFileSystem.getInstance().findFileByPath(localFile);
+    if (file != null && file.exists()) {
+      return file;
     }
-
-
-
     return null;
   }
 }

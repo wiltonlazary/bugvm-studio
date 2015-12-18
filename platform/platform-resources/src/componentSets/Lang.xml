@@ -1,4 +1,4 @@
-<components>
+<idea-plugin>
   <application-components>
 
     <component>
@@ -38,6 +38,10 @@
       <implementation-class>com.intellij.codeInsight.preview.ImageOrColorPreviewManager</implementation-class>
     </component>
 
+    <component>
+      <implementation-class>com.intellij.ide.script.IdeStartupScripts</implementation-class>
+    </component>
+
   </application-components>
 
   <project-components>
@@ -49,11 +53,6 @@
     <component>
       <interface-class>com.intellij.openapi.roots.ProjectRootManager</interface-class>
       <implementation-class>com.intellij.openapi.roots.impl.ProjectRootManagerComponent</implementation-class>
-      <loadForDefaultProject/>
-    </component>
-    <component>
-      <interface-class>com.intellij.openapi.roots.impl.DirectoryIndex</interface-class>
-      <implementation-class>com.intellij.openapi.roots.impl.DirectoryIndexImpl</implementation-class>
       <loadForDefaultProject/>
     </component>
 
@@ -121,10 +120,11 @@
       <loadForDefaultProject/>
     </component>
     <component>
-      <implementation-class>com.intellij.codeInsight.daemon.impl.SmartPointerEditorTracker</implementation-class>
+      <implementation-class>com.intellij.codeInsight.daemon.impl.GeneralHighlightingPassFactory</implementation-class>
+      <skipForDefaultProject/>
     </component>
     <component>
-      <implementation-class>com.intellij.codeInsight.daemon.impl.GeneralHighlightingPassFactory</implementation-class>
+      <implementation-class>com.intellij.codeInsight.daemon.impl.ChameleonSyntaxHighlightingPass$Factory</implementation-class>
       <skipForDefaultProject/>
     </component>
     <component>
@@ -246,4 +246,4 @@
       <implementation-class>com.intellij.facet.FacetManagerImpl</implementation-class>
     </component>
   </module-components>
-</components>
+</idea-plugin>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,9 +29,10 @@ import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.jetbrains.python.PythonHelpersLocator;
+import com.jetbrains.python.PythonHelper;
 import com.jetbrains.python.ReSTService;
 import com.jetbrains.python.buildout.BuildoutFacet;
 import com.jetbrains.python.run.PythonCommandLineState;
@@ -133,40 +134,44 @@ public class SphinxBaseCommand {
 
   private ProcessHandler createProcess(Module module) throws ExecutionException {
     GeneralCommandLine commandLine = createCommandLine(module, Collections.<String>emptyList());
-    ProcessHandler handler = PythonProcessRunner.createProcess(commandLine);
+    ProcessHandler handler = PythonProcessRunner.createProcess(commandLine, false);
     ProcessTerminatedListener.attach(handler);
     return handler;
   }
 
   protected GeneralCommandLine createCommandLine(Module module, List<String> params) throws ExecutionException {
-    GeneralCommandLine cmd = new GeneralCommandLine();
-
     Sdk sdk = PythonSdkType.findPythonSdk(module);
     if (sdk == null) {
       throw new ExecutionException("No sdk specified");
     }
 
     ReSTService service = ReSTService.getInstance(module);
-    cmd.setWorkDirectory(service.getWorkdir().isEmpty()? module.getProject().getBaseDir().getPath(): service.getWorkdir());
-    PythonCommandLineState.createStandardGroupsIn(cmd);
-    ParamsGroup script_params = cmd.getParametersList().getParamsGroup(PythonCommandLineState.GROUP_SCRIPT);
-    assert script_params != null;
 
-    String commandPath = PythonHelpersLocator.getHelperPath("pycharm/pycharm_load_entry_point.py");
-    if (commandPath == null) {
-      throw new ExecutionException("Cannot find sphinx-quickstart.");
-    }
-    final String sdkHomePath = sdk.getHomePath();
-    if (sdkHomePath != null)
-      cmd.setExePath(sdkHomePath);
-    cmd.addParameter(commandPath);
-    if (params != null) {
-      for (String p : params) {
-        script_params.addParameter(p);
+    String sdkHomePath = sdk.getHomePath();
+
+    GeneralCommandLine cmd = new GeneralCommandLine();
+    if (sdkHomePath != null) {
+      final String runnerName = "sphinx-quickstart" + (SystemInfo.isWindows ? ".exe" : "");
+      String executablePath = PythonSdkType.getExecutablePath(sdkHomePath, runnerName);
+      if (executablePath != null) {
+        cmd.setExePath(executablePath);
+      }
+      else {
+        cmd = PythonHelper.LOAD_ENTRY_POINT.newCommandLine(sdkHomePath, Lists.<String>newArrayList());
       }
     }
 
-    cmd.setPassParentEnvironment(true);
+    cmd.setWorkDirectory(service.getWorkdir().isEmpty()? module.getProject().getBaseDir().getPath(): service.getWorkdir());
+    PythonCommandLineState.createStandardGroups(cmd);
+    ParamsGroup scriptParams = cmd.getParametersList().getParamsGroup(PythonCommandLineState.GROUP_SCRIPT);
+    assert scriptParams != null;
+
+    if (params != null) {
+      for (String p : params) {
+        scriptParams.addParameter(p);
+      }
+    }
+
     setPythonIOEncoding(cmd.getEnvironment(), "utf-8");
     setPythonUnbuffered(cmd.getEnvironment());
     cmd.getEnvironment().put("PYCHARM_EP_DIST", "Sphinx");

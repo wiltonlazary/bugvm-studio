@@ -16,6 +16,7 @@
 package com.intellij.openapi.fileEditor.impl;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.GeneralSettings;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.actions.CloseAction;
 import com.intellij.ide.actions.ShowFilePathAction;
@@ -116,9 +117,14 @@ public final class EditorTabbedContainer implements Disposable, CloseAction.Clos
             oldEditor.deselectNotify();
           }
 
-          final FileEditor newEditor = editorManager.getSelectedEditor((VirtualFile)newSelection.getObject());
+          VirtualFile newFile = (VirtualFile)newSelection.getObject();
+          final FileEditor newEditor = editorManager.getSelectedEditor(newFile);
           if (newEditor != null) {
             newEditor.selectNotify();
+          }
+
+          if (GeneralSettings.getInstance().isSyncOnFrameActivation()) {
+            newFile.refresh(true, false);
           }
         }
       }).setAdditionalSwitchProviderWhenOriginal(new MySwitchProvider())
@@ -183,7 +189,7 @@ public final class EditorTabbedContainer implements Disposable, CloseAction.Clos
   }
 
   public ActionCallback setSelectedIndex(final int indexToSelect, boolean focusEditor) {
-    if (indexToSelect >= myTabs.getTabCount()) return new ActionCallback.Rejected();
+    if (indexToSelect >= myTabs.getTabCount()) return ActionCallback.REJECTED;
     return myTabs.select(myTabs.getTabAt(indexToSelect), focusEditor);
   }
 
@@ -252,7 +258,7 @@ public final class EditorTabbedContainer implements Disposable, CloseAction.Clos
       toSelect = null;
     }
     final ActionCallback callback = myTabs.removeTab(info, toSelect, transferFocus);
-    return myProject.isOpen() ? callback : new ActionCallback.Done();
+    return myProject.isOpen() ? callback : ActionCallback.DONE;
   }
 
   public ActionCallback removeTabAt(final int componentIndex, int indexToSelect) {

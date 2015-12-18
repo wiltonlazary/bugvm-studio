@@ -579,9 +579,14 @@ public abstract class MasterDetailsComponent implements Configurable, DetailsCom
   }
 
   protected void addNode(MyNode nodeToAdd, MyNode parent) {
-    parent.add(nodeToAdd);
-    TreeUtil.sort(parent, getNodeComparator());
-    ((DefaultTreeModel)myTree.getModel()).reload(parent);
+    int i = TreeUtil.indexedBinarySearch(parent, nodeToAdd, getNodeComparator());
+    int insertionPoint = i >= 0 ? i : -i - 1;
+    ((DefaultTreeModel)myTree.getModel()).insertNodeInto(nodeToAdd, parent, insertionPoint);
+  }
+
+  protected void sortDescendants(MyNode root) {
+    TreeUtil.sort(root, getNodeComparator());
+    ((DefaultTreeModel)myTree.getModel()).reload(root);
   }
 
   protected Comparator<MyNode> getNodeComparator() {
@@ -784,10 +789,17 @@ public abstract class MasterDetailsComponent implements Configurable, DetailsCom
   }
 
   protected void removePaths(final TreePath... paths) {
+    List<MyNode> nodes = new ArrayList<MyNode>();
+    for (TreePath path : paths) {
+      nodes.add((MyNode)path.getLastPathComponent());
+    }
+    removeNodes(nodes);
+  }
+
+  protected void removeNodes(final List<MyNode> nodes) {
     MyNode parentNode = null;
     int idx = -1;
-    for (TreePath path : paths) {
-      final MyNode node = (MyNode)path.getLastPathComponent();
+    for (MyNode node : nodes) {
       final NamedConfigurable namedConfigurable = node.getConfigurable();
       final Object editableObject = namedConfigurable.getEditableObject();
       parentNode = (MyNode)node.getParent();
@@ -799,7 +811,7 @@ public abstract class MasterDetailsComponent implements Configurable, DetailsCom
       namedConfigurable.disposeUIResources();
     }
 
-    if (paths.length > 0) {
+    if (!nodes.isEmpty()) {
       if (parentNode != null && idx != -1) {
         DefaultMutableTreeNode toSelect = null;
         if (idx < parentNode.getChildCount()) {

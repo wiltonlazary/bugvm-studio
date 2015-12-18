@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,11 +23,13 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.UnsupportedEncodingException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
  * @author spleaner
- * @@see http://developer.apple.com/documentation/Cocoa/Reference/ObjCRuntimeRef/Reference/reference.html
+ * @see http://developer.apple.com/documentation/Cocoa/Reference/ObjCRuntimeRef/Reference/reference.html
  */
 public class Foundation {
   private static final FoundationLibrary myFoundationLibrary;
@@ -212,6 +214,10 @@ public class Foundation {
   public static void cfRetain(ID id) {
     myFoundationLibrary.CFRetain(id);
   }
+  
+  public static ID cgWindowListCreateImage(Foundation.NSRect screenBounds, int windowOption, ID windowID, int imageOption) {
+    return myFoundationLibrary.CGWindowListCreateImage(screenBounds, windowOption, windowID, imageOption);
+  }
 
   public static void cfRelease(ID... ids) {
     for (ID id : ids) {
@@ -346,6 +352,8 @@ public class Foundation {
   }
 
   public static class NSRect extends Structure implements Structure.ByValue {
+    private static final List __FIELDS = Arrays.asList("origin", "size");
+
     public NSPoint origin;
     public NSSize size;
 
@@ -353,9 +361,16 @@ public class Foundation {
       origin = new NSPoint(x, y);
       size = new NSSize(w, h);
     }
+
+    @Override
+    protected List getFieldOrder() {
+      return __FIELDS;
+    }
   }
 
   public static class NSPoint extends Structure implements Structure.ByValue {
+    private static final List __FIELDS = Arrays.asList("x", "y");
+
     public CGFloat x;
     public CGFloat y;
 
@@ -368,9 +383,16 @@ public class Foundation {
       this.x = new CGFloat(x);
       this.y = new CGFloat(y);
     }
+
+    @Override
+    protected List getFieldOrder() {
+      return __FIELDS;
+    }
   }
 
   public static class NSSize extends Structure implements Structure.ByValue {
+    private static final List __FIELDS = Arrays.asList("width", "height");
+
     public CGFloat width;
     public CGFloat height;
 
@@ -382,6 +404,11 @@ public class Foundation {
     public NSSize(double width, double height) {
       this.width = new CGFloat(width);
       this.height = new CGFloat(height);
+    }
+
+    @Override
+    protected List getFieldOrder() {
+      return __FIELDS;
     }
   }
 

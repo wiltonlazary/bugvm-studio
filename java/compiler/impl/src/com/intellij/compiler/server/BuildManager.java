@@ -43,7 +43,6 @@ import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.compiler.CompilationStatusListener;
 import com.intellij.openapi.compiler.CompileContext;
 import com.intellij.openapi.compiler.CompilerTopics;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.DocumentAdapter;
@@ -109,8 +108,7 @@ import org.jetbrains.jps.incremental.Utils;
 import org.jetbrains.jps.model.serialization.JpsGlobalLoader;
 
 import javax.swing.*;
-import javax.tools.JavaCompiler;
-import javax.tools.ToolProvider;
+import javax.tools.*;
 import java.awt.*;
 import java.io.File;
 import java.io.FileFilter;
@@ -129,7 +127,7 @@ import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage
  * @author Eugene Zhuravlev
  *         Date: 9/6/11
  */
-public class BuildManager implements ApplicationComponent{
+public class BuildManager implements Disposable {
   public static final Key<Boolean> ALLOW_AUTOMAKE = Key.create("_allow_automake_when_process_is_active_");
   private static final Key<Integer> COMPILER_PROCESS_DEBUG_PORT = Key.create("_compiler_process_debug_port_");
   private static final Key<String> FORCE_MODEL_LOADING_PARAMETER = Key.create(BuildParametersKeys.FORCE_MODEL_LOADING);
@@ -518,6 +516,9 @@ public class BuildManager implements ApplicationComponent{
       }
       finally {
         myAutomakeFutures.remove(future);
+        if (handler.unprocessedFSChangesDetected()) {
+          scheduleAutoMake();
+        }
       }
     }
   }
@@ -800,6 +801,10 @@ public class BuildManager implements ApplicationComponent{
                   msg.append("Abnormal build process termination: ");
                   if (errorsOnLaunch != null && errorsOnLaunch.length() > 0) {
                     msg.append("\n").append(errorsOnLaunch);
+                    if (StringUtil.contains(errorsOnLaunch, "java.lang.NoSuchMethodError")) {
+                      msg.append("\nThe error may be caused by JARs in Java Extensions directory which conflicts with libraries used by the external build process.")
+                         .append("\nTry adding -Djava.ext.dirs=\"\" argument to 'Build process VM options' in File | Settings | Build, Execution, Deployment | Compiler to fix the problem.");
+                    }
                   }
                   else {
                     msg.append("unknown error");
@@ -905,18 +910,8 @@ public class BuildManager implements ApplicationComponent{
   }
 
   @Override
-  public void initComponent() {
-  }
-
-  @Override
-  public void disposeComponent() {
+  public void dispose() {
     stopListening();
-  }
-
-  @NotNull
-  @Override
-  public String getComponentName() {
-    return "com.intellij.compiler.server.BuildManager";
   }
 
   @NotNull
@@ -925,7 +920,7 @@ public class BuildManager implements ApplicationComponent{
     int sdkMinorVersion = 0;
     JavaSdkVersion sdkVersion = null;
 
-    final Set<Sdk> candidates = new HashSet<Sdk>();
+    final Set<Sdk> candidates = new LinkedHashSet<Sdk>();
     final Sdk defaultSdk = ProjectRootManager.getInstance(project).getProjectSdk();
     if (defaultSdk != null && defaultSdk.getSdkType() instanceof JavaSdkType) {
       candidates.add(defaultSdk);

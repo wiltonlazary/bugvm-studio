@@ -69,13 +69,17 @@ public class GroovycOutputParser {
       return;
     }
 
-    if (outputType == ProcessOutputTypes.STDERR && !text.startsWith("Picked up JAVA_TOOL_OPTIONS")) {
+    if (outputType == ProcessOutputTypes.STDERR && !isSafeStderr(text)) {
       stdErr.append(StringUtil.convertLineSeparators(text));
       return;
     }
 
 
     parseOutput(text);
+  }
+
+  private static boolean isSafeStderr(String line) {
+    return line.startsWith("SLF4J:") || line.startsWith("Picked up JAVA_TOOL_OPTIONS");
   }
 
   private final StringBuffer outputBuffer = new StringBuffer();
@@ -158,9 +162,13 @@ public class GroovycOutputParser {
         if (LOG.isDebugEnabled()) {
           LOG.debug("Message: " + compilerMessage);
         }
-        compilerMessages.add(compilerMessage);
+        addCompilerMessage(compilerMessage);
       }
     }
+  }
+
+  void addCompilerMessage(CompilerMessage compilerMessage) {
+    compilerMessages.add(compilerMessage);
   }
 
   private String handleOutputBuffer(String startMarker, String endMarker) {
@@ -211,14 +219,13 @@ public class GroovycOutputParser {
     return false;
   }
 
-  public List<CompilerMessage> getCompilerMessages(String moduleName) {
+  public List<CompilerMessage> getCompilerMessages() {
     ArrayList<CompilerMessage> messages = new ArrayList<CompilerMessage>(compilerMessages);
     final StringBuffer unparsedBuffer = getStdErr();
     if (unparsedBuffer.length() != 0) {
       String msg = unparsedBuffer.toString();
       if (msg.contains(GroovyRtConstants.NO_GROOVY)) {
-        messages.add(new CompilerMessage("", BuildMessage.Kind.ERROR,
-                                         "Cannot compile Groovy files: no Groovy library is defined for module '" + moduleName + "'"));
+        messages.add(reportNoGroovy());
       } else {
         messages.add(new CompilerMessage("Groovyc", BuildMessage.Kind.INFO, msg));
       }
@@ -235,6 +242,13 @@ public class GroovycOutputParser {
     }
 
     return messages;
+  }
+
+  @NotNull
+  CompilerMessage reportNoGroovy() {
+    String moduleName = myChunk.representativeTarget().getModule().getName();
+    return new CompilerMessage("", BuildMessage.Kind.ERROR,
+                               "Cannot compile Groovy files: no Groovy library is defined for module '" + moduleName + "'");
   }
 
   public StringBuffer getStdErr() {

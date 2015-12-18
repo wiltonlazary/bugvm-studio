@@ -136,7 +136,7 @@ public abstract class XDebugProcess {
   }
 
   @NotNull
-  public Promise<Void> stopAsync() {
+  public Promise stopAsync() {
     stop();
     return Promise.DONE;
   }
@@ -239,5 +239,12 @@ public abstract class XDebugProcess {
   public XDebuggerEvaluator getEvaluator() {
     XStackFrame frame = getSession().getCurrentStackFrame();
     return frame == null ? null : frame.getEvaluator();
+  }
+
+  /**
+   * Is "isShowLibraryStackFrames" setting respected. If true, ShowLibraryFramesAction will be shown, for example.
+   */
+  public boolean isLibraryFrameFilterSupported() {
+    return false;
   }
 }

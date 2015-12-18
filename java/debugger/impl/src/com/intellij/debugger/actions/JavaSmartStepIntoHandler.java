@@ -67,7 +67,7 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
     }
     TextRange curLineRange = DocumentUtil.getLineTextRange(doc, line);
     PsiElement element = position.getElementAt();
-    PsiElement method = getBody(DebuggerUtilsEx.getContainingMethod(element));
+    PsiElement method = DebuggerUtilsEx.getBody(DebuggerUtilsEx.getContainingMethod(element));
     final TextRange lineRange = (method != null) ? curLineRange.intersection(method.getTextRange()) : curLineRange;
 
     if (lineRange == null || lineRange.isEmpty()) {
@@ -93,6 +93,7 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
         final Stack<PsiMethod> myContextStack = new Stack<PsiMethod>();
         final Stack<String> myParamNameStack = new Stack<String>();
         private int myNextLambdaExpressionOrdinal = 0;
+        private boolean myInsideLambda = false;
 
         @Nullable
         private String getCurrentParamName() {
@@ -107,7 +108,10 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
         }
 
         public void visitLambdaExpression(PsiLambdaExpression expression) {
+          boolean inLambda = myInsideLambda;
+          myInsideLambda = true;
           super.visitLambdaExpression(expression);
+          myInsideLambda = inLambda;
           targets.add(new LambdaSmartStepTarget(expression, getCurrentParamName(), expression.getBody(), myNextLambdaExpressionOrdinal++, null));
         }
 
@@ -119,6 +123,24 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
             if (navMethod instanceof PsiMethod) {
               targets.add(new MethodSmartStepTarget(((PsiMethod)navMethod), null, expression, true, null));
             }
+          }
+        }
+
+        @Override
+        public void visitField(PsiField field) {
+          TextRange range = field.getTextRange();
+          if (lineRange.intersects(range)) {
+            //textRange.set(textRange.get().union(range));
+            super.visitField(field);
+          }
+        }
+
+        @Override
+        public void visitMethod(PsiMethod method) {
+          TextRange range = method.getTextRange();
+          if (lineRange.intersects(range)) {
+            //textRange.set(textRange.get().union(range));
+            super.visitMethod(method);
           }
         }
 
@@ -174,7 +196,7 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
               expression instanceof PsiMethodCallExpression?
                 ((PsiMethodCallExpression)expression).getMethodExpression().getReferenceNameElement()
                 : expression instanceof PsiNewExpression? ((PsiNewExpression)expression).getClassOrAnonymousClassReference() : expression,
-              false,
+              myInsideLambda,
               null
             ));
           }
@@ -205,15 +227,5 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
       return targets;
     }
     return Collections.emptyList();
-  }
-
-  private static PsiElement getBody(@Nullable PsiElement containingMethod) {
-    if (containingMethod instanceof PsiMethod) {
-      return ((PsiMethod)containingMethod).getBody();
-    }
-    else if (containingMethod instanceof PsiLambdaExpression) {
-      return ((PsiLambdaExpression)containingMethod).getBody();
-    }
-    return null;
   }
 }

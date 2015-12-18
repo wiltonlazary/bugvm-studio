@@ -24,7 +24,6 @@ import com.intellij.refactoring.changeSignature.JavaThrownExceptionInfo;
 import com.intellij.refactoring.changeSignature.ParameterInfoImpl;
 import com.intellij.refactoring.changeSignature.ThrownExceptionInfo;
 import com.intellij.refactoring.util.CanonicalTypes;
-import com.intellij.util.IncorrectOperationException;
 
 import java.util.HashSet;
 
@@ -153,6 +152,13 @@ public class ChangeSignatureTest extends ChangeSignatureBaseTest {
     }, false);
   }
 
+  public void testVarargMethodToNonVarag() throws Exception {
+    doTest(null, new ParameterInfoImpl[]{
+      new ParameterInfoImpl(0, "i", PsiType.INT),
+      new ParameterInfoImpl(-1, "b", PsiType.BOOLEAN)
+    }, false);
+  }
+
   public void testParamJavadoc() {
     doTest(null, new ParameterInfoImpl[]{
       new ParameterInfoImpl(1, "z", PsiType.INT),
@@ -238,6 +244,12 @@ public class ChangeSignatureTest extends ChangeSignatureBaseTest {
     doTest(null, new ParameterInfoImpl[]{
       new ParameterInfoImpl(1, "i", PsiType.INT),
       new ParameterInfoImpl(0, "b", new PsiEllipsisType(PsiType.BOOLEAN))
+    }, false);
+  }
+
+  public void testJavadocOfDeleted() {
+    doTest(null, new ParameterInfoImpl[]{
+      new ParameterInfoImpl(0, "role", PsiType.INT),
     }, false);
   }
 
@@ -365,6 +377,28 @@ public class ChangeSignatureTest extends ChangeSignatureBaseTest {
                                  CanonicalTypes.createTypeWrapper(PsiType.VOID), new ParameterInfoImpl[]{
       new ParameterInfoImpl(0, parameters[0].getName(), parameters[0].getType()),
       new ParameterInfoImpl(-1, "b", PsiType.BOOLEAN)}, null, propagateParametersMethods, null
+    ).run();
+    checkResultByFile(basePath + "_after.java");
+  }
+  
+  public void testPropagateParameterWithOverrider() {
+    String basePath = getRelativePath() + getTestName(false);
+    configureByFile(basePath + ".java");
+    final PsiElement targetElement = TargetElementUtil.findTargetElement(getEditor(), TargetElementUtil.ELEMENT_NAME_ACCEPTED);
+    assertTrue("<caret> is not on method name", targetElement instanceof PsiMethod);
+    PsiMethod method = (PsiMethod)targetElement;
+    final PsiClass containingClass = method.getContainingClass();
+    assertTrue(containingClass != null);
+    final PsiMethod[] callers = containingClass.findMethodsByName("caller", false);
+    assertTrue(callers.length > 0);
+    final PsiMethod caller = callers[0];
+    final HashSet<PsiMethod> propagateParametersMethods = new HashSet<>();
+    propagateParametersMethods.add(caller);
+    final PsiParameter[] parameters = method.getParameterList().getParameters();
+    new ChangeSignatureProcessor(getProject(), method, false, null, method.getName(),
+                                 CanonicalTypes.createTypeWrapper(PsiType.VOID), new ParameterInfoImpl[]{
+      new ParameterInfoImpl(0, parameters[0].getName(), parameters[0].getType()),
+      new ParameterInfoImpl(-1, "b", PsiType.BOOLEAN, "true")}, null, propagateParametersMethods, null
     ).run();
     checkResultByFile(basePath + "_after.java");
   }

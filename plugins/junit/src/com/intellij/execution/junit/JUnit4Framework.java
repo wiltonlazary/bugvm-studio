@@ -17,14 +17,12 @@ package com.intellij.execution.junit;
 
 import com.intellij.CommonBundle;
 import com.intellij.codeInsight.AnnotationUtil;
-import com.intellij.codeInsight.daemon.impl.quickfix.OrderEntryFix;
 import com.intellij.codeInsight.intention.AddAnnotationFix;
+import com.intellij.execution.junit2.info.MethodLocation;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.module.Module;
-import com.intellij.openapi.projectRoots.ex.JavaSdkUtil;
+import com.intellij.openapi.roots.ExternalLibraryDescriptor;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
@@ -37,8 +35,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 
 public class JUnit4Framework extends JavaTestFramework {
-  private static final Logger LOG = Logger.getInstance("#" + JUnit4Framework.class.getName());
-
   @NotNull
   public String getName() {
     return "JUnit4";
@@ -54,9 +50,10 @@ public class JUnit4Framework extends JavaTestFramework {
     return JUnitUtil.TEST_ANNOTATION;
   }
 
-  @NotNull
-  public String getLibraryPath() {
-    return JavaSdkUtil.getJunit4JarPath();
+  @Nullable
+  @Override
+  public ExternalLibraryDescriptor getFrameworkLibraryDescriptor() {
+    return JUnitExternalLibraryDescriptor.JUNIT4;
   }
 
   @Nullable
@@ -131,6 +128,11 @@ public class JUnit4Framework extends JavaTestFramework {
     return element instanceof PsiMethod && JUnitUtil.getTestMethod(element) != null;
   }
 
+  @Override
+  public boolean isTestMethod(PsiMethod method, PsiClass myClass) {
+    return JUnitUtil.isTestMethod(MethodLocation.elementInClass(method, myClass));
+  }
+
   public FileTemplateDescriptor getSetUpMethodFileTemplateDescriptor() {
     return new FileTemplateDescriptor("JUnit4 SetUp Method.java");
   }
@@ -156,16 +158,6 @@ public class JUnit4Framework extends JavaTestFramework {
   @Override
   public FileTemplateDescriptor getTestClassFileTemplateDescriptor() {
     return new FileTemplateDescriptor("JUnit4 Test Class.java");
-  }
-
-  @Override
-  public void setupLibrary(Module module) {
-    try {
-      OrderEntryFix.addJUnit4Library(false, module);
-    }
-    catch (ClassNotFoundException e) {
-      LOG.info(e);
-    }
   }
 
   @Override

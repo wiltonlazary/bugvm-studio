@@ -17,6 +17,7 @@ package git4idea.commands;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Function;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import git4idea.GitUtil;
 import org.jetbrains.annotations.NotNull;
@@ -49,6 +50,26 @@ public class GitCommandResult {
     myException = exception;
   }
 
+  @NotNull
+  public static GitCommandResult merge(@Nullable GitCommandResult first, @NotNull GitCommandResult second) {
+    if (first == null) return second;
+
+    int mergedExitCode;
+    if (first.myExitCode == 0) {
+      mergedExitCode = second.myExitCode;
+    }
+    else if (second.myExitCode == 0) {
+      mergedExitCode = first.myExitCode;
+    }
+    else {
+      mergedExitCode = second.myExitCode; // take exit code of the latest command
+    }
+    return new GitCommandResult(first.success() && second.success(), mergedExitCode,
+                                ContainerUtil.concat(first.myErrorOutput, second.myErrorOutput),
+                                ContainerUtil.concat(first.myOutput, second.myOutput),
+                                ObjectUtils.chooseNotNull(second.myException, first.myException));
+  }
+
   /**
    * @return we think that the operation succeeded
    */
@@ -68,12 +89,18 @@ public class GitCommandResult {
 
   @NotNull
   public String getErrorOutputAsHtmlString() {
-    return StringUtil.join(cleanup(myErrorOutput), "<br/>");
+    return StringUtil.join(cleanup(getErrorOrStdOutput()), "<br/>");
   }
 
   @NotNull
   public String getErrorOutputAsJoinedString() {
-    return StringUtil.join(myErrorOutput, "\n");
+    return StringUtil.join(getErrorOrStdOutput(), "\n");
+  }
+
+  // in some cases operation fails but no explicit error messages are given, in this case return the output to display something to user
+  @NotNull
+  private List<String> getErrorOrStdOutput() {
+    return myErrorOutput.isEmpty() && !success() ? myOutput : myErrorOutput;
   }
 
   @NotNull

@@ -15,13 +15,16 @@
  */
 package com.intellij.psi.codeStyle.autodetect;
 
-import com.intellij.lang.Language;
+import com.intellij.formatting.Block;
+import com.intellij.formatting.FormattingModel;
+import com.intellij.formatting.FormattingModelBuilder;
+import com.intellij.lang.LanguageFormatting;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import org.jetbrains.annotations.NotNull;
 
@@ -38,15 +41,11 @@ public class IndentOptionsDetectorImpl implements IndentOptionsDetector {
   private final PsiFile myFile;
   private final Project myProject;
   private final Document myDocument;
-  private final Language myLanguage;
-  private final boolean myUseFormatterBasedLineIndentBuilder;
 
   public IndentOptionsDetectorImpl(@NotNull PsiFile file) {
     myFile = file;
-    myLanguage = file.getLanguage();
     myProject = file.getProject();
     myDocument = PsiDocumentManager.getInstance(myProject).getDocument(myFile);
-    myUseFormatterBasedLineIndentBuilder = Registry.is("editor.detect.indent.by.formatter");
   }
 
   @Override
@@ -65,24 +64,22 @@ public class IndentOptionsDetectorImpl implements IndentOptionsDetector {
 
   private List<LineIndentInfo> calcLineIndentInfo() {
     if (myDocument == null) return null;
-    if (myUseFormatterBasedLineIndentBuilder) {
-      return new FormatterBasedLineIndentInfoBuilder(myFile).build();
-    }
-    return new LineIndentInfoBuilder(myDocument.getCharsSequence(), myLanguage).build();
+    CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(myProject);
+    FormattingModelBuilder modelBuilder = LanguageFormatting.INSTANCE.forContext(myFile);
+    if (modelBuilder == null) return null;
+    
+    FormattingModel model = modelBuilder.createModel(myFile, settings);
+    Block rootBlock = model.getRootBlock();
+    return new FormatterBasedLineIndentInfoBuilder(myDocument, rootBlock).build();
   }
 
   private void adjustIndentOptions(@NotNull IndentOptions indentOptions, @NotNull IndentUsageStatistics stats) {
-    int linesWithTabs = stats.getTotalLinesWithLeadingTabs();
-    int linesWithWhiteSpaceIndent = stats.getTotalLinesWithLeadingSpaces();
-
-    if (linesWithTabs > linesWithWhiteSpaceIndent) {
-      setUseTabs(indentOptions, true);
-      indentOptions.INDENT_SIZE = indentOptions.TAB_SIZE;
-      indentOptions.CONTINUATION_INDENT_SIZE = indentOptions.TAB_SIZE * 2;
+    if (isTabsUsed(stats)) {
+      adjustForTabUsage(indentOptions);
     }
-    else if (linesWithWhiteSpaceIndent > linesWithTabs) {
-      setUseTabs(indentOptions, false);
-
+    else if (isSpacesUsed(stats)) {
+      indentOptions.USE_TAB_CHARACTER = false;
+      
       int newIndentSize = getPositiveIndentSize(stats);
       if (newIndentSize > 0) {
         if (indentOptions.INDENT_SIZE != newIndentSize) {
@@ -93,11 +90,26 @@ public class IndentOptionsDetectorImpl implements IndentOptionsDetector {
     }
   }
 
-  private void setUseTabs(@NotNull IndentOptions indentOptions, boolean useTabs) {
-    if (indentOptions.USE_TAB_CHARACTER != useTabs) {
-      indentOptions.USE_TAB_CHARACTER = useTabs;
-      LOG.debug("Tab usage set to " + useTabs + " for file " + myFile);
-    }
+  private static boolean isSpacesUsed(IndentUsageStatistics stats) {
+    int spaces = stats.getTotalLinesWithLeadingSpaces();
+    int total = stats.getTotalLinesWithLeadingSpaces() + stats.getTotalLinesWithLeadingTabs();
+    return (double)spaces / total > RATE_THRESHOLD;
+  }
+
+  private static boolean isTabsUsed(IndentUsageStatistics stats) {
+    return stats.getTotalLinesWithLeadingTabs() > stats.getTotalLinesWithLeadingSpaces();
+  }
+
+  private void adjustForTabUsage(@NotNull IndentOptions indentOptions) {
+    if (indentOptions.USE_TAB_CHARACTER) return;
+    
+    int continuationRatio = indentOptions.INDENT_SIZE == 0 ? 1 : indentOptions.CONTINUATION_INDENT_SIZE / indentOptions.INDENT_SIZE;
+    
+    indentOptions.USE_TAB_CHARACTER = true;
+    indentOptions.INDENT_SIZE = indentOptions.TAB_SIZE;
+    indentOptions.CONTINUATION_INDENT_SIZE = indentOptions.TAB_SIZE * continuationRatio;
+    
+    LOG.debug("Using tabs for: " + myFile);
   }
 
   private static int getPositiveIndentSize(@NotNull IndentUsageStatistics stats) {

@@ -40,6 +40,7 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.*;
+import com.intellij.openapi.vcs.changes.actions.ChangeListRemoveConfirmation;
 import com.intellij.openapi.vcs.changes.conflicts.ChangelistConflictTracker;
 import com.intellij.openapi.vcs.changes.ui.CommitHelper;
 import com.intellij.openapi.vcs.checkin.CheckinEnvironment;
@@ -55,7 +56,6 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.continuation.ContinuationPause;
 import com.intellij.util.messages.Topic;
-import com.intellij.vcsUtil.Rethrow;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.CalledInAwt;
@@ -71,8 +71,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * @author max
  */
-public class ChangeListManagerImpl extends ChangeListManagerEx implements ProjectComponent, ChangeListOwner, JDOMExternalizable,
-                                                                          RoamingTypeDisabled {
+public class ChangeListManagerImpl extends ChangeListManagerEx implements ProjectComponent, ChangeListOwner, JDOMExternalizable {
   public static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.changes.ChangeListManagerImpl");
   private static final String EXCLUDED_CONVERTED_TO_IGNORED_OPTION = "EXCLUDED_CONVERTED_TO_IGNORED";
 
@@ -169,36 +168,44 @@ public class ChangeListManagerImpl extends ChangeListManagerEx implements Projec
         final LocalChangeList oldList = (LocalChangeList)oldDefaultList;
         if (oldDefaultList == null || oldList.hasDefaultName() || oldDefaultList.equals(newDefaultList)) return;
 
-        if (!ApplicationManager.getApplication().isUnitTestMode() &&
-            oldDefaultList.getChanges().isEmpty() &&
-            !oldList.isReadOnly()) {
-
-          invokeAfterUpdate(new Runnable() {
-            @Override
-            public void run() {
-              if (getChangeList(oldList.getId()) == null) {
-                return; // removed already  
-              }
-              switch (config.REMOVE_EMPTY_INACTIVE_CHANGELISTS) {
-                case SHOW_CONFIRMATION:
-                  if (myModalNotificationsBlocked) {
-                    myListsToBeDeleted.add(oldList);
-                    return;
-                  }
-
-                  if (!showRemoveEmptyChangeListsProposal(config, Collections.singletonList(oldList))) {
-                    return;
-                  }
-                  break;
-                case DO_NOTHING_SILENTLY:
-                  return;
-                case DO_ACTION_SILENTLY:
-                  break;
-              }
-              removeChangeList(oldList);
-            }
-          }, InvokeAfterUpdateMode.SILENT, null, null);
+        if (!ApplicationManager.getApplication().isUnitTestMode()) {
+          scheduleAutomaticChangeListDeletionIfEmpty(oldList, config);
         }
+      }
+    });
+  }
+
+  private void scheduleAutomaticChangeListDeletionIfEmpty(final LocalChangeList oldList, final VcsConfiguration config) {
+    if (oldList.isReadOnly() || !oldList.getChanges().isEmpty()) return;
+    
+    invokeAfterUpdate(new Runnable() {
+      @Override
+      public void run() {
+        LocalChangeList actualList = getChangeList(oldList.getId());
+        if (actualList == null) {
+          return; // removed already  
+        }
+        
+        if (myModalNotificationsBlocked &&
+            config.REMOVE_EMPTY_INACTIVE_CHANGELISTS != VcsShowConfirmationOption.Value.DO_ACTION_SILENTLY) {
+          myListsToBeDeleted.add(oldList);
+        } else {
+          deleteEmptyChangeLists(Collections.singletonList(actualList));
+        }
+      }
+    }, InvokeAfterUpdateMode.SILENT, null, null);
+  }
+
+  private void deleteEmptyChangeLists(@NotNull Collection<LocalChangeList> lists) {
+    if (lists.isEmpty() || myConfig.REMOVE_EMPTY_INACTIVE_CHANGELISTS == VcsShowConfirmationOption.Value.DO_NOTHING_SILENTLY) {
+      return;
+    }
+
+    ChangeListRemoveConfirmation.processLists(myProject, false, lists, new ChangeListRemoveConfirmation() {
+      @Override
+      public boolean askIfShouldRemoveChangeLists(@NotNull List<? extends LocalChangeList> toAsk) {
+        return myConfig.REMOVE_EMPTY_INACTIVE_CHANGELISTS != VcsShowConfirmationOption.Value.SHOW_CONFIRMATION || 
+               showRemoveEmptyChangeListsProposal(myConfig, toAsk);
       }
     });
   }
@@ -208,7 +215,7 @@ public class ChangeListManagerImpl extends ChangeListManagerEx implements Projec
    *
    * @return true if the changelists have to be deleted, false if not.
    */
-  private boolean showRemoveEmptyChangeListsProposal(@NotNull final VcsConfiguration config, @NotNull Collection<LocalChangeList> lists) {
+  private boolean showRemoveEmptyChangeListsProposal(@NotNull final VcsConfiguration config, @NotNull Collection<? extends LocalChangeList> lists) {
     if (lists.isEmpty()) {
       return false;
     }
@@ -257,14 +264,7 @@ public class ChangeListManagerImpl extends ChangeListManagerEx implements Projec
   @CalledInAwt
   public void unblockModalNotifications() {
     myModalNotificationsBlocked = false;
-    if (myListsToBeDeleted.isEmpty()) {
-      return;
-    }
-    if (showRemoveEmptyChangeListsProposal(myConfig, myListsToBeDeleted)) {
-      for (LocalChangeList list : myListsToBeDeleted) {
-        removeChangeList(list);
-      }
-    }
+    deleteEmptyChangeLists(myListsToBeDeleted);
     myListsToBeDeleted.clear();
   }
 
@@ -508,7 +508,10 @@ public class ChangeListManagerImpl extends ChangeListManagerEx implements Projec
     if (!vcsManager.hasActiveVcss()) return;
 
     final VcsInvalidated invalidated = myDirtyScopeManager.retrieveScopes();
-    if (checkScopeIsEmpty(invalidated)) return;
+    if (checkScopeIsEmpty(invalidated)) {
+      myDirtyScopeManager.changesProcessed();
+      return;
+    }
 
     final boolean wasEverythingDirty = invalidated.isEverythingDirty();
     final List<VcsDirtyScope> scopes = invalidated.getScopes();
@@ -759,7 +762,7 @@ public class ChangeListManagerImpl extends ChangeListManagerEx implements Projec
     }
     catch (Throwable t) {
       LOG.debug(t);
-      Rethrow.reThrowRuntime(t);
+      ExceptionUtil.rethrowAllAsUnchecked(t);
     }
     finally {
       if (!myUpdater.isStopped()) {
@@ -1022,8 +1025,8 @@ public class ChangeListManagerImpl extends ChangeListManagerEx implements Projec
               }
               for (String listName : map.keySet()) {
                 final LocalChangeList byName = myWorker.getCopyByName(listName);
-                if (byName != null && byName.getChanges().isEmpty() && !byName.isDefault() && !byName.isReadOnly()) {
-                  myWorker.removeChangeList(listName);
+                if (byName != null && !byName.isDefault()) {
+                  scheduleAutomaticChangeListDeletionIfEmpty(byName, myConfig);
                 }
               }
             }

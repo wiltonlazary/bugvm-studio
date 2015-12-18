@@ -17,6 +17,7 @@ package git4idea;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Collections2;
+import com.intellij.dvcs.DvcsUtil;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -51,10 +52,7 @@ import git4idea.changes.GitCommittedChangeList;
 import git4idea.commands.*;
 import git4idea.config.GitConfigUtil;
 import git4idea.i18n.GitBundle;
-import git4idea.repo.GitBranchTrackInfo;
-import git4idea.repo.GitRemote;
-import git4idea.repo.GitRepository;
-import git4idea.repo.GitRepositoryManager;
+import git4idea.repo.*;
 import git4idea.util.GitSimplePathsBrowser;
 import git4idea.util.GitUIUtil;
 import git4idea.util.StringScanner;
@@ -65,6 +63,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.*;
+
+import static com.intellij.dvcs.DvcsUtil.getShortRepositoryName;
 
 /**
  * Git utility/helper methods
@@ -91,6 +91,14 @@ public class GitUtil {
 
   public static final String ORIGIN_HEAD = "origin/HEAD";
 
+  public static final Function<GitRepository, VirtualFile> REPOSITORY_TO_ROOT = new Function<GitRepository, VirtualFile>() {
+    @Override
+    public VirtualFile fun(@NotNull GitRepository repository) {
+      return repository.getRoot();
+    }
+  };
+
+  private static final String SUBMODULE_REPO_PATH_PREFIX = "gitdir:";
   private final static Logger LOG = Logger.getInstance(GitUtil.class);
 
   /**
@@ -100,41 +108,84 @@ public class GitUtil {
     // do nothing
   }
 
+  /**
+   * Returns the Git repository location for the given repository root directory, or null if nothing can be found.
+   * Able to find the real repository root of a submodule.
+   * @see #findGitDir(VirtualFile) 
+   */
+  @Nullable
+  public static File findGitDir(@NotNull File rootDir) {
+    File dotGit = new File(rootDir, DOT_GIT);
+    if (!dotGit.exists()) return null;
+    if (dotGit.isDirectory()) {
+      boolean headExists = new File(dotGit, GitRepositoryFiles.HEAD).exists();
+      return headExists ? dotGit : null;
+    }
+
+    String content = DvcsUtil.tryLoadFileOrReturn(dotGit, null);
+    if (content == null) return null;
+    String pathToDir = parsePathToRepository(content);
+    return findSubmoduleRepositoryDir(rootDir.getPath(), pathToDir);
+  }
+
+  /**
+   * Returns the Git repository location for the given repository root directory, or null if nothing can be found.
+   * Able to find the real repository root of a submodule.
+   * <p/>
+   * More precisely: checks if there is {@code .git} directory or file directly under rootDir. <br/>
+   * If there is a directory, performs a quick check that it looks like a Git repository;<br/>
+   * if it is a file, follows the path written inside this file to find the submodule repo dir.
+   */
   @Nullable
   public static VirtualFile findGitDir(@NotNull VirtualFile rootDir) {
-    VirtualFile child = rootDir.findChild(DOT_GIT);
-    if (child == null) {
+    VirtualFile dotGit = rootDir.findChild(DOT_GIT);
+    if (dotGit == null) {
       return null;
     }
-    if (child.isDirectory()) {
-      return child;
+    if (dotGit.isDirectory()) {
+      boolean headExists = dotGit.findChild(GitRepositoryFiles.HEAD) != null;
+      return headExists ? dotGit : null;
     }
 
-    // this is standard for submodules, although probably it can
-    String content;
-    try {
-      content = readFile(child);
-    }
-    catch (IOException e) {
-      throw new RuntimeException("Couldn't read " + child, e);
-    }
-    String pathToDir;
-    String prefix = "gitdir:";
-    if (content.startsWith(prefix)) {
-      pathToDir = content.substring(prefix.length()).trim();
-    }
-    else {
-      pathToDir = content;
-    }
+    // if .git is a file with some specific content, it indicates a submodule with a link to the real repository path
+    String content = readContent(dotGit);
+    if (content == null) return null;
+    String pathToDir = parsePathToRepository(content);
+    File file = findSubmoduleRepositoryDir(rootDir.getPath(), pathToDir);
+    if (file == null) return null;
+    return VcsUtil.getVirtualFileWithRefresh(file);
+  }
 
-    if (!FileUtil.isAbsolute(pathToDir)) {
-      String canonicalPath = FileUtil.toCanonicalPath(FileUtil.join(rootDir.getPath(), pathToDir));
+  @Nullable
+  private static File findSubmoduleRepositoryDir(@NotNull String rootPath, @NotNull String path) {
+    if (!FileUtil.isAbsolute(path)) {
+      String canonicalPath = FileUtil.toCanonicalPath(FileUtil.join(rootPath, path), true);
       if (canonicalPath == null) {
         return null;
       }
-      pathToDir = FileUtil.toSystemIndependentName(canonicalPath);
+      path = FileUtil.toSystemIndependentName(canonicalPath);
     }
-    return VcsUtil.getVirtualFileWithRefresh(new File(pathToDir));
+    File file = new File(path);
+    return file.isDirectory() ? file : null;
+  }
+
+  @NotNull
+  private static String parsePathToRepository(@NotNull String content) {
+    content = content.trim();
+    return content.startsWith(SUBMODULE_REPO_PATH_PREFIX) ? content.substring(SUBMODULE_REPO_PATH_PREFIX.length()).trim() : content;
+  }
+
+  @Nullable
+  private static String readContent(@NotNull VirtualFile dotGit) {
+    String content;
+    try {
+      content = readFile(dotGit);
+    }
+    catch (IOException e) {
+      LOG.error("Couldn't read the content of " + dotGit, e);
+      return null;
+    }
+    return content;
   }
 
   /**
@@ -250,7 +301,7 @@ public class GitUtil {
    * @param value a value to parse
    * @return timestamp as {@link Date} object
    */
-  private static Date parseTimestamp(String value) {
+  public static Date parseTimestamp(String value) {
     final long parsed;
     parsed = Long.parseLong(value.trim());
     return new Date(parsed * 1000);
@@ -330,8 +381,8 @@ public class GitUtil {
     return getGitRootOrNull(filePath.getIOFile());
   }
 
-  public static boolean isGitRoot(final File file) {
-    return file != null && file.exists() && new File(file, DOT_GIT).exists();
+  public static boolean isGitRoot(@NotNull File folder) {
+    return findGitDir(folder) != null;
   }
 
   /**
@@ -706,11 +757,7 @@ public class GitUtil {
 
   @NotNull
   public static Collection<VirtualFile> getRootsFromRepositories(@NotNull Collection<GitRepository> repositories) {
-    Collection<VirtualFile> roots = new ArrayList<VirtualFile>(repositories.size());
-    for (GitRepository repository : repositories) {
-      roots.add(repository.getRoot());
-    }
-    return roots;
+    return ContainerUtil.map(repositories, REPOSITORY_TO_ROOT);
   }
 
   @NotNull
@@ -965,7 +1012,7 @@ public class GitUtil {
     msg = msg.trim();
     for (String prefix : PREFIXES) {
       if (msg.startsWith(prefix)) {
-        return msg.substring(prefix.length()).trim();
+        msg = msg.substring(prefix.length()).trim();
       }
     }
     return msg;
@@ -979,5 +1026,20 @@ public class GitUtil {
       }
     }
     return null;
+  }
+
+  @NotNull
+  public static String joinToHtml(@NotNull Collection<GitRepository> repositories) {
+    return StringUtil.join(repositories, new Function<GitRepository, String>() {
+      @Override
+      public String fun(GitRepository repository) {
+        return repository.getPresentableUrl();
+      }
+    }, "<br/>");
+  }
+
+  @NotNull
+  public static String mention(@NotNull GitRepository repository) {
+    return getRepositoryManager(repository.getProject()).moreThanOneRoot() ? " in " + getShortRepositoryName(repository) : "";
   }
 }

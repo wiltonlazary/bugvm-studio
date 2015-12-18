@@ -18,6 +18,9 @@ package com.intellij.execution.actions;
 
 import com.intellij.execution.*;
 import com.intellij.execution.configurations.ConfigurationType;
+import com.intellij.execution.impl.ExecutionManagerImpl;
+import com.intellij.execution.runners.ExecutionUtil;
+import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.*;
@@ -26,9 +29,13 @@ import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.wm.ex.WindowManagerEx;
+import com.intellij.openapi.wm.impl.IdeFrameImpl;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.SizedIcon;
 import com.intellij.ui.components.panels.NonOpaquePanel;
+import com.intellij.util.IconUtil;
 import com.intellij.util.ui.EmptyIcon;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,6 +51,18 @@ public class RunConfigurationsComboBoxAction extends ComboBoxAction implements D
   public static final Icon CHECKED_ICON = new SizedIcon(AllIcons.Actions.Checked, 16, 16);
   public static final Icon CHECKED_SELECTED_ICON = new SizedIcon(AllIcons.Actions.Checked_selected, 16, 16);
   public static final Icon EMPTY_ICON = EmptyIcon.ICON_16;
+
+  @Override
+  public void actionPerformed(AnActionEvent e) {
+    if (e.getPresentation().getClientProperty(CUSTOM_COMPONENT_PROPERTY) == null) {
+      Project project = e.getProject();
+      IdeFrameImpl frame = project != null ? WindowManagerEx.getInstanceEx().getFrame(project) : null;
+      if (frame != null) {
+        e.getPresentation().putClientProperty(CUSTOM_COMPONENT_PROPERTY, frame.getComponent());
+      }
+    }
+    super.actionPerformed(e);
+  }
 
   @Override
   public void update(AnActionEvent e) {
@@ -96,7 +115,21 @@ public class RunConfigurationsComboBoxAction extends ComboBoxAction implements D
                                            final RunnerAndConfigurationSettings settings,
                                            final Project project) {
     try {
-      presentation.setIcon(RunManagerEx.getInstanceEx(project).getConfigurationIcon(settings));
+      Icon icon = RunManagerEx.getInstanceEx(project).getConfigurationIcon(settings);
+      ExecutionManagerImpl executionManager = ExecutionManagerImpl.getInstance(project);
+      List<RunContentDescriptor> runningDescriptors = executionManager.getRunningDescriptors(new Condition<RunnerAndConfigurationSettings>() {
+          @Override
+          public boolean value(RunnerAndConfigurationSettings s) {
+            return s == settings;
+          }
+        });
+      if (runningDescriptors.size() == 1) {
+        icon = ExecutionUtil.getLiveIndicator(icon);
+      }
+      if (runningDescriptors.size() > 1) {
+        icon = IconUtil.addText(icon, String.valueOf(runningDescriptors.size()));
+      }
+      presentation.setIcon(icon);
     }
     catch (IndexNotReadyException ignored) {
     }

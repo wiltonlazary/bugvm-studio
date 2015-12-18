@@ -112,7 +112,7 @@ public class IncProjectBuilder {
   private final boolean myIsTestMode;
 
   private volatile float myTargetsProcessed = 0.0f;
-  private final float myTotalTargetsWork;
+  private volatile float myTotalTargetsWork;
   private final int myTotalModuleLevelBuilderCount;
   private final List<Future> myAsyncTasks = Collections.synchronizedList(new ArrayList<Future>());
   private final ConcurrentMap<Builder, AtomicLong> myElapsedTimeNanosByBuilder = ContainerUtil.newConcurrentMap();
@@ -193,9 +193,11 @@ public class IncProjectBuilder {
       runBuild(context, forceCleanCaches);
       myProjectDescriptor.dataManager.saveVersion();
       reportRebuiltModules(context);
+      reportUnprocessedChanges(context);
     }
     catch (StopBuildException e) {
       reportRebuiltModules(context);
+      reportUnprocessedChanges(context);
       // some builder decided to stop the build
       // report optional progress message if any
       final String msg = e.getMessage();
@@ -309,6 +311,17 @@ public class IncProjectBuilder {
     context.processMessage(new CompilerMessage("", BuildMessage.Kind.INFO, message.toString()));
   }
 
+  private static void reportUnprocessedChanges(CompileContextImpl context) {
+    final ProjectDescriptor pd = context.getProjectDescriptor();
+    final BuildFSState fsState = pd.fsState;
+    for (BuildTarget<?> target : pd.getBuildTargetIndex().getAllTargets()) {
+      if (fsState.hasUnprocessedChanges(context, target)) {
+        context.processMessage(new UnprocessedFSChangesNotification());
+        break;
+      }
+    }
+  }
+
   private static void flushContext(CompileContext context) {
     if (context != null) {
       final ProjectDescriptor pd = context.getProjectDescriptor();
@@ -352,6 +365,7 @@ public class IncProjectBuilder {
       public void filesDeleted(Collection<String> paths) {
       }
     });
+
     for (TargetBuilder builder : myBuilderRegistry.getTargetBuilders()) {
       builder.buildStarted(context);
     }
@@ -651,15 +665,31 @@ public class IncProjectBuilder {
 
   private void buildChunks(final CompileContextImpl context) throws ProjectBuildException {
     try {
-      if (BuildRunner.PARALLEL_BUILD_ENABLED && MAX_BUILDER_THREADS > 1) {
+      final CompileScope scope = context.getScope();
+      final ProjectDescriptor pd = context.getProjectDescriptor();
+      final BuildTargetIndex targetIndex = pd.getBuildTargetIndex();
+
+      // for better progress dynamics consider only actually affected chunks
+      int totalAffected = 0;
+      for (BuildTargetChunk chunk : targetIndex.getSortedTargetChunks(context)) {
+        if (isAffected(context.getScope(), chunk)) {
+          totalAffected += chunk.getTargets().size();
+        }
+      }
+      myTotalTargetsWork = totalAffected;
+
+      boolean compileInParallel = BuildRunner.PARALLEL_BUILD_ENABLED;
+      if (compileInParallel && MAX_BUILDER_THREADS <= 1) {
+        LOG.info("Switched off parallel compilation because maximum number of builder threads is less than 2. Set '"
+                 + GlobalOptions.COMPILE_PARALLEL_MAX_THREADS_OPTION + "' system property to a value greater than 1 to really enable parallel compilation.");
+        compileInParallel = false;
+      }
+
+      if (compileInParallel) {
         new BuildParallelizer(context).buildInParallel();
       }
       else {
         // non-parallel build
-        final CompileScope scope = context.getScope();
-        final ProjectDescriptor pd = context.getProjectDescriptor();
-        final BuildTargetIndex targetIndex = pd.getBuildTargetIndex();
-
         for (BuildTargetChunk chunk : targetIndex.getSortedTargetChunks(context)) {
           try {
             buildChunkIfAffected(context, scope, chunk);
@@ -839,9 +869,6 @@ public class IncProjectBuilder {
     if (isAffected(scope, chunk)) {
       buildTargetsChunk(context, chunk);
     }
-    else {
-      updateDoneFraction(context, chunk.getTargets().size());
-    }
   }
 
   private static boolean isAffected(CompileScope scope, BuildTargetChunk chunk) {
@@ -883,9 +910,10 @@ public class IncProjectBuilder {
     cleanOldOutputs(context, target);
     
     final List<TargetBuilder<?, ?>> builders = BuilderRegistry.getInstance().getTargetBuilders();
+    final float builderProgressDelta = 1.0f / builders.size();
     for (TargetBuilder<?, ?> builder : builders) {
       buildTarget(target, context, builder);
-      updateDoneFraction(context, 1.0f / builders.size());
+      updateDoneFraction(context, builderProgressDelta);
     }
     return true;
   }

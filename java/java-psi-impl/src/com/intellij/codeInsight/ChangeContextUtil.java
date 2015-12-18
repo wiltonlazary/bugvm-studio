@@ -202,7 +202,10 @@ public class ChangeContextUtil {
         if (refMember.hasModifierProperty(PsiModifier.STATIC)){
           PsiElement refElement = refExpr.resolve();
           if (!manager.areElementsEquivalent(refMember, refElement)){
-            refExpr.setQualifierExpression(factory.createReferenceExpression(containingClass));
+            final PsiClass currentClass = PsiTreeUtil.getParentOfType(refExpr, PsiClass.class);
+            if (currentClass == null || !InheritanceUtil.isInheritorOrSelf(currentClass, containingClass, true)) {
+              refExpr.setQualifierExpression(factory.createReferenceExpression(containingClass));
+            }
           }
         }
         else {
@@ -335,10 +338,6 @@ public class ChangeContextUtil {
       }
     }
     return scope;
-  }
-
-  public static PsiClass getThisClass(PsiElement element) {
-    return PsiTreeUtil.getParentOfType(element, PsiClass.class);
   }
 
   public static void clearContextInfo(PsiElement scope) {

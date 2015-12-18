@@ -1,10 +1,25 @@
+/*
+ * Copyright 2000-2015 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.jetbrains.settingsRepository;
 
 import com.intellij.openapi.components.RoamingType;
+import com.intellij.openapi.components.ServiceKt;
 import com.intellij.openapi.components.TrackingPathMacroSubstitutor;
 import com.intellij.openapi.components.impl.stores.StateStorageManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ex.ProjectEx;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeList;
@@ -31,8 +46,8 @@ public class CommitToIcsDialog extends DialogWrapper {
     browser = new ChangesBrowser(project, Collections.<ChangeList>emptyList(), projectFileChanges, null, true, false, null, ChangesBrowser.MyUseCase.LOCAL_CHANGES, null);
     browser.setChangesToDisplay(projectFileChanges);
 
-    setTitle(IcsBundle.message("action.CommitToIcs.text"));
-    setOKButtonText(IcsBundle.message("action.CommitToIcs.text"));
+    setTitle(IcsBundleKt.icsMessage("action.CommitToIcs.text"));
+    setOKButtonText(IcsBundleKt.icsMessage("action.CommitToIcs.text"));
     init();
   }
 
@@ -47,17 +62,17 @@ public class CommitToIcsDialog extends DialogWrapper {
   }
 
   private void commitChanges(List<Change> changes) {
-    StateStorageManager storageManager = ((ProjectEx)project).getStateStore().getStateStorageManager();
+    StateStorageManager storageManager = ServiceKt.getStateStore(project).getStateStorageManager();
     TrackingPathMacroSubstitutor macroSubstitutor = storageManager.getMacroSubstitutor();
     assert macroSubstitutor != null;
-    IcsManager icsManager = SettingsRepositoryPackage.getIcsManager();
+    IcsManager icsManager = IcsManagerKt.getIcsManager();
 
     SmartList<String> addToIcs = new SmartList<String>();
     for (Change change : changes) {
       VirtualFile file = change.getVirtualFile();
       assert file != null;
       String fileSpec = macroSubstitutor.collapsePath(file.getPath());
-      String repoPath = SettingsRepositoryPackage.buildPath(fileSpec, RoamingType.PER_USER, projectId);
+      String repoPath = IcsUrlBuilderKt.buildPath(fileSpec, RoamingType.DEFAULT, projectId);
       addToIcs.add(repoPath);
       if (!icsManager.getRepositoryManager().has(repoPath)) {
         // new, revert local

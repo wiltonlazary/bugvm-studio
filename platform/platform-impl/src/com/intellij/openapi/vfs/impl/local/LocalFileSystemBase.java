@@ -41,6 +41,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -74,8 +75,8 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
 
   @Override
   public VirtualFile findFileByIoFile(@NotNull File file) {
-    String path = file.getAbsolutePath();
-    return findFileByPath(path.replace(File.separatorChar, '/'));
+    String path = FileUtil.toSystemIndependentName(file.getAbsolutePath());
+    return findFileByPath(path);
   }
 
   @NotNull
@@ -197,13 +198,11 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
         path = path.substring(1);  // hack over new File(path).toURI().toURL().getFile()
       }
 
-      if (path.contains("~")) {
-        try {
-          path = new File(FileUtil.toSystemDependentName(path)).getCanonicalPath();
-        }
-        catch (IOException e) {
-          return null;
-        }
+      try {
+        path = FileUtil.resolveShortWindowsName(path);
+      }
+      catch (IOException e) {
+        return null;
       }
     }
 
@@ -227,8 +226,8 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
 
   @Override
   public VirtualFile refreshAndFindFileByIoFile(@NotNull File file) {
-    String path = file.getAbsolutePath();
-    return refreshAndFindFileByPath(path.replace(File.separatorChar, '/'));
+    String path = FileUtil.toSystemIndependentName(file.getAbsolutePath());
+    return refreshAndFindFileByPath(path);
   }
 
   @Override
@@ -459,17 +458,35 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
   @Override
   @NotNull
   public byte[] contentsToByteArray(@NotNull final VirtualFile file) throws IOException {
-    final InputStream stream = new BufferedInputStream(new FileInputStream(convertToIOFileAndCheck(file)));
+    final InputStream stream = new FileInputStream(convertToIOFileAndCheck(file));
     try {
       long l = file.getLength();
       if (l > Integer.MAX_VALUE) throw new IOException("File is too large: " + l + ", " + file);
       final int length = (int)l;
       if (length < 0) throw new IOException("Invalid file length: " + length + ", " + file);
-      return FileUtil.loadBytes(stream, length);
+      // io_util.c#readBytes allocates custom native stack buffer for io operation with malloc if io request > 8K
+      // so let's do buffered requests with buffer size 8192 that will use stack allocated buffer
+      return loadBytes(length <= 8192 ? stream : new BufferedInputStream(stream), length);
     }
     finally {
       stream.close();
     }
+  }
+
+  @NotNull
+  private static byte[] loadBytes(@NotNull InputStream stream, int length) throws IOException {
+    byte[] bytes = new byte[length];
+    int count = 0;
+    while (count < length) {
+      int n = stream.read(bytes, count, length - count);
+      if (n <= 0) break;
+      count += n;
+    }
+    if (count < length) {
+      // this may happen with encrypted files, see IDEA-143773
+      return Arrays.copyOf(bytes, count);
+    }
+    return bytes;
   }
 
   @Override
@@ -514,7 +531,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
     }
 
     File ioFile = convertToIOFile(file);
-    if (!ioFile.exists()) {
+    if (FileSystemUtil.getAttributes(ioFile) == null) {
       throw new FileNotFoundException(VfsBundle.message("file.not.exist.error", ioFile.getPath()));
     }
     File ioParent = convertToIOFile(newParent);
@@ -569,7 +586,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
     }
 
     if (!auxRename(file, newName)) {
-      if (!ioFile.renameTo(ioTarget)) {
+      if (!FileUtil.rename(ioFile, newName)) {
         throw new IOException(VfsBundle.message("rename.failed.error", ioFile.getPath(), newName));
       }
     }
@@ -621,12 +638,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
     if (!auxCopy(file, newParent, copyName)) {
       try {
         File ioFile = convertToIOFile(file);
-        if (attributes.isDirectory()) {
-          FileUtil.copyDir(ioFile, ioTarget);
-        }
-        else {
-          FileUtil.copy(ioFile, ioTarget);
-        }
+        FileUtil.copyFileOrDir(ioFile, ioTarget, attributes.isDirectory());
       }
       catch (IOException e) {
         FileUtil.delete(ioTarget);

@@ -62,11 +62,15 @@ public abstract class PsiTestCase extends ModuleTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    myPsiManager = null;
-    myFile = null;
-    myTestDataBefore = null;
-    myTestDataAfter = null;
-    super.tearDown();
+    try {
+      myPsiManager = null;
+      myFile = null;
+      myTestDataBefore = null;
+      myTestDataAfter = null;
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   @NotNull
@@ -93,7 +97,7 @@ public abstract class PsiTestCase extends ModuleTestCase {
   protected PsiFile createFile(@NotNull final Module module, @NotNull final VirtualFile vDir, @NotNull final String fileName, @NotNull final String text) throws IOException {
     return new WriteAction<PsiFile>() {
       @Override
-      protected void run(Result<PsiFile> result) throws Throwable {
+      protected void run(@NotNull Result<PsiFile> result) throws Throwable {
         if (!ModuleRootManager.getInstance(module).getFileIndex().isInSourceContent(vDir)) {
           addSourceContentToRoots(module, vDir);
         }

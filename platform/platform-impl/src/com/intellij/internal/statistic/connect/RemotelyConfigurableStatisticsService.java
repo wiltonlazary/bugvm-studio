@@ -1,12 +1,8 @@
 package com.intellij.internal.statistic.connect;
 
 import com.intellij.internal.statistic.StatisticsUploadAssistant;
-import com.intellij.internal.statistic.persistence.ApplicationStatisticsPersistenceComponent;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationListener;
-import com.intellij.notification.NotificationType;
-import com.intellij.openapi.application.ApplicationInfo;
-import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,51 +25,37 @@ public class RemotelyConfigurableStatisticsService implements StatisticsService 
 
   @Override
   public StatisticsResult send() {
-    synchronized (ApplicationStatisticsPersistenceComponent.class) {
-      final String serviceUrl = myConnectionService.getServiceUrl();
+    final String serviceUrl = myConnectionService.getServiceUrl();
 
-      if (serviceUrl == null) {
-        return new StatisticsResult(StatisticsResult.ResultCode.ERROR_IN_CONFIG, "ERROR");
-      }
+    if (serviceUrl == null) {
+      return new StatisticsResult(StatisticsResult.ResultCode.ERROR_IN_CONFIG, "ERROR");
+    }
 
-      if (!myConnectionService.isTransmissionPermitted()) {
-        return new StatisticsResult(StatisticsResult.ResultCode.NOT_PERMITTED_SERVER, "NOT_PERMITTED");
-      }
+    if (!myConnectionService.isTransmissionPermitted()) {
+      return new StatisticsResult(StatisticsResult.ResultCode.NOT_PERMITTED_SERVER, "NOT_PERMITTED");
+    }
 
-      String content = myAssistant.getData(myConnectionService.getDisabledGroups());
+    String content = myAssistant.getData(myConnectionService.getDisabledGroups());
 
-      if (StringUtil.isEmptyOrSpaces(content)) {
-        return new StatisticsResult(StatisticsResult.ResultCode.NOTHING_TO_SEND, "NOTHING_TO_SEND");
-      }
+    if (StringUtil.isEmptyOrSpaces(content)) {
+      return new StatisticsResult(StatisticsResult.ResultCode.NOTHING_TO_SEND, "NOTHING_TO_SEND");
+    }
 
-      try {
-        sender.send(serviceUrl, content);
-        StatisticsUploadAssistant.updateSentTime();
+    try {
+      sender.send(serviceUrl, content);
+      StatisticsUploadAssistant.updateSentTime();
 
-        return new StatisticsResult(StatisticsResult.ResultCode.SEND, content);
-      }
-      catch (Exception e) {
-        return new StatisticsResult(StatisticsResult.ResultCode.SENT_WITH_ERRORS, e.getMessage() != null ? e.getMessage() : "NPE");
-      }
+      return new StatisticsResult(StatisticsResult.ResultCode.SEND, content);
+    }
+    catch (Exception e) {
+      return new StatisticsResult(StatisticsResult.ResultCode.SENT_WITH_ERRORS, e.getMessage() != null ? e.getMessage() : "NPE");
     }
   }
 
 
   @Override
   public Notification createNotification(@NotNull final String groupDisplayId, @Nullable NotificationListener listener) {
-    final String fullProductName = ApplicationNamesInfo.getInstance().getFullProductName();
-    final String companyName = ApplicationInfo.getInstance().getCompanyName();
-
-    String text =
-      "<html>Please click <a href='allow'>I agree</a> if you want to help make " + fullProductName +
-      " better or <a href='decline'>I don't agree</a> otherwise. <a href='settings'>more...</a></html>";
-
-    String title = "Help improve " + fullProductName + " by sending anonymous usage statistics to " + companyName;
-
-    return new Notification(groupDisplayId, title,
-                            text,
-                            NotificationType.INFORMATION,
-                            listener);
+    return new StatisticsNotification(groupDisplayId, listener);
   }
 
   @Nullable

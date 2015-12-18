@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.intellij.debugger.impl;
 
 import com.intellij.util.EventDispatcher;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Created by IntelliJ IDEA.
@@ -27,9 +28,10 @@ import com.intellij.util.EventDispatcher;
 public abstract class DebuggerStateManager {
   private final EventDispatcher<DebuggerContextListener> myEventDispatcher = EventDispatcher.create(DebuggerContextListener.class);
 
+  @NotNull
   public abstract DebuggerContextImpl getContext();
 
-  public abstract void setState(DebuggerContextImpl context, int state, int event, String description);
+  public abstract void setState(@NotNull DebuggerContextImpl context, DebuggerSession.State state, DebuggerSession.Event event, String description);
 
   //we allow add listeners inside DebuggerContextListener.changeEvent
   public void addListener(DebuggerContextListener listener){
@@ -41,7 +43,7 @@ public abstract class DebuggerStateManager {
     myEventDispatcher.removeListener(listener);
   }
 
-  protected void fireStateChanged(DebuggerContextImpl newContext, int event) {
+  protected void fireStateChanged(@NotNull DebuggerContextImpl newContext, DebuggerSession.Event event) {
     myEventDispatcher.getMulticaster().changeEvent(newContext, event);
   }
 }

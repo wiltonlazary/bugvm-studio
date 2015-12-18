@@ -17,11 +17,16 @@ package com.intellij.openapi.editor.impl.view;
 
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.FoldRegion;
+import com.intellij.openapi.editor.SoftWrap;
 import com.intellij.openapi.editor.ex.FoldingModelEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
+import com.intellij.openapi.editor.impl.EditorImpl;
+import com.intellij.openapi.editor.impl.SoftWrapModelImpl;
+import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 
 /**
@@ -30,11 +35,16 @@ import java.util.NoSuchElementException;
  */
 class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterator.Fragment> {
 
-  static Iterable<Fragment> create(final EditorView view, final int offset) {
+  /**
+   * If <code>quickEvaluationListener</code> is provided, quick approximate iteration mode becomes enabled, listener will be invoked
+   * if approximation will in fact be used during width calculation.
+   */
+  static Iterable<Fragment> create(final EditorView view, final int offset, final boolean beforeSoftWrap, 
+                                   @Nullable final Runnable quickEvaluationListener) {
     return new Iterable<Fragment>() {
       @Override
       public Iterator<Fragment> iterator() {
-        return new VisualLineFragmentsIterator(view, offset);
+        return new VisualLineFragmentsIterator(view, offset, beforeSoftWrap, quickEvaluationListener);
       }
     };
   }
@@ -43,6 +53,8 @@ class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterato
   private final Document myDocument;
   private final FoldRegion[] myRegions;
   private final Fragment myFragment = new Fragment();
+  private final int myVisualLineStartOffset;
+  private final Runnable myQuickEvaluationListener;
   
   private int mySegmentStartOffset;
   private int mySegmentEndOffset;
@@ -54,17 +66,47 @@ class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterato
   private FoldRegion myFoldRegion;
   private int myCurrentStartLogicalLine;
   private int myCurrentEndLogicalLine;
+  private int myNextWrapOffset;
 
-  private VisualLineFragmentsIterator(EditorView view, int offset) {
+  private VisualLineFragmentsIterator(EditorView view, int offset, boolean beforeSoftWrap, @Nullable Runnable quickEvaluationListener) {
+    myQuickEvaluationListener = quickEvaluationListener;
     myView = view;
-    myDocument = view.getEditor().getDocument();
-    FoldingModelEx foldingModel = view.getEditor().getFoldingModel();
+    EditorImpl editor = view.getEditor();
+    myDocument = editor.getDocument();
+    FoldingModelEx foldingModel = editor.getFoldingModel();
     FoldRegion[] regions = foldingModel.fetchTopLevel();
     myRegions = regions == null ? FoldRegion.EMPTY_ARRAY : regions;
-    mySegmentStartOffset = EditorUtil.getNotFoldedLineStartOffset(view.getEditor(), offset);
+    int visualLineStartOffset = EditorUtil.getNotFoldedLineStartOffset(editor, offset);
+
+    SoftWrapModelImpl softWrapModel = editor.getSoftWrapModel();
+    List<? extends SoftWrap> softWraps = softWrapModel.getRegisteredSoftWraps();
+    int currentOrPrevWrapIndex = softWrapModel.getSoftWrapIndex(offset);
+    if (currentOrPrevWrapIndex < 0) {
+      currentOrPrevWrapIndex = - currentOrPrevWrapIndex - 2;
+    }
+    else if (beforeSoftWrap) {
+      currentOrPrevWrapIndex--;
+    }
+    SoftWrap currentOrPrevWrap = currentOrPrevWrapIndex < 0 || currentOrPrevWrapIndex >= softWraps.size() ? null :
+                                 softWraps.get(currentOrPrevWrapIndex);
+    SoftWrap followingWrap = (currentOrPrevWrapIndex + 1) >= softWraps.size() ? null : softWraps.get(currentOrPrevWrapIndex + 1);
+
+    if (currentOrPrevWrap != null && currentOrPrevWrap.getStart() > visualLineStartOffset) {
+      visualLineStartOffset = currentOrPrevWrap.getStart();
+    }
+    
+    myVisualLineStartOffset = mySegmentStartOffset = visualLineStartOffset;
+
     myCurrentFoldRegionIndex = foldingModel.getLastCollapsedRegionBefore(mySegmentStartOffset) + 1;
     myCurrentEndLogicalLine = myDocument.getLineNumber(mySegmentStartOffset);
-    myCurrentX = myCurrentEndLogicalLine == 0 ? myView.getPrefixTextWidthInPixels() : 0;
+    if (mySegmentStartOffset == 0) {
+      myCurrentX = myView.getPrefixTextWidthInPixels();
+    }
+    else if (currentOrPrevWrap != null && mySegmentStartOffset == currentOrPrevWrap.getStart()) {
+      myCurrentX = currentOrPrevWrap.getIndentInPixels();
+      myCurrentVisualColumn = currentOrPrevWrap.getIndentInColumns();
+    }
+    myNextWrapOffset = followingWrap == null ? Integer.MAX_VALUE : followingWrap.getStart();
     setFragmentIterator();
   }
 
@@ -72,16 +114,21 @@ class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterato
     mySegmentEndOffset = getCurrentFoldRegionStartOffset();
     if (mySegmentEndOffset > mySegmentStartOffset) {
       int line = myDocument.getLineNumber(mySegmentStartOffset);
-      mySegmentEndOffset = Math.min(mySegmentEndOffset, myDocument.getLineEndOffset(line));
+      mySegmentEndOffset = Math.min(myNextWrapOffset, Math.min(mySegmentEndOffset, myDocument.getLineEndOffset(line)));
       int lineStartOffset = myDocument.getLineStartOffset(line);
-      myFragmentIterator = myView.getLineLayout(line).getFragmentsInVisualOrder(myCurrentX, myCurrentVisualColumn,
-                                                                                mySegmentStartOffset - lineStartOffset, 
-                                                                                mySegmentEndOffset - lineStartOffset).iterator();
+      myFragmentIterator = myView.getTextLayoutCache().getLineLayout(line).
+        getFragmentsInVisualOrder(myView, lineStartOffset, myCurrentX, myCurrentVisualColumn, 
+                                  mySegmentStartOffset - lineStartOffset, mySegmentEndOffset - lineStartOffset, 
+                                  myQuickEvaluationListener).iterator();
     }
   }
 
   private int getCurrentFoldRegionStartOffset() {
-    return myCurrentFoldRegionIndex < myRegions.length ? myRegions[myCurrentFoldRegionIndex].getStartOffset() : Integer.MAX_VALUE;
+    if (myCurrentFoldRegionIndex >= myRegions.length) {
+      return Integer.MAX_VALUE;
+    }
+    int nextFoldingOffset = myRegions[myCurrentFoldRegionIndex].getStartOffset();
+    return nextFoldingOffset < myNextWrapOffset ? nextFoldingOffset : Integer.MAX_VALUE;
   }
   
   private float getFoldRegionWidthInPixels(FoldRegion foldRegion) {
@@ -157,6 +204,10 @@ class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterato
   }
 
   class Fragment {    
+    int getVisualLineStartOffset() {
+      return myVisualLineStartOffset;
+    }
+    
     boolean isCollapsedFoldRegion() {
       return myDelegate == null;
     }
@@ -193,6 +244,10 @@ class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterato
       return myCurrentEndLogicalLine;
     }
     
+    float getStartX() {
+      return myDelegate == null ? myCurrentX - getFoldRegionWidthInPixels(myFoldRegion) : myDelegate.getStartX();
+    }
+
     float getEndX() {
       return myCurrentX;
     }
@@ -214,7 +269,7 @@ class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterato
     // - second one is 1 if target location is closer to larger columns and 0 otherwise
     int[] xToVisualColumn(float x) {
       if (myDelegate == null) {
-        int[] column = getVisualColumnForXInsideFoldRegion(myFoldRegion, x - (myCurrentX - getFoldRegionWidthInPixels(myFoldRegion)));
+        int[] column = getVisualColumnForXInsideFoldRegion(myFoldRegion, x - getStartX());
         column[0] += getStartVisualColumn();
         return column;
       }
@@ -225,7 +280,7 @@ class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterato
 
     float visualColumnToX(int column) {
       return myDelegate == null ? 
-             myCurrentX - getFoldRegionWidthInPixels(myFoldRegion) + 
+             getStartX() +
              getXForVisualColumnInsideFoldRegion(myFoldRegion, column - myCurrentVisualColumn + getFoldRegionWidthInColumns(myFoldRegion)) :
              myDelegate.visualColumnToX(column);
     }
@@ -257,7 +312,7 @@ class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsIterato
     // offset is absolute
     float offsetToX(int offset) {
       return myDelegate == null ?
-             myCurrentX - getFoldRegionWidthInPixels(myFoldRegion) + getXForOffsetInsideFoldRegion(myFoldRegion, offset) :
+             getStartX() + getXForOffsetInsideFoldRegion(myFoldRegion, offset) :
              myDelegate.offsetToX(offset - myDocument.getLineStartOffset(myCurrentStartLogicalLine));
     }
 

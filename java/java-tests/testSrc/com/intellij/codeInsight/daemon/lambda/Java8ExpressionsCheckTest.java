@@ -43,6 +43,59 @@ public class Java8ExpressionsCheckTest extends LightDaemonAnalyzerTestCase {
     doTestAllMethodCallExpressions();
   }
 
+  public void testProoveThatInferenceInsideLambdaBodyDontInfluenceOuterCallInference() throws Exception {
+    doTestAllMethodCallExpressions();
+  }
+
+  public void testDontCollectUnhandledReferencesInsideLambdaBody() throws Exception {
+    doTestAllMethodCallExpressions();
+  }
+
+  public void testCachedUnresolvedMethods() throws Exception {
+    doTestCachedUnresolved();
+  }
+
+  public void testCacheUnresolvedMethods2() throws Exception {
+    doTestCachedUnresolved();
+  }
+  
+  public void testCacheUnresolvedMethods3() throws Exception {
+    doTestCachedUnresolved();
+  }
+
+  private void doTestCachedUnresolved() {
+    configureByFile(BASE_PATH + "/" + getTestName(false) + ".java");
+    PsiMethodCallExpression callExpression =
+      PsiTreeUtil.getParentOfType(getFile().findElementAt(getEditor().getCaretModel().getOffset()), PsiMethodCallExpression.class);
+
+    assertNotNull(callExpression);
+    assertNotNull(callExpression.getType());
+
+    final Collection<PsiCallExpression> methodCallExpressions = PsiTreeUtil.findChildrenOfType(getFile(), PsiCallExpression.class);
+    for (PsiCallExpression expression : methodCallExpressions) {
+      assertNotNull("Failed inference for: " + expression.getText(), expression.getType());
+    }
+  }
+
+  public void testIDEA140035() throws Exception {
+    doTestAllMethodCallExpressions();
+    final Collection<PsiParameter> parameterLists = PsiTreeUtil.findChildrenOfType(getFile(), PsiParameter.class);
+    for (PsiParameter parameter : parameterLists) {
+      if (parameter.getTypeElement() != null) continue;
+      getPsiManager().dropResolveCaches();
+      final PsiType type = parameter.getType();
+      assertFalse("Failed inference for: " + parameter.getParent().getText(), type instanceof PsiLambdaParameterType);
+    }
+  }
+
+  public void testAdditionalConstraintsBasedOnLambdaResolution() throws Exception {
+    doTestAllMethodCallExpressions();
+  }
+  
+  public void testAdditionalConstraintsBasedOnLambdaResolutionForNestedLambdas() throws Exception {
+    doTestAllMethodCallExpressions();
+  }
+
   private void doTestAllMethodCallExpressions() {
     configureByFile(BASE_PATH + "/" + getTestName(false) + ".java");
     final Collection<PsiCallExpression> methodCallExpressions = PsiTreeUtil.findChildrenOfType(getFile(), PsiCallExpression.class);

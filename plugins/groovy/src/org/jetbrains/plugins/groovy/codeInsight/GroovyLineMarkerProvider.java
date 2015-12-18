@@ -98,7 +98,7 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
                element == ((GrMethod)parent).getNameIdentifierGroovy() &&
                hasSuperMethods((GrMethod)element.getParent())) {
         final Icon icon = AllIcons.Gutter.OverridingMethod;
-        final MarkerType type = GroovyMarkerTypes.OVERRIDING_METHOD;
+        final MarkerType type = GroovyMarkerTypes.GR_OVERRIDING_METHOD;
         return new LineMarkerInfo<PsiElement>(element, element.getTextRange(), icon, Pass.UPDATE_ALL, type.getTooltip(),
                                               type.getNavigationHandler(), GutterIconRenderer.Alignment.LEFT);
       }
@@ -116,7 +116,7 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
       }
       if (isMember && !(element1 instanceof PsiAnonymousClass || element1.getParent() instanceof PsiAnonymousClass)) {
         PsiFile file = element1.getContainingFile();
-        Document document = file == null ? null : PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
+        Document document = file == null ? null : PsiDocumentManager.getInstance(file.getProject()).getLastCommittedDocument(file);
         boolean drawSeparator = false;
         if (document != null) {
           CharSequence documentChars = document.getCharsSequence();
@@ -256,7 +256,7 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
       }
 
       final MarkerType type = element instanceof GrField ? GroovyMarkerTypes.OVERRIDEN_PROPERTY_TYPE
-                                                         : GroovyMarkerTypes.OVERRIDEN_METHOD;
+                                                         : GroovyMarkerTypes.GR_OVERRIDEN_METHOD;
       LineMarkerInfo info = new LineMarkerInfo<PsiElement>(range, range.getTextRange(), icon, Pass.UPDATE_OVERRIDEN_MARKERS, type.getTooltip(),
                                                            type.getNavigationHandler(), GutterIconRenderer.Alignment.RIGHT);
       result.add(info);

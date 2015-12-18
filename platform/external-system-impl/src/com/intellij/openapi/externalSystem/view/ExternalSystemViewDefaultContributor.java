@@ -17,14 +17,13 @@ package com.intellij.openapi.externalSystem.view;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.projectView.PresentationData;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.Key;
 import com.intellij.openapi.externalSystem.model.ProjectKeys;
 import com.intellij.openapi.externalSystem.model.project.LibraryDependencyData;
 import com.intellij.openapi.externalSystem.model.project.ModuleData;
 import com.intellij.openapi.externalSystem.model.project.ModuleDependencyData;
-import com.intellij.openapi.externalSystem.service.project.ProjectStructureHelper;
+import com.intellij.openapi.externalSystem.service.project.IdeModelsProviderImpl;
 import com.intellij.openapi.externalSystem.settings.AbstractExternalSystemSettings;
 import com.intellij.openapi.externalSystem.settings.ExternalProjectSettings;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
@@ -34,6 +33,7 @@ import com.intellij.openapi.roots.OrderEntry;
 import com.intellij.openapi.roots.ui.configuration.ProjectSettingsService;
 import com.intellij.pom.Navigatable;
 import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -70,7 +70,13 @@ public class ExternalSystemViewDefaultContributor extends ExternalSystemViewCont
 
     addModuleNodes(externalProjectsView, dataNodes, result);
     // add tasks
-    result.add(new TasksNode(externalProjectsView, dataNodes.get(ProjectKeys.TASK)));
+    TasksNode tasksNode = new TasksNode(externalProjectsView, dataNodes.get(ProjectKeys.TASK));
+    if(externalProjectsView.useTasksNode()) {
+      result.add(tasksNode);
+    } else {
+      ContainerUtil.addAll(result, tasksNode.getChildren());
+    }
+
     addDependenciesNode(externalProjectsView, dataNodes, result);
 
     return result;
@@ -237,7 +243,7 @@ public class ExternalSystemViewDefaultContributor extends ExternalSystemViewCont
       if (data == null) return null;
       final Project project = getProject();
       if (project == null) return null;
-      return ServiceManager.getService(ProjectStructureHelper.class).findIdeModuleOrderEntry(data, project);
+      return new IdeModelsProviderImpl(project).findIdeModuleOrderEntry(data);
     }
   }
 }

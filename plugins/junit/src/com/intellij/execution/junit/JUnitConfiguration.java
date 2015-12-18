@@ -28,7 +28,6 @@ import com.intellij.execution.junit2.ui.properties.JUnitConsoleProperties;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
 import com.intellij.execution.testframework.TestSearchScope;
-import com.intellij.execution.testframework.sm.runner.SMRunnerConsolePropertiesProvider;
 import com.intellij.execution.testframework.sm.runner.SMTRunnerConsoleProperties;
 import com.intellij.openapi.components.PathMacroManager;
 import com.intellij.openapi.module.Module;
@@ -51,8 +50,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-public class JUnitConfiguration extends ModuleBasedConfiguration<JavaRunConfigurationModule>
-  implements CommonJavaRunConfigurationParameters, RefactoringListenerProvider, SMRunnerConsolePropertiesProvider {
+public class JUnitConfiguration extends JavaTestConfigurationBase {
   public static final String DEFAULT_PACKAGE_NAME = ExecutionBundle.message("default.package.presentable.name");
 
   @NonNls public static final String TEST_CLASS = "class";
@@ -110,6 +108,23 @@ public class JUnitConfiguration extends ModuleBasedConfiguration<JavaRunConfigur
       final Module originalModule = getConfigurationModule().getModule();
       setMainClass(psiClass);
       restoreOriginalModule(originalModule);
+    }
+  };
+  
+  final RefactoringListeners.Accessor<PsiClass> myCategory = new RefactoringListeners.Accessor<PsiClass>() {
+    @Override
+    public void setName(@NotNull final String qualifiedName) {
+      setCategory(qualifiedName);
+    }
+
+    @Override
+    public PsiClass getPsiElement() {
+      return getConfigurationModule().findClass(myData.getCategory());
+    }
+
+    @Override
+    public void setPsiElement(final PsiClass psiClass) {
+      setCategory(JavaExecutionUtil.getRuntimeQualifiedName(psiClass));
     }
   };
   public boolean ALTERNATIVE_JRE_PATH_ENABLED;
@@ -280,6 +295,12 @@ public class JUnitConfiguration extends ModuleBasedConfiguration<JavaRunConfigur
   public void setMainClass(final PsiClass testClass) {
     final boolean shouldUpdateName = isGeneratedName();
     setModule(myData.setMainClass(testClass));
+    if (shouldUpdateName) setGeneratedName();
+  }
+
+  public void setCategory(String categoryName) {
+    final boolean shouldUpdateName = isGeneratedName();
+    myData.setCategoryName(categoryName);
     if (shouldUpdateName) setGeneratedName();
   }
 
@@ -457,6 +478,12 @@ public class JUnitConfiguration extends ModuleBasedConfiguration<JavaRunConfigur
     return new JUnitConsoleProperties(this, executor);
   }
 
+  @NotNull
+  @Override
+  public String getFrameworkPrefix() {
+    return "j";
+  }
+
   public static class Data implements Cloneable {
     public String PACKAGE_NAME;
     public String MAIN_CLASS_NAME;
@@ -584,6 +611,9 @@ public class JUnitConfiguration extends ModuleBasedConfiguration<JavaRunConfigur
         if (size == 0) return "Temp suite";
         final String fqName = myPattern.iterator().next();
         return (fqName.contains("*") ? fqName : StringUtil.getShortName(fqName)) + (size > 1 ? " and " + (size - 1) + " more" : "");
+      }
+      if (TEST_CATEGORY.equals(TEST_OBJECT)) {
+        return "@Category(" + (StringUtil.isEmpty(CATEGORY_NAME) ? "Invalid" : CATEGORY_NAME) + ")";
       }
       final String className = JavaExecutionUtil.getPresentableClassName(getMainClassName());
       if (TEST_METHOD.equals(TEST_OBJECT)) {

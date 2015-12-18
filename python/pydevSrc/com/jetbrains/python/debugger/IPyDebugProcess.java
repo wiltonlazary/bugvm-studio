@@ -1,6 +1,7 @@
 package com.jetbrains.python.debugger;
 
 import com.intellij.execution.ui.ConsoleViewContentType;
+import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.jetbrains.python.debugger.pydev.PyDebugCallback;
 
@@ -26,7 +27,11 @@ public interface IPyDebugProcess extends PyFrameAccessor {
 
   void recordSignature(PySignature signature);
 
+  void recordLogEvent(PyConcurrencyEvent event);
+
   void showConsole(PyThreadInfo thread);
 
   void loadReferrers(PyReferringObjectsValue var, PyDebugCallback<XValueChildrenList> callback);
+
+  XDebugSession getSession();
 }

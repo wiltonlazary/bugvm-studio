@@ -41,8 +41,9 @@ if (System.getProperty("os.name").toLowerCase().startsWith("mac")) {
   if (vendor != null && vendor.toLowerCase().contains("apple")) {
     args << "-d32"
   }
-  args << "-Dfile.encoding=UTF-8"
 };
+
+args << "-Djna.nosys=true"
 
 setProperty("jvm_args", args)
 

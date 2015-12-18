@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.NotNullFunction;
+import com.jetbrains.python.HelperPackage;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.buildout.BuildoutFacet;
 import com.jetbrains.python.console.PydevConsoleRunner;
@@ -60,6 +61,8 @@ public class PythonTask {
   private final Sdk mySdk;
   private String myWorkingDirectory;
   private String myRunnerScript;
+  private HelperPackage myHelper = null;
+
   private List<String> myParameters = new ArrayList<String>();
   private final String myRunTabTitle;
   private String myHelpId;
@@ -90,6 +93,10 @@ public class PythonTask {
     myRunnerScript = script;
   }
 
+  public void setHelper(HelperPackage helper) {
+    myHelper = helper;
+  }
+
   public void setParameters(List<String> parameters) {
     myParameters = parameters;
   }
@@ -110,7 +117,7 @@ public class PythonTask {
     if (env != null) {
       commandLine.getEnvironment().putAll(env);
     }
-    PydevConsoleRunner.setCorrectStdOutEncoding(commandLine.getEnvironment(), myModule.getProject()); // To support UTF-8 output
+    PydevConsoleRunner.setCorrectStdOutEncoding(commandLine, myModule.getProject()); // To support UTF-8 output
 
     ProcessHandler handler;
     if (PySdkUtil.isRemote(mySdk)) {
@@ -118,7 +125,7 @@ public class PythonTask {
       handler = new PyRemoteProcessStarter().startRemoteProcess(mySdk, commandLine, myModule.getProject(), null);
     }
     else {
-      EncodingEnvironmentUtil.fixDefaultEncodingIfMac(commandLine, myModule.getProject());
+      EncodingEnvironmentUtil.setLocaleEnvironmentIfMac(commandLine);
       handler = PythonProcessRunner.createProcessHandlingCtrlC(commandLine);
 
       ProcessTerminatedListener.attach(handler);
@@ -126,6 +133,15 @@ public class PythonTask {
     return handler;
   }
 
+
+  /**
+   * Runs command using env vars from facet
+   * @param consoleView console view to be used for command or null to create new
+   * @throws ExecutionException failed to execute command
+   */
+  public void run(@Nullable final ConsoleView consoleView) throws ExecutionException {
+    run(createCommandLine().getEnvironment(), consoleView);
+  }
 
   public GeneralCommandLine createCommandLine() {
     GeneralCommandLine cmd = new GeneralCommandLine();
@@ -139,11 +155,10 @@ public class PythonTask {
       homePath = FileUtil.toSystemDependentName(homePath);
     }
 
-    PythonCommandLineState.createStandardGroupsIn(cmd);
+    PythonCommandLineState.createStandardGroups(cmd);
     ParamsGroup scriptParams = cmd.getParametersList().getParamsGroup(PythonCommandLineState.GROUP_SCRIPT);
     assert scriptParams != null;
 
-    cmd.setPassParentEnvironment(true);
     Map<String, String> env = cmd.getEnvironment();
     if (!SystemInfo.isWindows && !PySdkUtil.isRemote(mySdk)) {
       cmd.setExePath("bash");
@@ -151,8 +166,14 @@ public class PythonTask {
       bashParams.addParameter("-cl");
 
       NotNullFunction<String, String> escaperFunction = StringUtil.escaper(false, "|>$\"'& ");
-      StringBuilder paramString = new StringBuilder(escaperFunction.fun(homePath) + " " + escaperFunction.fun(myRunnerScript));
-
+      StringBuilder paramString;
+      if (myHelper != null) {
+        paramString= new StringBuilder(escaperFunction.fun(homePath) + " " + escaperFunction.fun(myHelper.asParamString()));
+        myHelper.addToPythonPath(cmd.getEnvironment());
+      }
+      else {
+        paramString= new StringBuilder(escaperFunction.fun(homePath) + " " + escaperFunction.fun(myRunnerScript));
+      }
       for (String p : myParameters) {
         paramString.append(" ").append(p);
       }
@@ -160,7 +181,12 @@ public class PythonTask {
     }
     else {
       cmd.setExePath(homePath);
-      scriptParams.addParameter(myRunnerScript);
+      if (myHelper != null) {
+        myHelper.addToGroup(scriptParams, cmd);
+      }
+      else {
+        scriptParams.addParameter(myRunnerScript);
+      }
       scriptParams.addParameters(myParameters);
     }
 

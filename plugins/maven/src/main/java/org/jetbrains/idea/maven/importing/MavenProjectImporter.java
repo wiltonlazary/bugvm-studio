@@ -17,9 +17,12 @@ package org.jetbrains.idea.maven.importing;
 
 import com.intellij.compiler.impl.javaCompiler.javac.JavacConfiguration;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleType;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.LibraryOrderEntry;
 import com.intellij.openapi.roots.ModifiableRootModel;
@@ -52,13 +55,14 @@ import java.io.IOException;
 import java.util.*;
 
 public class MavenProjectImporter {
+  private static final Logger LOG = Logger.getInstance(MavenProjectImporter.class);
   private final Project myProject;
   private final MavenProjectsTree myProjectsTree;
   private final Map<VirtualFile, Module> myFileToModuleMapping;
   private volatile Map<MavenProject, MavenProjectChanges> myProjectsToImportWithChanges;
   private volatile Set<MavenProject> myAllProjects;
   private final boolean myImportModuleGroupsRequired;
-  private final MavenModifiableModelsProvider myModelsProvider;
+  private final IdeModifiableModelsProvider myModelsProvider;
   private final MavenImportingSettings myImportingSettings;
 
   private final ModifiableModuleModel myModuleModel;
@@ -74,7 +78,7 @@ public class MavenProjectImporter {
                               Map<VirtualFile, Module> fileToModuleMapping,
                               Map<MavenProject, MavenProjectChanges> projectsToImportWithChanges,
                               boolean importModuleGroupsRequired,
-                              MavenModifiableModelsProvider modelsProvider,
+                              IdeModifiableModelsProvider modelsProvider,
                               MavenImportingSettings importingSettings) {
     myProject = p;
     myProjectsTree = projectsTree;
@@ -84,7 +88,7 @@ public class MavenProjectImporter {
     myModelsProvider = modelsProvider;
     myImportingSettings = importingSettings;
 
-    myModuleModel = modelsProvider.getModuleModel();
+    myModuleModel = modelsProvider.getModifiableModuleModel();
   }
 
   @Nullable
@@ -118,17 +122,25 @@ public class MavenProjectImporter {
 
     if (myProject.isDisposed()) return null;
 
-    boolean modulesDeleted = deleteObsoleteModules();
-    hasChanges |= modulesDeleted;
-    if (hasChanges) {
-      removeUnusedProjectLibraries();
+    try {
+      boolean modulesDeleted = deleteObsoleteModules();
+      hasChanges |= modulesDeleted;
+      if (hasChanges) {
+        removeUnusedProjectLibraries();
+      }
+    }
+    catch (ProcessCanceledException e) {
+      throw e;
+    }
+    catch (Exception e) {
+      disposeModifiableModels();
+      LOG.error(e);
+      return null;
     }
 
-    final boolean finalHasChanges = hasChanges;
-
-    MavenUtil.invokeAndWaitWriteAction(myProject, new Runnable() {
-      public void run() {
-        if (finalHasChanges) {
+    if (hasChanges) {
+      MavenUtil.invokeAndWaitWriteAction(myProject, new Runnable() {
+        public void run() {
           myModelsProvider.commit();
 
           if (projectsHaveChanges) {
@@ -146,13 +158,21 @@ public class MavenProjectImporter {
             }
           }
         }
-        else {
-          myModelsProvider.dispose();
-        }
-      }
-    });
+      });
+    }
+    else {
+      disposeModifiableModels();
+    }
 
     return postTasks;
+  }
+
+  private void disposeModifiableModels() {
+    MavenUtil.invokeAndWaitWriteAction(myProject, new Runnable() {
+      public void run() {
+        myModelsProvider.dispose();
+      }
+    });
   }
 
   private boolean projectsToImportHaveChanges() {
@@ -412,7 +432,7 @@ public class MavenProjectImporter {
     javacOptions.ADDITIONAL_OPTIONS_STRING = options;
   }
 
-  private void importModules(final List<MavenProjectsProcessorTask> postTasks) {
+  private void importModules(final List<MavenProjectsProcessorTask> tasks) {
     Map<MavenProject, MavenProjectChanges> projectsWithChanges = myProjectsToImportWithChanges;
 
     Set<MavenProject> projectsWithNewlyCreatedModules = new THashSet<MavenProject>();
@@ -452,7 +472,11 @@ public class MavenProjectImporter {
     }
 
     for (MavenModuleImporter importer : importers) {
-      importer.configFacets(postTasks);
+      importer.configFacets(tasks);
+    }
+
+    for (MavenModuleImporter importer : importers) {
+      importer.postConfigFacets();
     }
 
     setMavenizedModules(modulesToMavenize, true);
@@ -582,12 +606,12 @@ public class MavenProjectImporter {
     Map<Module, ModuleRootModel> rootModels = new THashMap<Module, ModuleRootModel>();
     for (MavenProject each : myProjectsToImportWithChanges.keySet()) {
       Module module = myMavenProjectToModule.get(each);
-      ModifiableRootModel rootModel = myModelsProvider.getRootModel(module);
+      ModifiableRootModel rootModel = myModelsProvider.getModifiableRootModel(module);
       rootModels.put(module, rootModel);
     }
     for (Module each : myModuleModel.getModules()) {
       if (rootModels.containsKey(each)) continue;
-      rootModels.put(each, myModelsProvider.getRootModel(each));
+      rootModels.put(each, myModelsProvider.getModifiableRootModel(each));
     }
     return rootModels.values();
   }

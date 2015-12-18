@@ -192,7 +192,7 @@ public class PsiTypesUtil {
   }
 
   @Nullable
-  public static PsiType getExpectedTypeByParent(PsiExpression methodCall) {
+  public static PsiType getExpectedTypeByParent(PsiElement methodCall) {
     final PsiElement parent = PsiUtil.skipParenthesizedExprUp(methodCall.getParent());
     if (parent instanceof PsiVariable) {
       if (PsiUtil.checkSameExpression(methodCall, ((PsiVariable)parent).getInitializer())) {
@@ -224,6 +224,12 @@ public class PsiTypesUtil {
           return ((PsiArrayType)type).getComponentType();
         }
       }
+      else if (gParent instanceof PsiVariable) {
+        final PsiType type = ((PsiVariable)gParent).getType();
+        if (type instanceof PsiArrayType) {
+          return ((PsiArrayType)type).getComponentType();
+        }
+      }
       else if (gParent instanceof PsiArrayInitializerExpression) {
         final PsiType expectedTypeByParent = getExpectedTypeByParent((PsiExpression)parent);
         return expectedTypeByParent != null && expectedTypeByParent instanceof PsiArrayType
@@ -250,5 +256,42 @@ public class PsiTypesUtil {
       return false;
     }
     return true;
+  }
+  
+  public static boolean hasUnresolvedComponents(@NotNull PsiType type) {
+    return type.accept(new PsiTypeVisitor<Boolean>() {
+      @Nullable
+      @Override
+      public Boolean visitClassType(PsiClassType classType) {
+        final PsiClass psiClass = classType.resolve();
+        if (psiClass == null) {
+          return true;
+        }
+        for (PsiType param : classType.getParameters()) {
+          if (param.accept(this)) {
+            return true;
+          }
+        }
+        return super.visitClassType(classType);
+      }
+
+      @Nullable
+      @Override
+      public Boolean visitArrayType(PsiArrayType arrayType) {
+        return arrayType.getComponentType().accept(this);
+      }
+
+      @Nullable
+      @Override
+      public Boolean visitWildcardType(PsiWildcardType wildcardType) {
+        final PsiType bound = wildcardType.getBound();
+        return bound != null && bound.accept(this);
+      }
+
+      @Override
+      public Boolean visitType(PsiType type) {
+        return false;
+      }
+    });
   }
 }

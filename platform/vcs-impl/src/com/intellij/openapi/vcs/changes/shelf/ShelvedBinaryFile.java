@@ -21,6 +21,7 @@ import com.intellij.openapi.util.DefaultJDOMExternalizer;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizable;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.VcsBundle;
@@ -52,10 +53,23 @@ public class ShelvedBinaryFile implements JDOMExternalizable {
     BEFORE_PATH = beforePath;
     AFTER_PATH = afterPath;
     SHELVED_PATH = shelvedPath;
+    convertPathsToSystemIndependent();
+  }
+
+  @Nullable
+  private static String convertToSystemIndependent(@Nullable String beforePath) {
+    return beforePath != null ? FileUtil.toSystemIndependentName(beforePath) : null;
+  }
+
+  private void convertPathsToSystemIndependent() {
+    BEFORE_PATH = convertToSystemIndependent(BEFORE_PATH);
+    AFTER_PATH = convertToSystemIndependent(AFTER_PATH);
+    SHELVED_PATH = convertToSystemIndependent(SHELVED_PATH);
   }
 
   public void readExternal(Element element) throws InvalidDataException {
     DefaultJDOMExternalizer.readExternal(this, element);
+    convertPathsToSystemIndependent();
   }
 
   public void writeExternal(Element element) throws WriteExternalException {

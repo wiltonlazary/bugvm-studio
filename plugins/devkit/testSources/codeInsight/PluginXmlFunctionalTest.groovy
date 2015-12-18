@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,12 +28,14 @@ import com.intellij.testFramework.builders.JavaModuleFixtureBuilder
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
 import com.intellij.testFramework.fixtures.TempDirTestFixture
+import com.intellij.ui.components.JBList
 import com.intellij.usageView.UsageViewNodeTextLocation
 import com.intellij.usageView.UsageViewTypeLocation
 import com.intellij.util.PathUtil
 import com.intellij.util.xmlb.annotations.AbstractCollection
 import org.intellij.lang.annotations.Language
 import org.jetbrains.idea.devkit.inspections.PluginXmlDomInspection
+import org.jetbrains.idea.devkit.util.PsiUtil
 /**
  * @author peter
  */
@@ -58,6 +60,8 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
   protected void tuneFixture(JavaModuleFixtureBuilder moduleBuilder) throws Exception {
     String pathForClass = PathUtil.getJarPathForClass(AbstractCollection.class);
     moduleBuilder.addLibrary("util", pathForClass);
+    String platformApiJar = PathUtil.getJarPathForClass(JBList.class)
+    moduleBuilder.addLibrary("platform-api", platformApiJar);
   }
 
   public void testExtensionsHighlighting() throws Throwable {
@@ -238,6 +242,15 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
                                "MyLanguageAttributeEPBean.java")
   }
 
+  public void testIconAttribute() {
+    myFixture.addClass("package icons; " +
+                       "public class MyIcons {" +
+                       "  public static final javax.swing.Icon MyCustomIcon = null; " +
+                       "}")
+    myFixture.testHighlighting("iconAttribute.xml",
+                               "MyIconAttributeEPBean.java")
+  }
+
   public void testPluginModule() throws Throwable {
     myFixture.testHighlighting("pluginWithModules.xml");
   }
@@ -248,6 +261,47 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
 
   public void testPluginWithXInclude() throws Throwable {
     myFixture.testHighlighting("pluginWithXInclude.xml", "pluginWithXInclude-extensionPoints.xml");
+  }
+
+  public void testPluginXmlInIdeaProjectWithoutVendor() {
+    testHighlightingInIdeaProject("pluginWithoutVendor.xml")
+  }
+
+  public void testPluginXmlInIdeaProjectWithThirdPartyVendor() {
+    testHighlightingInIdeaProject("pluginWithThirdPartyVendor.xml")
+  }
+
+  public void testPluginWithJetBrainsAsVendor() {
+    testHighlightingInIdeaProject("pluginWithJetBrainsAsVendor.xml")
+  }
+
+  public void testPluginWithJetBrainsAndMeAsVendor() {
+    testHighlightingInIdeaProject("pluginWithJetBrainsAndMeAsVendor.xml")
+  }
+
+  public void testSpecifyJetBrainsAsVendorQuickFix() {
+    myFixture.enableInspections(PluginXmlDomInspection.class)
+    PsiUtil.markAsIdeaProject(project, true)
+    try {
+      myFixture.configureByFile("pluginWithoutVendor_before.xml")
+      def fix = myFixture.findSingleIntention("Specify JetBrains")
+      myFixture.launchAction(fix)
+      myFixture.checkResultByFile("pluginWithoutVendor_after.xml")
+    }
+    finally {
+      PsiUtil.markAsIdeaProject(project, false)
+    }
+  }
+
+  private void testHighlightingInIdeaProject(String path) {
+    myFixture.enableInspections(PluginXmlDomInspection.class)
+    PsiUtil.markAsIdeaProject(project, true)
+    try {
+      myFixture.testHighlighting(path);
+    }
+    finally {
+      PsiUtil.markAsIdeaProject(project, false)
+    }
   }
 
   public void testExtensionPointPresentation() {
@@ -262,5 +316,21 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
   public void testLoadForDefaultProject() throws Exception {
     configureByFile();
     myFixture.testHighlighting(true, true, true);
+  }
+
+  public void testCreateRequiredAttribute() {
+    myFixture.configureByFile(getTestName(true) + ".xml")
+    myFixture.launchAction(myFixture.findSingleIntention("Define class attribute"))
+    myFixture.checkResultByFile(getTestName(true) + "_after.xml")
+  }
+
+  public void testActionHighlighting() {
+    configureByFile()
+    myFixture.addClass("package com.intellij.openapi.actionSystem; public class AnAction { }");
+    myFixture.addClass("package foo.bar; public class BarAction extends com.intellij.openapi.actionSystem.AnAction { }");
+
+    myFixture.addClass("package com.intellij.openapi.actionSystem; public class ActionGroup { }")
+    myFixture.addClass("package foo.bar; public class BarGroup extends com.intellij.openapi.actionSystem.ActionGroup { }");
+    myFixture.testHighlighting()
   }
 }

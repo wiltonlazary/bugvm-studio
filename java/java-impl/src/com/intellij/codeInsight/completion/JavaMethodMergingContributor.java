@@ -16,7 +16,6 @@
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.codeInsight.lookup.LookupItem;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiType;
 import org.jetbrains.annotations.NotNull;
@@ -44,7 +43,7 @@ public class JavaMethodMergingContributor extends CompletionContributor {
       final ArrayList<PsiMethod> allMethods = new ArrayList<PsiMethod>();
       for (LookupElement item : items) {
         Object o = item.getPsiElement();
-        if (item.getUserData(LookupItem.FORCE_SHOW_SIGNATURE_ATTR) != null || !(o instanceof PsiMethod)) {
+        if (item.getUserData(JavaCompletionUtil.FORCE_SHOW_SIGNATURE_ATTR) != null || !(o instanceof PsiMethod)) {
           return AutoCompletionDecision.SHOW_LOOKUP;
         }
 
@@ -57,7 +56,10 @@ public class JavaMethodMergingContributor extends CompletionContributor {
 
         commonName = name;
         allMethods.add(method);
-        item.putUserData(JavaCompletionUtil.ALL_METHODS_ATTRIBUTE, allMethods);
+      }
+
+      for (LookupElement item : items) {
+        JavaCompletionUtil.putAllMethods(item, allMethods);
       }
 
       return AutoCompletionDecision.insertItem(findBestOverload(items));
@@ -79,7 +81,7 @@ public class JavaMethodMergingContributor extends CompletionContributor {
 
   private static int getPriority(LookupElement element) {
     PsiMethod method = assertNotNull(getItemMethod(element));
-    return (method.getReturnType() == PsiType.VOID ? 0 : 1) +
+    return (PsiType.VOID.equals(method.getReturnType()) ? 0 : 1) +
            (method.getParameterList().getParametersCount() > 0 ? 2 : 0);
   }
 

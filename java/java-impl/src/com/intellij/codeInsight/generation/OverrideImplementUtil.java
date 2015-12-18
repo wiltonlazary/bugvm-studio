@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,10 @@
  */
 package com.intellij.codeInsight.generation;
 
-import com.intellij.codeInsight.*;
+import com.intellij.codeInsight.AnnotationUtil;
+import com.intellij.codeInsight.CodeInsightActionHandler;
+import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.codeInsight.MethodImplementor;
 import com.intellij.codeInsight.intention.AddAnnotationFix;
 import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.featureStatistics.FeatureUsageTracker;
@@ -114,9 +117,8 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
       return false;
     }
     if (PsiUtil.isLanguageLevel6OrHigher(targetClass)) return true;
-    if (targetClass.isInterface()) return true;
     PsiClass superClass = superMethod.getContainingClass();
-    return !superClass.isInterface();
+    return superClass != null && !superClass.isInterface();
   }
 
   public static List<PsiMethod> overrideOrImplementMethod(PsiClass aClass,
@@ -335,7 +337,7 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
   @NotNull
   public static String callSuper(PsiMethod superMethod, PsiMethod overriding) {
     @NonNls StringBuilder buffer = new StringBuilder();
-    if (!superMethod.isConstructor() && superMethod.getReturnType() != PsiType.VOID) {
+    if (!superMethod.isConstructor() && !PsiType.VOID.equals(superMethod.getReturnType())) {
       buffer.append("return ");
     }
     buffer.append("super");
@@ -458,7 +460,7 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
     LOG.assertTrue(aClass.isValid());
     new WriteCommandAction(project, aClass.getContainingFile()) {
       @Override
-      protected void run(final Result result) throws Throwable {
+      protected void run(@NotNull final Result result) throws Throwable {
         overrideOrImplementMethodsInRightPlace(editor, aClass, selectedElements, chooser.isCopyJavadoc(), chooser.isInsertOverrideAnnotation());
       }
     }.execute();
@@ -546,12 +548,14 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
                                                             boolean insertOverrideWherePossible) {
     try {
       int offset = editor.getCaretModel().getOffset();
-      if (aClass.getLBrace() == null) {
+      PsiElement brace = aClass.getLBrace();
+      if (brace == null) {
         PsiClass psiClass = JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory().createClass("X");
-        aClass.addRangeAfter(psiClass.getLBrace(), psiClass.getRBrace(), aClass.getLastChild());
+        brace = aClass.addRangeAfter(psiClass.getLBrace(), psiClass.getRBrace(), aClass.getLastChild());
+        LOG.assertTrue(brace != null, aClass.getLastChild());
       }
 
-      int lbraceOffset = aClass.getLBrace().getTextOffset();
+      int lbraceOffset = brace.getTextOffset();
       List<PsiGenerationInfo<PsiMethod>> resultMembers;
       if (offset <= lbraceOffset || aClass.isEnum()) {
         resultMembers = new ArrayList<PsiGenerationInfo<PsiMethod>>();

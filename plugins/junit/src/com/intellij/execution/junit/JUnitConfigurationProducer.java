@@ -23,10 +23,12 @@ import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.actions.ConfigurationContext;
 import com.intellij.execution.actions.ConfigurationFromContext;
 import com.intellij.execution.actions.RunConfigurationProducer;
+import com.intellij.execution.configurations.ConfigurationType;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.junit2.PsiMemberParameterizedLocation;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Condition;
 import com.intellij.psi.*;
 
 public abstract class JUnitConfigurationProducer extends JavaRunConfigurationProducerBase<JUnitConfiguration> implements Cloneable {
@@ -35,9 +37,13 @@ public abstract class JUnitConfigurationProducer extends JavaRunConfigurationPro
     super(JUnitConfigurationType.getInstance());
   }
 
+  protected JUnitConfigurationProducer(ConfigurationType configurationType) {
+    super(configurationType);
+  }
+
   @Override
   public boolean isPreferredConfiguration(ConfigurationFromContext self, ConfigurationFromContext other) {
-    return !other.isProducedBy(TestMethodConfigurationProducer.class);
+    return !other.isProducedBy(AbstractTestMethodConfigurationProducer.class);
   }
 
   @Override
@@ -87,5 +93,28 @@ public abstract class JUnitConfigurationProducer extends JavaRunConfigurationPro
       }
     }
     return false;
+  }
+  
+  protected Condition<PsiClass> getConditionToSearchForInheritors() {
+    return new Condition<PsiClass>() {
+      @Override
+      public boolean value(PsiClass psiClass) {
+        if (psiClass.hasModifierProperty(PsiModifier.ABSTRACT)) {
+          return true;
+        }
+        
+        if (JUnitUtil.isTestCaseInheritor(psiClass)) {
+          final PsiMethod[] constructors = psiClass.getConstructors();
+          for (PsiMethod method : constructors) {
+            if (method.getParameterList().getParametersCount() == 0) {
+              return false;
+            }
+          }
+          return constructors.length != 0;
+        }
+
+        return false;
+      }
+    };
   }
 }

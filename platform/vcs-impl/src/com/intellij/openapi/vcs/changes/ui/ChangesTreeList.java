@@ -158,7 +158,7 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
       registerKeyboardAction(new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent e) {
-          includeSelection();
+          includeChanges(getSelectedChangesOrAllIfNone());
         }
 
       }, KeyStroke.getKeyStroke(KeyEvent.VK_INSERT, 0), JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
@@ -166,7 +166,7 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
       registerKeyboardAction(new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent e) {
-          excludeSelection();
+          excludeChanges(getSelectedChangesOrAllIfNone());
         }
       }, KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
     }
@@ -201,6 +201,7 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
     new ClickListener() {
       @Override
       public boolean onClick(@NotNull MouseEvent e, int clickCount) {
+        if (!myList.isEnabled()) return false;
         final int idx = myList.locationToIndex(e.getPoint());
         if (idx >= 0) {
           if (myShowCheckboxes) {
@@ -498,40 +499,8 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
 
   protected abstract DefaultTreeModel buildTreeModel(final List<T> changes, final ChangeNodeDecorator changeNodeDecorator);
 
-  @SuppressWarnings({"SuspiciousMethodCalls"})
   private void toggleSelection() {
-    boolean hasExcluded = false;
-    for (T value : getSelectedChanges()) {
-      if (!myIncludedChanges.contains(value)) {
-        hasExcluded = true;
-      }
-    }
-
-    if (hasExcluded) {
-      includeSelection();
-    }
-    else {
-      excludeSelection();
-    }
-
-    repaint();
-  }
-
-  private void includeSelection() {
-    for (T change : getSelectedChanges()) {
-      myIncludedChanges.add(change);
-    }
-    notifyInclusionListener();
-    repaint();
-  }
-
-  @SuppressWarnings({"SuspiciousMethodCalls"})
-  private void excludeSelection() {
-    for (T change : getSelectedChanges()) {
-      myIncludedChanges.remove(change);
-    }
-    notifyInclusionListener();
-    repaint();
+    toggleChanges(getSelectedChanges());
   }
 
   public List<T> getChanges() {
@@ -595,6 +564,13 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
         return ContainerUtil.newArrayList(changes);
       }
     }
+  }
+
+  @NotNull
+  private List<T> getSelectedChangesOrAllIfNone() {
+    List<T> changes = getSelectedChanges();
+    if (!changes.isEmpty()) return changes;
+    return getChanges();
   }
 
   protected abstract List<T> getSelectedObjects(final ChangesBrowserNode<T> node);
@@ -676,6 +652,23 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
     notifyInclusionListener();
     myTree.repaint();
     myList.repaint();
+  }
+
+  private void toggleChanges(final Collection<T> changes) {
+    boolean hasExcluded = false;
+    for (T value : changes) {
+      if (!myIncludedChanges.contains(value)) {
+        hasExcluded = true;
+        break;
+      }
+    }
+
+    if (hasExcluded) {
+      includeChanges(changes);
+    }
+    else {
+      excludeChanges(changes);
+    }
   }
 
   public boolean isIncluded(final T change) {
@@ -775,7 +768,7 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
         @SuppressWarnings("unchecked")
         CheckboxTree.NodeState state = getNodeStatus((ChangesBrowserNode)value);
         myCheckBox.setSelected(state != CheckboxTree.NodeState.CLEAR);
-        myCheckBox.setEnabled(state != CheckboxTree.NodeState.PARTIAL);
+        myCheckBox.setEnabled(state != CheckboxTree.NodeState.PARTIAL && tree.isEnabled());
         revalidate();
 
         return this;
@@ -879,6 +872,7 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
       if (myShowCheckboxes) {
         //noinspection SuspiciousMethodCalls
         myCheckbox.setSelected(myIncludedChanges.contains(value));
+        myCheckbox.setEnabled(list.isEnabled());
         return this;
       }
       else {
@@ -890,7 +884,7 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
   private class MyToggleSelectionAction extends AnAction implements DumbAware {
     @Override
     public void actionPerformed(AnActionEvent e) {
-      toggleSelection();
+      toggleChanges(getSelectedChangesOrAllIfNone());
     }
   }
 
@@ -980,6 +974,7 @@ public abstract class ChangesTreeList<T> extends JPanel implements TypeSafeDataP
 
   public void enableSelection(final boolean value) {
     myTree.setEnabled(value);
+    myList.setEnabled(value);
   }
 
   public void setAlwaysExpandList(boolean alwaysExpandList) {

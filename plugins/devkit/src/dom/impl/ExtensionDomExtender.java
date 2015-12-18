@@ -155,7 +155,7 @@ public class ExtensionDomExtender extends DomExtender<Extensions> {
         Class clazz = String.class;
         if (withElement != null || isClassField(fieldName)) {
           clazz = PsiClass.class;
-        } else if (field.getType() == PsiType.BOOLEAN) {
+        } else if (PsiType.BOOLEAN.equals(field.getType())) {
           clazz = Boolean.class;
         }
         final DomExtension extension =
@@ -215,7 +215,10 @@ public class ExtensionDomExtender extends DomExtender<Extensions> {
   }
 
   public static boolean isClassField(String fieldName) {
-    return (fieldName.endsWith("Class") && !fieldName.equals("forClass")) || fieldName.equals("implementation");
+    return (fieldName.endsWith("Class") && !fieldName.equals("forClass")) || 
+           fieldName.equals("implementation") || 
+           fieldName.equals("serviceInterface") || 
+           fieldName.equals("serviceImplementation");
   }
 
   @Nullable

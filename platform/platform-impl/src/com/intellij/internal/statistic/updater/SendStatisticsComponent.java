@@ -15,6 +15,8 @@
  */
 package com.intellij.internal.statistic.updater;
 
+import com.intellij.ide.FrameStateListener;
+import com.intellij.ide.FrameStateManager;
 import com.intellij.internal.statistic.StatisticsUploadAssistant;
 import com.intellij.internal.statistic.connect.StatisticsService;
 import com.intellij.internal.statistic.connect.StatisticsServiceEP;
@@ -24,9 +26,16 @@ import com.intellij.notification.impl.NotificationsConfigurationImpl;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.wm.WindowManager;
+import com.intellij.openapi.wm.ex.WindowManagerEx;
+import com.intellij.openapi.wm.impl.IdeFrameImpl;
+import com.intellij.ui.BalloonLayout;
+import com.intellij.ui.BalloonLayoutImpl;
 import com.intellij.util.Alarm;
+import com.intellij.util.Time;
 import org.jetbrains.annotations.NotNull;
 
+import java.awt.Window;
 import java.util.Arrays;
 
 public class SendStatisticsComponent implements ApplicationComponent {
@@ -37,7 +46,9 @@ public class SendStatisticsComponent implements ApplicationComponent {
 
   private final Alarm myAlarm;
 
-  public SendStatisticsComponent() {
+  private final FrameStateManager myFrameStateManager;
+
+  public SendStatisticsComponent(@NotNull FrameStateManager frameStateManager) {
     myAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, ApplicationManager.getApplication());
 
     NotificationsConfigurationImpl.remove("SendUsagesStatistics");
@@ -45,13 +56,39 @@ public class SendStatisticsComponent implements ApplicationComponent {
       StatisticsNotificationManager.GROUP_DISPLAY_ID,
       NotificationDisplayType.STICKY_BALLOON,
       false);
+
+    myFrameStateManager = frameStateManager;
+  }
+
+  private static boolean isEmpty(Window window) {
+    if (window instanceof IdeFrameImpl) {
+      BalloonLayout layout = ((IdeFrameImpl)window).getBalloonLayout();
+      if (layout instanceof BalloonLayoutImpl) {
+        // do not show notification if others exist
+        return ((BalloonLayoutImpl)layout).isEmpty();
+      }
+    }
+    return false;
   }
 
   private void runStatisticsService() {
-    StatisticsService statisticsService = StatisticsUploadAssistant.getStatisticsService();
+    final StatisticsService statisticsService = StatisticsUploadAssistant.getStatisticsService();
 
-    if (StatisticsUploadAssistant.showNotification()) {
-      StatisticsNotificationManager.showNotification(statisticsService);
+    if (StatisticsUploadAssistant.isShouldShowNotification()) {
+      myFrameStateManager.addListener(new FrameStateListener.Adapter() {
+        @Override
+        public void onFrameActivated() {
+          if (isEmpty(((WindowManagerEx)WindowManager.getInstance()).getMostRecentFocusedWindow())) {
+            ApplicationManager.getApplication().invokeLater(new Runnable() {
+              @Override
+              public void run() {
+                StatisticsNotificationManager.showNotification(statisticsService);
+              }
+            });
+            myFrameStateManager.removeListener(this);
+          }
+        }
+      });
     }
     else if (StatisticsUploadAssistant.isSendAllowed() && StatisticsUploadAssistant.isTimeToSend()) {
       StatisticsService serviceToUse = null;
@@ -75,7 +112,7 @@ public class SendStatisticsComponent implements ApplicationComponent {
       public void run() {
         statisticsService.send();
       }
-    }, DELAY_IN_MIN * 60 * 1000);
+    }, Time.MINUTE * DELAY_IN_MIN);
   }
 
   @Override

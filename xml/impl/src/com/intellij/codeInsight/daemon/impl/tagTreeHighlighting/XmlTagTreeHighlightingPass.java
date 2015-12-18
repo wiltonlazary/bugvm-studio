@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,8 +60,9 @@ import java.util.List;
 public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
   private static final Key<List<RangeHighlighter>> TAG_TREE_HIGHLIGHTERS_IN_EDITOR_KEY = Key.create("TAG_TREE_HIGHLIGHTERS_IN_EDITOR_KEY");
 
-  private static final HighlightInfoType TYPE = new HighlightInfoType.HighlightInfoTypeImpl(HighlightSeverity.INFORMATION, TextAttributesKey
-    .createTextAttributesKey("TAG_TREE_HIGHLIGHTING_KEY"));
+  private static final TextAttributesKey TAG_TREE_HIGHLIGHTING_KEY = TextAttributesKey.createTextAttributesKey("TAG_TREE_HIGHLIGHTING_KEY");
+  private static final HighlightInfoType TYPE = new HighlightInfoType.HighlightInfoTypeImpl(HighlightSeverity.INFORMATION,
+                                                                                            TAG_TREE_HIGHLIGHTING_KEY);
 
   private final PsiFile myFile;
   private final EditorEx myEditor;
@@ -126,7 +127,7 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
     return type == XmlTokenType.XML_START_TAG_START || type == XmlTokenType.XML_END_TAG_START || type == XmlTokenType.XML_TAG_END;
   }
 
-  @Nullable
+  @NotNull
   private static Pair<TextRange, TextRange> getTagRanges(XmlTag tag) {
     final ASTNode tagNode = tag.getNode();
     return Pair.create(getStartTagRange(tagNode), getEndTagRange(tagNode));
@@ -173,8 +174,10 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
 
   @Override
   public void doApplyInformationToEditor() {
-    final List<HighlightInfo> infos = getHighlights();
-    UpdateHighlightersUtil.setHighlightersToEditor(myProject, myDocument, 0, myFile.getTextLength(), infos, getColorsScheme(), getId());
+    if (myDocument != null) {
+      final List<HighlightInfo> infos = getHighlights();
+      UpdateHighlightersUtil.setHighlightersToEditor(myProject, myDocument, 0, myFile.getTextLength(), infos, getColorsScheme(), getId());
+    }
   }
 
   public List<HighlightInfo> getHighlights() {
@@ -196,7 +199,7 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
     for (int i = 0; i < count && i < baseColors.length; i++) {
       Pair<TextRange, TextRange> pair = myPairsToHighlight.get(i);
 
-      if (pair == null || pair.first == null && pair.second == null) {
+      if (pair.first == null && pair.second == null) {
         continue;
       }
 
@@ -288,6 +291,7 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
       g = (int)(tagBackground.getGreen() * (1 - transparency) + g * transparency);
       b = (int)(tagBackground.getBlue() * (1 - transparency) + b * transparency);
 
+      //noinspection UseJBColor
       colors[i] = new Color(r, g, b);
     }
 

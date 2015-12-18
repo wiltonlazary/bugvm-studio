@@ -48,24 +48,31 @@ public abstract class SchemesManager<T extends Scheme, E extends ExternalizableS
   @Nullable
   public abstract T findSchemeByName(@NotNull String schemeName);
 
-  @Deprecated
   /**
-   * @deprecated Use {@link #setCurrent}
+   * If schemes are lazy loaded, you can use this method to postpone scheme selection (scheme will be found by name on first use)
    */
-  public void setCurrentSchemeName(@Nullable String schemeName) {
+  public final void setCurrentSchemeName(@Nullable String schemeName) {
+    setCurrentSchemeName(schemeName, true);
   }
+
+  public abstract void setCurrentSchemeName(@Nullable String schemeName, boolean notify);
 
   public final void setCurrent(@Nullable T scheme) {
     setCurrent(scheme, true);
   }
 
   public void setCurrent(@Nullable T scheme, boolean notify) {
-    //noinspection deprecation
     setCurrentSchemeName(scheme == null ? null : scheme.getName());
   }
 
   @Nullable
   public abstract T getCurrentScheme();
+
+  @Nullable
+  public String getCurrentSchemeName() {
+    T scheme = getCurrentScheme();
+    return scheme == null ? null : scheme.getName();
+  }
 
   public abstract void removeScheme(@NotNull T scheme);
 
@@ -80,8 +87,12 @@ public abstract class SchemesManager<T extends Scheme, E extends ExternalizableS
   public void loadBundledScheme(@NotNull String resourceName, @NotNull Object requestor, @NotNull ThrowableConvertor<Element, T, Throwable> convertor) {
   }
 
-  public void setSchemes(@NotNull List<T> schemes) {
-    setSchemes(schemes, null, null);
+  public final void setSchemes(@NotNull List<T> newSchemes) {
+    setSchemes(newSchemes, null, null);
+  }
+
+  public final void setSchemes(@NotNull List<T> newSchemes, @Nullable T newCurrentScheme) {
+    setSchemes(newSchemes, newCurrentScheme, null);
   }
 
   public void setSchemes(@NotNull List<T> newSchemes, @Nullable T newCurrentScheme, @Nullable Condition<T> removeCondition) {

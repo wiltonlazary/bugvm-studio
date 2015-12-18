@@ -37,7 +37,7 @@ import java.util.Collections;
 public class RefJavaUtilImpl extends RefJavaUtil{
 
   @Override
-  public void addReferences(@NotNull final PsiModifierListOwner psiFrom, @NotNull final RefJavaElement ref, @Nullable PsiElement findIn) {
+  public void addReferences(@NotNull final PsiModifierListOwner psiFrom, @NotNull final RefJavaElement ref, @Nullable final PsiElement findIn) {
     final RefJavaElementImpl refFrom = (RefJavaElementImpl)ref;
     if (findIn == null) {
       return;
@@ -61,7 +61,8 @@ public class RefJavaUtilImpl extends RefJavaUtil{
         @Override public void visitReferenceExpression(PsiReferenceExpression expression) {
           visitElement(expression);
 
-          PsiElement psiResolved = expression.resolve();
+          final JavaResolveResult result = expression.advancedResolve(false);
+          final PsiElement psiResolved = result.getElement();
 
           if (psiResolved instanceof PsiModifierListOwner) {
             if (isDeprecated(psiResolved)) refFrom.setUsesDeprecatedApi(true);
@@ -75,6 +76,16 @@ public class RefJavaUtilImpl extends RefJavaUtil{
 
           if (refResolved instanceof RefMethod) {
             updateRefMethod(psiResolved, refResolved, expression, psiFrom, refFrom);
+          }
+          
+          if (psiResolved instanceof PsiMember && result.getCurrentFileResolveScope() instanceof PsiImportStaticStatement) {
+            final PsiClass containingClass = ((PsiMember)psiResolved).getContainingClass();
+            if (containingClass != null) {
+              RefElement refContainingClass = refFrom.getRefManager().getReference(containingClass);
+              if (refContainingClass != null) {
+                refFrom.addReference(refContainingClass, containingClass, psiFrom, false, true, expression);
+              }
+            }
           }
         }
 
@@ -240,7 +251,7 @@ public class RefJavaUtilImpl extends RefJavaUtil{
 
     if (refExpression instanceof PsiMethodReferenceExpression) {
       PsiType returnType = psiMethod.getReturnType();
-      if (!psiMethod.isConstructor() && returnType != PsiType.VOID) {
+      if (!psiMethod.isConstructor() && !PsiType.VOID.equals(returnType)) {
         refMethod.setReturnValueUsed(true);
         addTypeReference(psiFrom, returnType, refFrom.getRefManager());
       }
@@ -252,7 +263,7 @@ public class RefJavaUtilImpl extends RefJavaUtil{
     );
     if (call != null) {
       PsiType returnType = psiMethod.getReturnType();
-      if (!psiMethod.isConstructor() && returnType != PsiType.VOID) {
+      if (!psiMethod.isConstructor() && !PsiType.VOID.equals(returnType)) {
         if (!(call.getParent() instanceof PsiExpressionStatement)) {
           refMethod.setReturnValueUsed(true);
         }
@@ -474,17 +485,28 @@ public class RefJavaUtilImpl extends RefJavaUtil{
 
   @Override
   public void addTypeReference(PsiElement psiElement, PsiType psiType, RefManager refManager) {
-    RefClass ownerClass = getOwnerClass(refManager, psiElement);
+    addTypeReference(psiElement, psiType, refManager, null);
+  }
 
-    if (ownerClass != null) {
-      psiType = psiType.getDeepComponentType();
-
-      if (psiType instanceof PsiClassType) {
-        PsiClass psiClass = PsiUtil.resolveClassInType(psiType);
-        if (psiClass != null && refManager.belongsToScope(psiClass)) {
-          RefClassImpl refClass = (RefClassImpl)refManager.getReference(psiClass);
-          if (refClass != null) {
-            refClass.addTypeReference(ownerClass);
+  @Override
+  public void addTypeReference(PsiElement psiElement, PsiType psiType, RefManager refManager, @Nullable RefJavaElement refMethod) {
+    if (psiType != null) {
+      final RefClass ownerClass = getOwnerClass(refManager, psiElement);
+      if (ownerClass != null) {
+        psiType = psiType.getDeepComponentType();
+        if (psiType instanceof PsiClassType) {
+          PsiClass psiClass = PsiUtil.resolveClassInType(psiType);
+          if (psiClass != null && refManager.belongsToScope(psiClass)) {
+            RefClassImpl refClass = (RefClassImpl)refManager.getReference(psiClass);
+            if (refClass != null) {
+              refClass.addTypeReference(ownerClass);
+              if (refMethod != null) {
+                refClass.addClassExporter(refMethod);
+              }
+            }
+          }
+          else {
+            ((RefManagerImpl)refManager).fireNodeMarkedReferenced(psiClass, psiElement, false);
           }
         }
       }

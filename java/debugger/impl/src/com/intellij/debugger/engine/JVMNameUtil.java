@@ -49,6 +49,8 @@ import java.util.List;
 public class JVMNameUtil {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.JVMNameUtil");
 
+  public static final String CONSTRUCTOR_NAME = "<init>";
+
   @SuppressWarnings({"HardCodedStringLiteral"})
   public static String getPrimitiveSignature(String typeName) {
     if(PsiType.BOOLEAN.getCanonicalText().equals(typeName)) {
@@ -315,6 +317,11 @@ public class JVMNameUtil {
     return getJVMSignature(method, method.isConstructor(), method.getContainingClass());
   }
 
+  @NotNull
+  public static String getJVMMethodName(@NotNull PsiMethod method) {
+    return method.isConstructor() ? CONSTRUCTOR_NAME : method.getName();
+  }
+
   @SuppressWarnings({"HardCodedStringLiteral"})
   private static JVMName getJVMSignature(@Nullable PsiMethod method, boolean constructor, @Nullable PsiClass declaringClass) {
     JVMNameBuffer signature = new JVMNameBuffer();
@@ -352,7 +359,7 @@ public class JVMNameUtil {
       return null;
     }
     final PsiElement element = position.getElementAt();
-    return (element != null) ? PsiTreeUtil.getParentOfType(element, PsiClass.class, false) : null;
+    return element != null && element.isValid() ? PsiTreeUtil.getParentOfType(element, PsiClass.class, false) : null;
   }
 
   @Nullable
@@ -476,10 +483,16 @@ public class JVMNameUtil {
 
   @Nullable
   public static String getClassVMName(@Nullable PsiClass containingClass) {
-    if (containingClass == null) return null;
+    // no support for local classes for now
+    if (containingClass == null || PsiUtil.isLocalClass(containingClass)) return null;
     if (containingClass instanceof PsiAnonymousClass) {
-      return getClassVMName(PsiTreeUtil.getParentOfType(containingClass, PsiClass.class)) +
-             JavaAnonymousClassesHelper.getName((PsiAnonymousClass)containingClass);
+      String parentName = getClassVMName(PsiTreeUtil.getParentOfType(containingClass, PsiClass.class));
+      if (parentName == null) {
+        return null;
+      }
+      else {
+        return parentName + JavaAnonymousClassesHelper.getName((PsiAnonymousClass)containingClass);
+      }
     }
     return ClassUtil.getJVMClassName(containingClass);
   }

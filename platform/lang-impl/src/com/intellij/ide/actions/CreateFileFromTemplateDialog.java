@@ -40,6 +40,7 @@ public class CreateFileFromTemplateDialog extends DialogWrapper {
   private JPanel myPanel;
   private JLabel myUpDownHint;
   private JLabel myKindLabel;
+  private JLabel myNameLabel;
 
   private ElementCreator myCreator;
   private InputValidator myInputValidator;
@@ -80,6 +81,14 @@ public class CreateFileFromTemplateDialog extends DialogWrapper {
 
   protected TemplateKindCombo getKindCombo() {
     return myKindCombo;
+  }
+
+  protected JLabel getKindLabel() {
+    return myKindLabel;
+  }
+
+  protected JLabel getNameLabel() {
+    return myNameLabel;
   }
 
   private String getEnteredName() {

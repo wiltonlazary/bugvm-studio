@@ -158,7 +158,7 @@ public class PythonSkeletonsTest extends PyEnvTestCase {
           public void run() {
             final PyClass cls = builtins.findTopLevelClass("int");
             assertNotNull(cls);
-            final Property prop = cls.findProperty("real", true);
+            final Property prop = cls.findProperty("real", true, null);
             assertNotNull(prop);
             assertIsNotNull(prop.getGetter());
             assertIsNotNull(prop.getSetter());
@@ -171,6 +171,24 @@ public class PythonSkeletonsTest extends PyEnvTestCase {
         if (accessor.isDefined()) {
           assertNotNull(accessor.valueOrNull());
         }
+      }
+    });
+  }
+
+  // PY-17282
+  public void testBinaryStandardModule() {
+    runTest(new SkeletonsTask() {
+      @Override
+      protected void runTestOn(@NotNull Sdk sdk) {
+        myFixture.configureByFile(getTestName(false) + ".py");
+        myFixture.enableInspections(PyUnresolvedReferencesInspection.class);
+
+        edt(new Runnable() {
+          @Override
+          public void run() {
+            myFixture.checkHighlighting(true, false, false);
+          }
+        });
       }
     });
   }
@@ -193,6 +211,7 @@ public class PythonSkeletonsTest extends PyEnvTestCase {
       runTestOn(sdk);
     }
 
+    @NotNull
     @Override
     public Set<String> getTags() {
       return TAGS;

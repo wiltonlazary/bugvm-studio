@@ -16,8 +16,10 @@
 package com.intellij.psi;
 
 import com.google.common.util.concurrent.Atomics;
+import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageParserDefinitions;
+import com.intellij.lang.LanguageUtil;
 import com.intellij.lang.ParserDefinition;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.undo.UndoConstants;
@@ -27,7 +29,6 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
-import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
@@ -39,8 +40,7 @@ import com.intellij.openapi.vfs.NonPhysicalFileSystem;
 import com.intellij.openapi.vfs.PersistentFSConstants;
 import com.intellij.openapi.vfs.VFileProperty;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.impl.PsiManagerEx;
-import com.intellij.psi.impl.PsiManagerImpl;
+import com.intellij.psi.impl.*;
 import com.intellij.psi.impl.file.PsiBinaryFileImpl;
 import com.intellij.psi.impl.file.PsiLargeFileImpl;
 import com.intellij.psi.impl.file.impl.FileManager;
@@ -134,11 +134,9 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
     if (fileType.isBinary()) return Language.ANY;
     if (isTooLargeForIntelligence(file)) return PlainTextLanguage.INSTANCE;
 
-    if (fileType instanceof LanguageFileType) {
-      return LanguageSubstitutors.INSTANCE.substituteLanguage(((LanguageFileType)fileType).getLanguage(), file, project);
-    }
+    Language language = LanguageUtil.getLanguageForPsi(project, file);
 
-    return PlainTextLanguage.INSTANCE;
+    return language != null ? language : PlainTextLanguage.INSTANCE;
   }
 
   @Override
@@ -183,8 +181,14 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
         if (alreadyCreated == psiFile) {
           LOG.error(this + ".createFile() must create new file instance but got the same: " + psiFile);
         }
-        if (psiFile instanceof PsiFileImpl) {
-          ((PsiFileImpl)psiFile).markInvalidated();
+        if (psiFile instanceof PsiFileEx) {
+          DebugUtil.startPsiModification("invalidating throw-away copy");
+          try {
+            ((PsiFileEx)psiFile).markInvalidated();
+          }
+          finally {
+            DebugUtil.finishPsiModification();
+          }
         }
         psiFile = alreadyCreated;
       }
@@ -198,15 +202,64 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
 
   @Override
   public void contentsSynchronized() {
-    if (!(myContent instanceof PsiFileContent)) return;
-    setContent(new VirtualFileContent());
+    if (myContent instanceof PsiFileContent) {
+      setContent(new VirtualFileContent());
+    }
+    checkLengthConsistency();
   }
 
   public void beforeDocumentChanged(@Nullable PsiFile psiCause) {
     PsiFile psiFile = psiCause != null ? psiCause : getPsi(getBaseLanguage());
-    if (psiFile instanceof PsiFileImpl) {
+    if (psiFile instanceof PsiFileImpl && myContent instanceof VirtualFileContent) {
       setContent(new PsiFileContent((PsiFileImpl)psiFile, psiCause == null ? getModificationStamp() : LocalTimeCounter.currentTime()));
+      checkLengthConsistency();
     }
+  }
+
+  public final void onContentReload() {
+    List<PsiFile> files = getCachedPsiFiles();
+    List<PsiTreeChangeEventImpl> events = ContainerUtil.newArrayList();
+    List<PsiTreeChangeEventImpl> genericEvents = ContainerUtil.newArrayList();
+    for (PsiFile file : files) {
+      genericEvents.add(createChildrenChangeEvent(file, true));
+      events.add(createChildrenChangeEvent(file, false));
+    }
+
+    beforeContentsSynchronized();
+
+    for (PsiTreeChangeEventImpl event : genericEvents) {
+      ((PsiManagerImpl)getManager()).beforeChildrenChange(event);
+    }
+    for (PsiTreeChangeEventImpl event : events) {
+      ((PsiManagerImpl)getManager()).beforeChildrenChange(event);
+    }
+
+    for (PsiFile psiFile : files) {
+      if (psiFile instanceof PsiFileEx) {
+        ((PsiFileEx)psiFile).onContentReload();
+      }
+    }
+
+    for (PsiTreeChangeEventImpl event : events) {
+      ((PsiManagerImpl)getManager()).childrenChanged(event);
+    }
+    for (PsiTreeChangeEventImpl event : genericEvents) {
+      ((PsiManagerImpl)getManager()).childrenChanged(event);
+    }
+
+    contentsSynchronized();
+  }
+
+  private PsiTreeChangeEventImpl createChildrenChangeEvent(PsiFile file, boolean generic) {
+    PsiTreeChangeEventImpl event = new PsiTreeChangeEventImpl(myManager);
+    event.setParent(file);
+    event.setFile(file);
+    event.setGenericChange(generic);
+    if (file instanceof PsiFileImpl && ((PsiFileImpl)file).isContentsLoaded()) {
+      event.setOffset(0);
+      event.setOldLength(file.getTextLength());
+    }
+    return event;
   }
 
   @Override
@@ -242,12 +295,16 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
     return file == PsiUtilCore.NULL_PSI_FILE ? null : file;
   }
 
+  public List<PsiFile> getCachedPsiFiles() {
+    return ContainerUtil.createMaybeSingletonList(getCachedPsi(myBaseLanguage));
+  }
+
   @NotNull
-  public FileElement[] getKnownTreeRoots() {
+  public List<FileElement> getKnownTreeRoots() {
     PsiFile psiFile = getCachedPsi(myBaseLanguage);
-    if (!(psiFile instanceof PsiFileImpl)) return FileElement.EMPTY_ARRAY;
-    if (((PsiFileImpl)psiFile).getTreeElement() == null) return FileElement.EMPTY_ARRAY;
-    return new FileElement[]{(FileElement)psiFile.getNode()};
+    if (!(psiFile instanceof PsiFileImpl)) return Collections.emptyList();
+    FileElement element = ((PsiFileImpl)psiFile).getTreeElement();
+    return ContainerUtil.createMaybeSingletonList(element);
   }
 
   private PsiFile createFile() {
@@ -473,8 +530,8 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
 
   public void forceCachedPsi(@NotNull PsiFile psiFile) {
     PsiFile prev = myPsiFile.getAndSet(psiFile);
-    if (prev != null && prev != psiFile && prev instanceof PsiFileImpl) {
-      ((PsiFileImpl)prev).markInvalidated();
+    if (prev != null && prev != psiFile && prev instanceof PsiFileEx) {
+      ((PsiFileEx)prev).markInvalidated();
     }
     ((PsiManagerEx)myManager).getFileManager().setViewProvider(getVirtualFile(), this);
   }
@@ -485,18 +542,30 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
   }
 
   private void setContent(@NotNull Content content) {
-    Content prevContent = myContent;
     myContent = content;
-    if (prevContent instanceof PsiFileContent && content instanceof VirtualFileContent) {
-      int fileLength = content.getText().length();
-      for (FileElement fileElement : getKnownTreeRoots()) {
-        int nodeLength = fileElement.getTextLength();
-        if (nodeLength != fileLength) {
-          LOG.error("Inconsistent " + fileElement.getElementType() + " tree in " + this + "; nodeLength=" + nodeLength + "; fileLength=" + fileLength);
-        }
+  }
+
+  private void checkLengthConsistency() {
+    Document document = getCachedDocument();
+    if (document instanceof DocumentWindow) {
+      return;
+    }
+    if (document != null &&
+        ((PsiDocumentManagerBase)PsiDocumentManager.getInstance(myManager.getProject())).getSynchronizer().isInSynchronization(document)) {
+      return;
+    }
+
+    List<FileElement> knownTreeRoots = getKnownTreeRoots();
+    if (knownTreeRoots.isEmpty()) return;
+
+    int fileLength = myContent.getTextLength();
+    for (FileElement fileElement : knownTreeRoots) {
+      int nodeLength = fileElement.getTextLength();
+      if (nodeLength != fileLength) {
+        // exceptions here should be assigned to peter
+        LOG.error("Inconsistent " + fileElement.getElementType() + " tree in " + this + "; nodeLength=" + nodeLength + "; fileLength=" + fileLength);
       }
     }
-    
   }
 
   @NonNls
@@ -507,13 +576,14 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
 
   public void markInvalidated() {
     PsiFile psiFile = getCachedPsi(myBaseLanguage);
-    if (psiFile instanceof PsiFileImpl) {
-      ((PsiFileImpl)psiFile).markInvalidated();
+    if (psiFile instanceof PsiFileEx) {
+      ((PsiFileEx)psiFile).markInvalidated();
     }
   }
 
   private interface Content {
     CharSequence getText();
+    int getTextLength();
 
     long getModificationStamp();
   }
@@ -533,6 +603,11 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
         return LoadTextUtil.loadText(virtualFile);
       }
       return getLastCommittedText(document);
+    }
+
+    @Override
+    public int getTextLength() {
+      return getText().length();
     }
 
     @Override
@@ -595,6 +670,15 @@ public class SingleRootFileViewProvider extends UserDataHolderBase implements Fi
         });
       }
       return content;
+    }
+
+    @Override
+    public int getTextLength() {
+      String content = myContent;
+      if (content != null) {
+        return content.length();
+      }
+      return myFile.calcTreeElement().getTextLength();
     }
 
     @Override

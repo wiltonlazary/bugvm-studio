@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,36 +19,34 @@ import com.intellij.debugger.impl.OutputChecker;
 import com.intellij.execution.configurations.JavaParameters;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.compiler.CompilerMessage;
+import com.intellij.openapi.compiler.CompilerMessageCategory;
+import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.io.FileFilters;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.testFramework.IdeaTestCase;
-import com.intellij.testFramework.PsiTestUtil;
+import com.intellij.pom.java.LanguageLevel;
+import com.intellij.testFramework.*;
 import com.intellij.util.Alarm;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.ui.UIUtil;
-import junit.framework.AssertionFailedError;
-import junit.framework.TestCase;
+import com.intellij.util.PathUtil;
+import com.intellij.util.ThrowableRunnable;
 import org.jetbrains.annotations.NonNls;
 
 import java.io.File;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public abstract class ExecutionTestCase extends IdeaTestCase {
   private OutputChecker myChecker;
-
   private int myTimeout;
-
-  private static AssertionFailedError ourAssertion;
-  private static final String CLASSES = "classes";
-  private static final String SRC = "src";
+  private static File ourOutputRoot;
+  private File myModuleOutputDir;
+  private CompilerTester myCompilerTester;
 
   public ExecutionTestCase() {
     setTimeout(300000); //30 seconds
@@ -64,21 +62,27 @@ public abstract class ExecutionTestCase extends IdeaTestCase {
 
   @Override
   protected void setUp() throws Exception {
-    ourAssertion = null;
-    ensureCompiledAppExists();
+    if (ourOutputRoot == null) {
+      ourOutputRoot = FileUtil.createTempDirectory("ExecutionTestCase", null, true);
+    }
+    myModuleOutputDir = new File(ourOutputRoot, PathUtil.getFileName(getTestAppPath()));
     myChecker = initOutputChecker();
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
+    EdtTestUtil.runInEdtAndWait(new ThrowableRunnable<Throwable>() {
       @Override
-      public void run() {
-        try {
-          ExecutionTestCase.super.setUp();
-        }
-        catch (Throwable e) {
-          e.printStackTrace();
-          assertTrue(false);
-        }
+      public void run() throws Throwable {
+        ExecutionTestCase.super.setUp();
       }
     });
+    if (!myModuleOutputDir.exists()) {
+      myCompilerTester = new CompilerTester(myProject, Arrays.asList(ModuleManager.getInstance(myProject).getModules()));
+      List<CompilerMessage> messages = myCompilerTester.rebuild();
+      for (CompilerMessage message : messages) {
+        if (message.getCategory() == CompilerMessageCategory.ERROR) {
+          FileUtil.delete(myModuleOutputDir);
+          fail("Compilation failed: " + message);
+        }
+      }
+    }
   }
 
   @Override
@@ -96,9 +100,15 @@ public abstract class ExecutionTestCase extends IdeaTestCase {
         PsiTestUtil.removeAllRoots(myModule, rootManager.getSdk());
         PsiTestUtil.addContentRoot(myModule, moduleDir);
         PsiTestUtil.addSourceRoot(myModule, srcDir);
-        PsiTestUtil.setCompilerOutputPath(myModule, VfsUtilCore.pathToUrl(FileUtil.toSystemIndependentName(getAppClassesPath())), false);
+        IdeaTestUtil.setModuleLanguageLevel(myModule, LanguageLevel.JDK_1_8);
+        PsiTestUtil.setCompilerOutputPath(myModule, VfsUtilCore.pathToUrl(FileUtil.toSystemIndependentName(myModuleOutputDir.getAbsolutePath())), false);
       }
     });
+  }
+
+  @Override
+  protected Sdk getTestProjectJdk() {
+    return JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk();
   }
 
   public void println(@NonNls String s, Key outputType) {
@@ -110,7 +120,7 @@ public abstract class ExecutionTestCase extends IdeaTestCase {
   }
 
   @Override
-  protected void runBareRunnable(Runnable runnable) throws Throwable {
+  protected void runBareRunnable(ThrowableRunnable<Throwable> runnable) throws Throwable {
     runnable.run();
   }
 
@@ -122,20 +132,15 @@ public abstract class ExecutionTestCase extends IdeaTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
+    if (myCompilerTester != null) {
+      myCompilerTester.tearDown();
+    }
+    EdtTestUtil.runInEdtAndWait(new ThrowableRunnable<Throwable>() {
       @Override
-      public void run() {
-        try {
-          ExecutionTestCase.super.tearDown();
-        }
-        catch (Exception e) {
-          LOG.error(e);
-        }
+      public void run() throws Throwable {
+        ExecutionTestCase.super.tearDown();
       }
     });
-    if (ourAssertion != null) {
-      throw ourAssertion;
-    }
     //myChecker.checkValid(getTestProjectJdk());
     //probably some thread is destroyed right now because of log exception
     //wait a little bit
@@ -146,9 +151,10 @@ public abstract class ExecutionTestCase extends IdeaTestCase {
 
   protected JavaParameters createJavaParameters(String mainClass) {
     JavaParameters parameters = new JavaParameters();
-    parameters.getClassPath().add(getAppClassesPath());
+    parameters.getClassPath().add(getAppOutputPath());
     parameters.setMainClass(mainClass);
     parameters.setJdk(JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk());
+    parameters.setWorkingDirectory(getTestAppPath());
     return parameters;
   }
 
@@ -164,8 +170,8 @@ public abstract class ExecutionTestCase extends IdeaTestCase {
     return getTestAppPath() + File.separator + "config" + File.separator + "options";
   }
 
-  protected String getAppClassesPath() {
-    return getTestAppPath() + File.separator + "classes";
+  protected String getAppOutputPath() {
+    return myModuleOutputDir.getAbsolutePath();
   }
 
   public void waitProcess(final ProcessHandler processHandler) {
@@ -215,69 +221,5 @@ public abstract class ExecutionTestCase extends IdeaTestCase {
       isRunning[0] = false;
     }
     Thread.interrupted();
-  }
-
-//  public static void fail(String message) {
-//    ourAssertion = new AssertionFailedError(message);
-//  }
-//
-//  static public void assertTrue(String message, boolean condition) {
-//    if (!condition)
-//      fail(message);
-//  }
-//
-//  static public void assertTrue(boolean condition) {
-//    assertTrue(null, condition);
-//  }
-
-  //private static final int CURRENT_VERSION = 6;
-  protected int getTestAppVersion() {
-    return 6;
-  }
-
-  protected void ensureCompiledAppExists() throws Exception {
-    final String appPath = getTestAppPath();
-    final File classesDir = new File(appPath, CLASSES);
-    String VERSION_FILE_NAME = "version-" + getTestAppVersion();
-    final File versionFile = new File(classesDir, VERSION_FILE_NAME);
-    if (!classesDir.exists() || !versionFile.exists() || !hasCompiledClasses(classesDir)) {
-      FileUtil.delete(classesDir);
-      classesDir.mkdirs();
-      if (compileTinyApp(appPath) != 0) {
-        throw new Exception("Failed to compile debugger test application.\nIt must be compiled in order to run debugger tests.\n" + appPath);
-      }
-      versionFile.createNewFile();
-    }
-  }
-
-  private int compileTinyApp(String appPath) {
-    final List<String> args = new ArrayList<String>();
-    args.add("-g");
-    args.add("-d");
-    args.add(new File(appPath, CLASSES).getPath());
-    
-    final Class<TestCase> testCaseClass = TestCase.class;
-    final String junitLibRoot = PathManager.getResourceRoot(testCaseClass, "/" + testCaseClass.getName().replace('.', '/') + ".class");
-    if (junitLibRoot != null) {
-      args.add("-cp");
-      args.add(junitLibRoot);
-    }
-    
-    final File[] files = new File(appPath, SRC).listFiles(FileFilters.withExtension("java"));
-    if (files == null) return 0; // Nothing to compile
-
-    for (File file : files) {
-      args.add(file.getPath());
-    }
-    return com.sun.tools.javac.Main.compile(ArrayUtil.toStringArray(args));
-  }
-
-  private boolean hasCompiledClasses(final File classesDir) {
-    for (File file : classesDir.listFiles()) {
-      if (file.isFile() && file.getName().endsWith(".class")) {
-        return true;
-      }
-    }
-    return false;
   }
 }

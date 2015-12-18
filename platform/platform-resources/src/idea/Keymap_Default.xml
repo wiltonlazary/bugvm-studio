@@ -970,10 +970,6 @@
   <action id="CodeInspection.OnEditor">
     <keyboard-shortcut first-keystroke="alt shift I"/>
   </action>
-  <action id="RemoveFromFavorites">
-    <keyboard-shortcut first-keystroke="control DELETE"/>
-  </action>
-
   <action id="FileChooser.GotoHome">
     <keyboard-shortcut first-keystroke="control 1"/>
   </action>
@@ -1032,6 +1028,10 @@
 
   <action id="NewScratchFile">
     <keyboard-shortcut first-keystroke="control alt shift INSERT"/>
+  </action>
+
+  <action id="EditorMatchBrace">
+    <keyboard-shortcut first-keystroke="control shift M" />
   </action>
 </keymap>
 </component>

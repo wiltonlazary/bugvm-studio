@@ -25,9 +25,8 @@ import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.execution.ui.actions.CloseAction;
 import com.intellij.ide.scratch.ScratchFileService;
+import com.intellij.ide.script.IdeScriptBindings;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -50,6 +49,7 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.ide.script.IdeScriptEngine;
 import org.jetbrains.ide.script.IdeScriptEngineManager;
 
@@ -59,14 +59,11 @@ import java.io.IOException;
 import java.io.Writer;
 import java.lang.ref.WeakReference;
 import java.util.List;
-import java.util.Map;
 
 /**
  * @author gregsh
  */
 public class RunIdeConsoleAction extends DumbAwareAction {
-
-  private static final String IDE = "IDE";
   private static final String DEFAULT_FILE_NAME = "ide-scripting";
 
   private static final Key<WeakReference<RunContentDescriptor>> DESCRIPTOR_KEY = Key.create("DESCRIPTOR_KEY");
@@ -135,22 +132,12 @@ public class RunIdeConsoleAction extends DumbAwareAction {
                                    @NotNull VirtualFile file,
                                    @NotNull Editor editor,
                                    @NotNull IdeScriptEngine engine) {
-    TextRange selectedRange = EditorUtil.getSelectionInAnyMode(editor);
-    Document document = editor.getDocument();
-    if (selectedRange.getLength() == 0) {
-      int line = document.getLineNumber(selectedRange.getStartOffset());
-      selectedRange = TextRange.create(document.getLineStartOffset(line), document.getLineEndOffset(line));
-    }
-    VirtualFile profileChild = file.getParent().findChild(".profile." + file.getExtension());
-    String profile = null;
-    try {
-      profile = profileChild == null ? "" : VfsUtilCore.loadText(profileChild);
-    }
-    catch (IOException ignored) {
-    }
-    String command = document.getText(selectedRange);
-    RunContentDescriptor descriptor = getConsoleView(project, file, engine);
+    String command = getCommand(editor);
+    String profile = getProfile(file);
+    RunContentDescriptor descriptor = getConsoleView(project, file);
     ConsoleViewImpl consoleView = (ConsoleViewImpl)descriptor.getExecutionConsole();
+
+    prepareEngine(project, engine, descriptor);
     try {
       //myHistoryController.getModel().addToHistory(command);
       consoleView.print("> " + command, ConsoleViewContentType.USER_INPUT);
@@ -168,6 +155,34 @@ public class RunIdeConsoleAction extends DumbAwareAction {
     selectContent(descriptor);
   }
 
+  private static void prepareEngine(@NotNull Project project, @NotNull IdeScriptEngine engine, @NotNull RunContentDescriptor descriptor) {
+    IdeScriptBindings.ensureIdeIsBound(project, engine);
+    ensureOutputIsRedirected(engine, descriptor);
+  }
+
+  @Nullable
+  private static String getProfile(@NotNull VirtualFile file) {
+    VirtualFile profileChild = file.getParent().findChild(".profile." + file.getExtension());
+    String profile = null;
+    try {
+      profile = profileChild == null ? "" : VfsUtilCore.loadText(profileChild);
+    }
+    catch (IOException ignored) {
+    }
+    return profile;
+  }
+
+  @NotNull
+  private static String getCommand(@NotNull Editor editor) {
+    TextRange selectedRange = EditorUtil.getSelectionInAnyMode(editor);
+    Document document = editor.getDocument();
+    if (selectedRange.getLength() == 0) {
+      int line = document.getLineNumber(selectedRange.getStartOffset());
+      selectedRange = TextRange.create(document.getLineStartOffset(line), document.getLineEndOffset(line));
+    }
+    return document.getText(selectedRange);
+  }
+
   private static void selectContent(RunContentDescriptor descriptor) {
     Executor executor = DefaultRunExecutor.getRunExecutorInstance();
     ConsoleViewImpl consoleView = ObjectUtils.assertNotNull((ConsoleViewImpl)descriptor.getExecutionConsole());
@@ -175,22 +190,19 @@ public class RunIdeConsoleAction extends DumbAwareAction {
   }
 
   @NotNull
-  private static RunContentDescriptor getConsoleView(@NotNull Project project, @NotNull VirtualFile file, @NotNull IdeScriptEngine engine) {
+  private static RunContentDescriptor getConsoleView(@NotNull Project project, @NotNull VirtualFile file) {
     PsiFile psiFile = ObjectUtils.assertNotNull(PsiManager.getInstance(project).findFile(file));
-
     WeakReference<RunContentDescriptor> ref = psiFile.getCopyableUserData(DESCRIPTOR_KEY);
     RunContentDescriptor descriptor = ref == null ? null : ref.get();
     if (descriptor == null || descriptor.getExecutionConsole() == null) {
-      descriptor = createConsoleView(project, engine, psiFile);
+      descriptor = createConsoleView(project, psiFile);
       psiFile.putCopyableUserData(DESCRIPTOR_KEY, new WeakReference<RunContentDescriptor>(descriptor));
     }
-    ensureIdeBound(project, engine);
-
     return descriptor;
   }
 
   @NotNull
-  private static RunContentDescriptor createConsoleView(@NotNull Project project, @NotNull IdeScriptEngine engine, @NotNull PsiFile psiFile) {
+  private static RunContentDescriptor createConsoleView(@NotNull Project project, @NotNull PsiFile psiFile) {
     ConsoleView consoleView = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
 
     DefaultActionGroup toolbarActions = new DefaultActionGroup();
@@ -211,16 +223,7 @@ public class RunIdeConsoleAction extends DumbAwareAction {
     toolbarActions.add(new CloseAction(executor, descriptor, project));
     ExecutionManager.getInstance(project).getContentManager().showRunContent(executor, descriptor);
 
-    new ScriptEngineOutputHandler(descriptor).installOn(engine);
-
     return descriptor;
-  }
-
-  private static void ensureIdeBound(@NotNull Project project, @NotNull IdeScriptEngine engine) {
-    Object oldIdeBinding = engine.getBinding(IDE);
-    if (oldIdeBinding == null) {
-      engine.setBinding(IDE, new IDE(project, engine));
-    }
   }
 
   private static class MyRunAction extends DumbAwareAction {
@@ -255,85 +258,50 @@ public class RunIdeConsoleAction extends DumbAwareAction {
     }
   }
 
-  @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
-  private static class ScriptEngineOutputHandler {
-    private WeakReference<RunContentDescriptor> myDescriptor;
-
-    private ConsoleWriter myStdOutWriter = new ConsoleWriter(ConsoleViewContentType.NORMAL_OUTPUT);
-    private ConsoleWriter myStdErrWriter = new ConsoleWriter(ConsoleViewContentType.ERROR_OUTPUT);
-
-    public ScriptEngineOutputHandler(@NotNull RunContentDescriptor descriptor) {
-      myDescriptor = new WeakReference<RunContentDescriptor>(descriptor);
+  private static void ensureOutputIsRedirected(@NotNull IdeScriptEngine engine, @NotNull RunContentDescriptor descriptor) {
+    ConsoleWriter stdOutWriter = ObjectUtils.tryCast(engine.getStdOut(), ConsoleWriter.class);
+    ConsoleWriter stdErrWriter = ObjectUtils.tryCast(engine.getStdErr(), ConsoleWriter.class);
+    if (stdOutWriter != null && stdOutWriter.getDescriptor() == descriptor &&
+        stdErrWriter != null && stdErrWriter.getDescriptor() == descriptor) {
+      return;
     }
 
-    public void installOn(@NotNull IdeScriptEngine engine) {
-      engine.setStdOut(myStdOutWriter);
-      engine.setStdErr(myStdErrWriter);
-    }
-
-    private class ConsoleWriter extends Writer {
-      private final ConsoleViewContentType myOutputType;
-
-      private ConsoleWriter(ConsoleViewContentType outputType) {
-        myOutputType = outputType;
-      }
-
-      @Override
-      public void write(char[] cbuf, int off, int len) throws IOException {
-        RunContentDescriptor descriptor = myDescriptor.get();
-        ConsoleViewImpl console = ObjectUtils.tryCast(descriptor != null ? descriptor.getExecutionConsole() : null, ConsoleViewImpl.class);
-        if (console == null) {
-          //TODO ignore ?
-          throw new IOException("The console is not available.");
-        }
-        console.print(new String(cbuf, off, len), myOutputType);
-      }
-
-      @Override
-      public void flush() throws IOException {
-      }
-
-      @Override
-      public void close() throws IOException {
-      }
-    }
+    WeakReference<RunContentDescriptor> ref = new WeakReference<RunContentDescriptor>(descriptor);
+    engine.setStdOut(new ConsoleWriter(ref, ConsoleViewContentType.NORMAL_OUTPUT));
+    engine.setStdErr(new ConsoleWriter(ref, ConsoleViewContentType.ERROR_OUTPUT));
   }
 
-  public static class IDE {
-    public final Application application = ApplicationManager.getApplication();
-    public final Project project;
+  private static class ConsoleWriter extends Writer {
+    private final WeakReference<RunContentDescriptor> myDescriptor;
+    private final ConsoleViewContentType myOutputType;
 
-    private final Map<Object, Object> bindings = ContainerUtil.newConcurrentMap();
-    private final IdeScriptEngine myEngine;
-
-    IDE(Project project, IdeScriptEngine engine) {
-      this.project = project;
-      myEngine = engine;
+    private ConsoleWriter(@NotNull WeakReference<RunContentDescriptor> descriptor, @NotNull ConsoleViewContentType outputType) {
+      myDescriptor = descriptor;
+      myOutputType = outputType;
     }
 
-    public void print(Object o) {
-      print(myEngine.getStdOut(), o);
+    @Nullable
+    public RunContentDescriptor getDescriptor() {
+      return myDescriptor.get();
     }
 
-    public void error(Object o) {
-      print(myEngine.getStdErr(), o);
-    }
-
-    public Object put(Object key, Object value) {
-      return value == null ? bindings.remove(key) : bindings.put(key, value);
-    }
-
-    public Object get(Object key) {
-      return bindings.get(key);
-    }
-
-    private static void print(Writer writer, Object o) {
-      try {
-        writer.append(String.valueOf(o));
+    @Override
+    public void write(char[] cbuf, int off, int len) throws IOException {
+      RunContentDescriptor descriptor = myDescriptor.get();
+      ConsoleViewImpl console = ObjectUtils.tryCast(descriptor != null ? descriptor.getExecutionConsole() : null, ConsoleViewImpl.class);
+      if (console == null) {
+        //TODO ignore ?
+        throw new IOException("The console is not available.");
       }
-      catch (IOException e) {
-        throw new RuntimeException(e);
-      }
+      console.print(new String(cbuf, off, len), myOutputType);
+    }
+
+    @Override
+    public void flush() throws IOException {
+    }
+
+    @Override
+    public void close() throws IOException {
     }
   }
 }

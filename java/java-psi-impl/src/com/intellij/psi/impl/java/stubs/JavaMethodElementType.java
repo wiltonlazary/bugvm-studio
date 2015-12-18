@@ -50,6 +50,7 @@ import java.util.Set;
  * @author max
  */
 public abstract class JavaMethodElementType extends JavaStubElementType<PsiMethodStub, PsiMethod> {
+  public static final String TYPE_PARAMETER_PSEUDO_NAME = "$TYPE_PARAMETER$";
   public JavaMethodElementType(@NonNls final String name) {
     super(name);
   }
@@ -76,12 +77,14 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
     boolean isVarArgs = false;
     boolean isDeprecatedByComment = false;
     boolean hasDeprecatedAnnotation = false;
+    boolean hasDocComment = false;
     String defValueText = null;
 
     boolean expectingDef = false;
     for (final LighterASTNode child : tree.getChildren(node)) {
       final IElementType type = child.getTokenType();
       if (type == JavaDocElementType.DOC_COMMENT) {
+        hasDocComment = true;
         isDeprecatedByComment = RecordUtil.isDeprecatedByDocComment(tree, child);
       }
       else if (type == JavaElementType.MODIFIER_LIST) {
@@ -114,9 +117,9 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
 
     TypeInfo typeInfo = isConstructor ? TypeInfo.createConstructorType() : TypeInfo.create(tree, node, parentStub);
     boolean isAnno = (node.getTokenType() == JavaElementType.ANNOTATION_METHOD);
-    byte flags = PsiMethodStubImpl.packFlags(isConstructor, isAnno, isVarArgs, isDeprecatedByComment, hasDeprecatedAnnotation);
+    byte flags = PsiMethodStubImpl.packFlags(isConstructor, isAnno, isVarArgs, isDeprecatedByComment, hasDeprecatedAnnotation, hasDocComment);
 
-    return new PsiMethodStubImpl(parentStub, StringRef.fromString(name), typeInfo, flags, StringRef.fromString(defValueText));
+    return new PsiMethodStubImpl(parentStub, name, typeInfo, flags, defValueText);
   }
 
   @Override
@@ -136,7 +139,7 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
     final TypeInfo type = TypeInfo.readTYPE(dataStream);
     byte flags = dataStream.readByte();
     final StringRef defaultMethodValue = PsiMethodStubImpl.isAnnotationMethod(flags) ? dataStream.readName() : null;
-    return new PsiMethodStubImpl(parentStub, name, type, flags, defaultMethodValue);
+    return new PsiMethodStubImpl(parentStub, StringRef.toString(name), type, flags, StringRef.toString(defaultMethodValue));
   }
 
   @Override
@@ -147,6 +150,36 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
       if (RecordUtil.isStaticNonPrivateMember(stub)) {
         sink.occurrence(JavaStubIndexKeys.JVM_STATIC_MEMBERS_NAMES, name);
         sink.occurrence(JavaStubIndexKeys.JVM_STATIC_MEMBERS_TYPES, stub.getReturnTypeText(false).getShortTypeText());
+      }
+    }
+
+    Set<String> methodTypeParams = null;
+    for (StubElement stubElement : stub.getChildrenStubs()) {
+      if (stubElement instanceof PsiTypeParameterListStub) {
+        for (Object tStub : stubElement.getChildrenStubs()) {
+          if (tStub instanceof PsiTypeParameterStub) {
+            if (methodTypeParams == null) {
+              methodTypeParams = new HashSet<String>();
+            }
+            methodTypeParams.add(((PsiTypeParameterStub)tStub).getName());
+          }
+        }
+      }
+      else if (stubElement instanceof PsiParameterListStub) {
+        for (StubElement paramStub : ((PsiParameterListStub)stubElement).getChildrenStubs()) {
+          if (paramStub instanceof PsiParameterStub) {
+            TypeInfo type = ((PsiParameterStub)paramStub).getType(false);
+            if (type.arrayCount > 0) continue;
+            String typeName = type.getShortTypeText();
+            if (TypeConversionUtil.isPrimitive(typeName) || TypeConversionUtil.isPrimitiveWrapper(typeName)) continue;
+            sink.occurrence(JavaStubIndexKeys.METHOD_TYPES, typeName);
+            if (methodTypeParams != null && methodTypeParams.contains(typeName)) {
+              sink.occurrence(JavaStubIndexKeys.METHOD_TYPES, TYPE_PARAMETER_PSEUDO_NAME);
+              methodTypeParams = null;
+            }
+          }
+        }
+        break;
       }
     }
   }

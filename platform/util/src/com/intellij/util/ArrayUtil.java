@@ -406,6 +406,16 @@ public class ArrayUtil extends ArrayUtilRt {
 
   @NotNull
   @Contract(pure=true)
+  public static <T> T[] prepend(final T element, @NotNull final T[] src, @NotNull ArrayFactory<T> factory) {
+    int length = src.length;
+    T[] result = factory.create(length + 1);
+    System.arraycopy(src, 0, result, 1, length);
+    result[0] = element;
+    return result;
+  }
+
+  @NotNull
+  @Contract(pure=true)
   public static byte[] prepend(byte element, @NotNull byte[] array) {
     int length = array.length;
     final byte[] result = new byte[length + 1];
@@ -632,7 +642,7 @@ public class ArrayUtil extends ArrayUtilRt {
   }
 
   public static void reverse(@NotNull char[] array) {
-    for (int i = 0; i < array.length; i++) {
+    for (int i = 0; i < array.length / 2; i++) {
       swap(array, array.length - i - 1, i);
     }
   }
@@ -788,6 +798,17 @@ public class ArrayUtil extends ArrayUtilRt {
   }
 
   @Contract(pure=true)
+  public static <T> int lastIndexOf(@NotNull final int[] src, final int obj) {
+    for (int i = src.length - 1; i >= 0; i--) {
+      final int o = src[i];
+      if (o == obj) {
+          return i;
+      }
+    }
+    return -1;
+  }
+
+  @Contract(pure=true)
   public static <T> int lastIndexOf(@NotNull final T[] src, final T obj, @NotNull Equality<? super T> comparator) {
     for (int i = src.length - 1; i >= 0; i--) {
       final T o = src[i];
@@ -903,6 +924,17 @@ public class ArrayUtil extends ArrayUtilRt {
 
   // calculates average of the median values in the selected part of the array. E.g. for part=3 returns average in the middle third.
   public static long averageAmongMedians(@NotNull long[] time, int part) {
+    assert part >= 1;
+    int n = time.length;
+    Arrays.sort(time);
+    long total = 0;
+    for (int i= n /2- n / part /2; i< n /2+ n / part /2; i++) {
+      total += time[i];
+    }
+    int middlePartLength = n / part;
+    return middlePartLength == 0 ? 0 : total / middlePartLength;
+  }
+  public static long averageAmongMedians(@NotNull int[] time, int part) {
     assert part >= 1;
     int n = time.length;
     Arrays.sort(time);

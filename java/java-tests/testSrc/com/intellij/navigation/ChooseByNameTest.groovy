@@ -27,6 +27,7 @@ import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
 import com.intellij.util.Consumer
 import com.intellij.util.concurrency.Semaphore
 import org.jetbrains.annotations.NotNull
+import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
 /**
  * @author peter
  */
@@ -241,6 +242,13 @@ class Intf {
     assert getPopupElements(new GotoClassModel2(project), 'goo.baz.Bar') == [bar2]
   }
 
+  public void "test try lowercase pattern if nothing matches"() {
+    def match = myFixture.addClass("class IPRoi { }")
+    def nonMatch = myFixture.addClass("class InspectionProfileImpl { }")
+    assert getPopupElements(new GotoClassModel2(project), 'IPRoi') == [match]
+    assert getPopupElements(new GotoClassModel2(project), 'IproImpl') == [nonMatch]
+  }
+
   private static filterJavaItems(List<Object> items) {
     return ApplicationManager.application.runReadAction ({
       return items.findAll { it instanceof PsiElement && it.language == JavaLanguage.INSTANCE }
@@ -278,6 +286,15 @@ class Intf {
 
     assert getPopupElements(new GotoSymbolModel2(project), 'Ba.xpai', false) == [base]
     assert getPopupElements(new GotoSymbolModel2(project), 'Su.xpai', false) == [sub]
+  }
+
+  public void "test groovy script class with non-identifier name"() {
+    GroovyFile file1 = myFixture.addFileToProject('foo.groovy', '')
+    myFixture.addFileToProject('foo-bar.groovy', '')
+
+    def clazz
+    edt { clazz = file1.scriptClass }
+    assert getPopupElements(new GotoSymbolModel2(project), 'foo', false) == [clazz]
   }
 
   private List<Object> getPopupElements(ChooseByNameModel model, String text, boolean checkboxState = false) {

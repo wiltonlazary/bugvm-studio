@@ -107,7 +107,7 @@ public class KeyStrokeAdapter implements KeyListener {
     if (event != null && !event.isConsumed()) {
       int id = event.getID();
       if (id == KeyEvent.KEY_TYPED) {
-        return extended ? null : getKeyStroke(event.getKeyChar(), event.getModifiers());
+        return extended ? null : getKeyStroke(event.getKeyChar(), 0);
       }
       boolean released = id == KeyEvent.KEY_RELEASED;
       if (released || id == KeyEvent.KEY_PRESSED) {
@@ -133,7 +133,7 @@ public class KeyStrokeAdapter implements KeyListener {
    * @return a key stroke or {@code null} if {@code ch} is undefined
    */
   private static KeyStroke getKeyStroke(char ch, int modifiers) {
-    return KeyEvent.CHAR_UNDEFINED == ch ? null : KeyStroke.getKeyStroke(ch/*TODO:MAC, modifiers*/);
+    return KeyEvent.CHAR_UNDEFINED == ch ? null : KeyStroke.getKeyStroke(Character.valueOf(ch), modifiers);
   }
 
   /**
@@ -292,6 +292,7 @@ public class KeyStrokeAdapter implements KeyListener {
         append(sb, "released", stroke.isOnKeyRelease());
         String name = LazyVirtualKeys.myCodeToName.get(code);
         if (name == null) {
+          sb.append('#');
           name = Integer.toHexString(code);
         }
         return sb.append(name).toString();
@@ -323,8 +324,8 @@ public class KeyStrokeAdapter implements KeyListener {
       mapNameToMask.put("control", InputEvent.CTRL_DOWN_MASK | InputEvent.CTRL_MASK);
       mapNameToMask.put("meta", InputEvent.META_DOWN_MASK | InputEvent.META_MASK);
       mapNameToMask.put("alt", InputEvent.ALT_DOWN_MASK | InputEvent.ALT_MASK);
-      mapNameToMask.put("altGr", InputEvent.ALT_GRAPH_DOWN_MASK | InputEvent.ALT_GRAPH_MASK); // duplicate
-      mapNameToMask.put("altGraph", InputEvent.ALT_GRAPH_DOWN_MASK | InputEvent.ALT_GRAPH_MASK);
+      mapNameToMask.put("altgr", InputEvent.ALT_GRAPH_DOWN_MASK | InputEvent.ALT_GRAPH_MASK); // duplicate
+      mapNameToMask.put("altgraph", InputEvent.ALT_GRAPH_DOWN_MASK | InputEvent.ALT_GRAPH_MASK);
       mapNameToMask.put("button1", InputEvent.BUTTON1_DOWN_MASK);
       mapNameToMask.put("button2", InputEvent.BUTTON2_DOWN_MASK);
       mapNameToMask.put("button3", InputEvent.BUTTON3_DOWN_MASK);

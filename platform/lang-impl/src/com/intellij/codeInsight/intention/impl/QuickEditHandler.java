@@ -16,17 +16,16 @@
 package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.editorActions.CopyPastePreProcessor;
-import com.intellij.codeInsight.lookup.LookupManager;
-import com.intellij.codeInsight.template.TemplateManager;
 import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.Language;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CommonShortcuts;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.undo.UndoManager;
 import com.intellij.openapi.editor.*;
-import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
 import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.openapi.editor.actionSystem.ReadonlyFragmentModificationHandler;
 import com.intellij.openapi.editor.event.DocumentAdapter;
@@ -96,7 +95,6 @@ public class QuickEditHandler extends DocumentAdapter implements Disposable {
   private EditorWindow mySplittedWindow;
   private boolean myCommittingToOriginal;
 
-  @Nullable
   private final PsiFile myInjectedFile;
   private final List<Trinity<RangeMarker, RangeMarker, SmartPsiElementPointer>> myMarkers = ContainerUtil.newLinkedList();
 
@@ -142,38 +140,18 @@ public class QuickEditHandler extends DocumentAdapter implements Disposable {
     EditorFactory editorFactory = ObjectUtils.assertNotNull(EditorFactory.getInstance());
     // not FileEditorManager listener because of RegExp checker and alike
     editorFactory.addEditorFactoryListener(new EditorFactoryAdapter() {
-
-      int myEditorCount;
+      int useCount;
 
       @Override
       public void editorCreated(@NotNull EditorFactoryEvent event) {
         if (event.getEditor().getDocument() != myNewDocument) return;
-        myEditorCount ++;
-        final EditorActionHandler editorEscape = EditorActionManager.getInstance().getActionHandler(IdeActions.ACTION_EDITOR_ESCAPE);
-        if (!myAction.isShowInBalloon()) {
-          new AnAction() {
-            @Override
-            public void update(AnActionEvent e) {
-              Editor editor = CommonDataKeys.EDITOR.getData(e.getDataContext());
-              e.getPresentation().setEnabled(
-                editor != null && LookupManager.getActiveLookup(editor) == null &&
-                TemplateManager.getInstance(myProject).getActiveTemplate(editor) == null &&
-                (editorEscape == null || !editorEscape.isEnabled(editor, e.getDataContext())));
-            }
-
-            @Override
-            public void actionPerformed(AnActionEvent e) {
-              closeEditor();
-            }
-          }.registerCustomShortcutSet(CommonShortcuts.ESCAPE, event.getEditor().getContentComponent());
-        }
+        useCount++;
       }
 
       @Override
       public void editorReleased(@NotNull EditorFactoryEvent event) {
         if (event.getEditor().getDocument() != myNewDocument) return;
-        if (-- myEditorCount > 0) return;
-
+        if (--useCount > 0) return;
         if (Boolean.TRUE.equals(myNewVirtualFile.getUserData(FileEditorManagerImpl.CLOSING_TO_REOPEN))) return;
 
         Disposer.dispose(QuickEditHandler.this);
@@ -199,7 +177,9 @@ public class QuickEditHandler extends DocumentAdapter implements Disposable {
   }
 
   public boolean isValid() {
-    boolean valid = myNewVirtualFile.isValid() && (myAltFullRange == null && myInjectedFile.isValid() || myAltFullRange.isValid());
+    boolean valid = myNewVirtualFile.isValid() &&
+                    (myAltFullRange == null && myInjectedFile.isValid() ||
+                     myAltFullRange != null && myAltFullRange.isValid());
     if (valid) {
       for (Trinity<RangeMarker, RangeMarker, SmartPsiElementPointer> t : myMarkers) {
         if (!t.first.isValid() || !t.second.isValid() || t.third.getElement() == null) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -67,7 +67,7 @@ public class PsiIntersectionType extends PsiType.Stub {
     }
   }
 
-  private static Set<PsiType> flatten(PsiType[] conjuncts, Set<PsiType> types) {
+  public static Set<PsiType> flatten(PsiType[] conjuncts, Set<PsiType> types) {
     for (PsiType conjunct : conjuncts) {
       if (conjunct instanceof PsiIntersectionType) {
         PsiIntersectionType type = (PsiIntersectionType)conjunct;
@@ -85,8 +85,7 @@ public class PsiIntersectionType extends PsiType.Stub {
         for (PsiType existing : array) {
           if (type != existing) {
             final boolean allowUncheckedConversion = type instanceof PsiClassType && ((PsiClassType)type).isRaw();
-            if (TypeConversionUtil.isAssignable(type, existing, allowUncheckedConversion) ||
-                TypeConversionUtil.isAssignable(GenericsUtil.eliminateWildcards(type), GenericsUtil.eliminateWildcards(existing), allowUncheckedConversion)) {
+            if (TypeConversionUtil.isAssignable(type, existing, allowUncheckedConversion)) {
               iterator.remove();
               break;
             }
@@ -162,6 +161,7 @@ public class PsiIntersectionType extends PsiType.Stub {
     return myConjuncts;
   }
 
+  @NotNull
   public PsiType getRepresentative() {
     return myConjuncts[0];
   }

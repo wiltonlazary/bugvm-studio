@@ -34,6 +34,7 @@ import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
@@ -42,20 +43,28 @@ public class DirectoryIconProvider extends IconProvider implements DumbAware {
   public Icon getIcon(@NotNull final PsiElement element, final int flags) {
     if (element instanceof PsiDirectory) {
       final PsiDirectory psiDirectory = (PsiDirectory)element;
-      final VirtualFile vFile = psiDirectory.getVirtualFile();
-      Project project = psiDirectory.getProject();
-      SourceFolder sourceFolder = ProjectRootsUtil.getModuleSourceRoot(vFile, project);
-      if (sourceFolder != null) {
-        return SourceRootPresentation.getSourceRootIcon(sourceFolder);
-      }
-      else {
-        if (!Registry.is("ide.hide.excluded.files")) {
-          boolean ignored = ProjectRootManager.getInstance(project).getFileIndex().isExcluded(vFile);
-          if (ignored) {
-            return AllIcons.Modules.ExcludeRoot;
-          }
-        }
-        return PlatformIcons.DIRECTORY_CLOSED_ICON;
+      return getDirectoryIcon(psiDirectory.getVirtualFile(), psiDirectory.getProject());
+    }
+    return null;
+  }
+
+  public static Icon getDirectoryIcon(VirtualFile vFile, Project project) {
+    SourceFolder sourceFolder = ProjectRootsUtil.getModuleSourceRoot(vFile, project);
+    if (sourceFolder != null) {
+      return SourceRootPresentation.getSourceRootIcon(sourceFolder);
+    }
+    else {
+      Icon excludedIcon = getIconIfExcluded(project, vFile);
+      return excludedIcon != null ? excludedIcon : PlatformIcons.DIRECTORY_CLOSED_ICON;
+    }
+  }
+
+  @Nullable
+  public static Icon getIconIfExcluded(@NotNull Project project, @NotNull VirtualFile vFile) {
+    if (!Registry.is("ide.hide.excluded.files")) {
+      boolean ignored = ProjectRootManager.getInstance(project).getFileIndex().isExcluded(vFile);
+      if (ignored) {
+        return AllIcons.Modules.ExcludeRoot;
       }
     }
     return null;

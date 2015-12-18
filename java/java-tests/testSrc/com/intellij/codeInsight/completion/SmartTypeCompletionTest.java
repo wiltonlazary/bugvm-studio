@@ -428,6 +428,8 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
 
   public void testJavadocThrows() throws Throwable { doTest(); }
 
+  public void testMethodThrows() throws Throwable { doTest(); }
+
   public void testDoNotExcludeAssignedVariable() throws Throwable { doTest(); }
 
   public void testArrayIndexTailType() throws Throwable { doTest(); }
@@ -909,6 +911,7 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
   public void testTypeArgs2() throws Exception {
     doTest();
   }
+  public void testTypeArgsOverwrite() { doTest(); }
 
   public void testIfConditionExpectedType() throws Exception { doTest(); }
 
@@ -1147,6 +1150,13 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
   public void testTabAfterNew() throws Exception {
     doFirstItemTest('\t');
   }
+
+  public void testSuggestMethodReturnType() { 
+    configureByTestName();
+    myFixture.assertPreferredCompletionItems(0, "Serializable", "CharSequence", "Object");
+  }
+
+  public void testSuggestCastReturnTypeByCalledMethod() { doTest(); }
 
   public void testNonStaticField() throws Exception { doAntiTest(); }
 

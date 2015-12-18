@@ -22,6 +22,9 @@ import com.jetbrains.python.psi.resolve.PyResolveContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
+import java.util.Map;
+
 /**
  * Represents an entire call expression, like <tt>foo()</tt> or <tt>foo.bar[1]('x')</tt>.
  */
@@ -71,7 +74,7 @@ public interface PyCallExpression extends PyCallSiteExpression {
    * Returns the argument if one is present in the list.
    *
    * @param parameter parameter
-   * @param argClass argument expected type
+   * @param argClass  argument expected type
    * @return the argument or null
    */
   @Nullable
@@ -81,7 +84,8 @@ public interface PyCallExpression extends PyCallSiteExpression {
   PyExpression getKeywordArgument(String keyword);
 
   /**
-   * TODO: Copy/Paste with {@link com.jetbrains.python.psi.PyArgumentList#addArgument(PyExpression)}
+   * TODO: Copy/Paste with {@link PyArgumentList#addArgument(PyExpression)}
+   *
    * @param expression
    */
   void addArgument(PyExpression expression);
@@ -107,12 +111,17 @@ public interface PyCallExpression extends PyCallSiteExpression {
   PyCallable resolveCalleeFunction(PyResolveContext resolveContext);
 
   /**
-   *
    * @param resolveContext the reference resolve context
    * @param implicitOffset known from the context implicit offset
    */
   @Nullable
   PyMarkedCallee resolveCallee(PyResolveContext resolveContext, int implicitOffset);
+
+  @NotNull
+  PyArgumentsMapping mapArguments(@NotNull PyResolveContext resolveContext);
+
+  @NotNull
+  PyArgumentsMapping mapArguments(@NotNull PyResolveContext resolveContext, int implicitOffset);
 
   /**
    * Checks if the unqualified name of the callee matches any of the specified names
@@ -122,14 +131,86 @@ public interface PyCallExpression extends PyCallSiteExpression {
    */
   boolean isCalleeText(@NotNull String... nameCandidates);
 
-
   /**
    * Checks if the qualified name of the callee matches any of the specified names provided by provider.
-   * @see com.jetbrains.python.nameResolver
+   * May be <strong>heavy</strong>.
+   * Use {@link com.jetbrains.python.nameResolver.NameResolverTools#isCalleeShortCut(PyCallExpression, FQNamesProvider)}
+   * if you can.
+   *
    * @param name providers that provides one or more names to check
    * @return true if matches, false otherwise
+   * @see com.jetbrains.python.nameResolver
    */
   boolean isCallee(@NotNull FQNamesProvider... name);
+
+  class PyArgumentsMapping {
+    @NotNull private final PyCallExpression myCallExpression;
+    @Nullable private final PyMarkedCallee myCallee;
+    @NotNull private final Map<PyExpression, PyNamedParameter> myMappedParameters;
+    @NotNull private final List<PyParameter> myUnmappedParameters;
+    @NotNull private final List<PyExpression> myUnmappedArguments;
+    @NotNull private final List<PyNamedParameter> myParametersMappedToVariadicPositionalArguments;
+    @NotNull private final List<PyNamedParameter> myParametersMappedToVariadicKeywordArguments;
+    @NotNull private final Map<PyExpression, PyTupleParameter> myMappedTupleParameters;
+
+    public PyArgumentsMapping(@NotNull PyCallExpression expression,
+                              @Nullable PyMarkedCallee markedCallee,
+                              @NotNull Map<PyExpression, PyNamedParameter> mappedParameters,
+                              @NotNull List<PyParameter> unmappedParameters,
+                              @NotNull List<PyExpression> unmappedArguments,
+                              @NotNull List<PyNamedParameter> parametersMappedToVariadicPositionalArguments,
+                              @NotNull List<PyNamedParameter> parametersMappedToVariadicKeywordArguments,
+                              @NotNull Map<PyExpression, PyTupleParameter> tupleMappedParameters) {
+      myCallExpression = expression;
+      myCallee = markedCallee;
+      myMappedParameters = mappedParameters;
+      myUnmappedParameters = unmappedParameters;
+      myUnmappedArguments = unmappedArguments;
+      myParametersMappedToVariadicPositionalArguments = parametersMappedToVariadicPositionalArguments;
+      myParametersMappedToVariadicKeywordArguments = parametersMappedToVariadicKeywordArguments;
+      myMappedTupleParameters = tupleMappedParameters;
+    }
+
+    @NotNull
+    public PyCallExpression getCallExpression() {
+      return myCallExpression;
+    }
+
+    @Nullable
+    public PyMarkedCallee getMarkedCallee() {
+      return myCallee;
+    }
+
+    @NotNull
+    public Map<PyExpression, PyNamedParameter> getMappedParameters() {
+      return myMappedParameters;
+    }
+
+    @NotNull
+    public List<PyParameter> getUnmappedParameters() {
+      return myUnmappedParameters;
+    }
+
+    @NotNull
+    public List<PyExpression> getUnmappedArguments() {
+      return myUnmappedArguments;
+    }
+
+    @NotNull
+    public List<PyNamedParameter> getParametersMappedToVariadicPositionalArguments() {
+      return myParametersMappedToVariadicPositionalArguments;
+    }
+
+    @NotNull
+    public List<PyNamedParameter> getParametersMappedToVariadicKeywordArguments() {
+      return myParametersMappedToVariadicKeywordArguments;
+    }
+
+    @NotNull
+    public Map<PyExpression, PyTupleParameter> getMappedTupleParameters() {
+      return myMappedTupleParameters;
+    }
+  }
 
   /**
    * Couples function with a flag describing the way it is called.
@@ -166,8 +247,8 @@ public interface PyCallExpression extends PyCallSiteExpression {
 
     /**
      * @return number of implicitly passed positional parameters; 0 means no parameters are passed implicitly.
-     *         Note that a <tt>*args</tt> is never marked as passed implicitly.
-     *         E.g. for a function like <tt>foo(a, b, *args)</tt> always holds <tt>getImplicitOffset() < 2</tt>.
+     * Note that a <tt>*args</tt> is never marked as passed implicitly.
+     * E.g. for a function like <tt>foo(a, b, *args)</tt> always holds <tt>getImplicitOffset() < 2</tt>.
      */
     public int getImplicitOffset() {
       return myImplicitOffset;

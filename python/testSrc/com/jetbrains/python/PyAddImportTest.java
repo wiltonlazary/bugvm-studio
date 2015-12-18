@@ -16,11 +16,12 @@
 package com.jetbrains.python;
 
 import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.psi.PsiPolyVariantReference;
+import com.intellij.psi.PsiReference;
 import com.jetbrains.python.codeInsight.imports.AddImportHelper;
 import com.jetbrains.python.codeInsight.imports.AddImportHelper.ImportPriority;
 import com.jetbrains.python.fixtures.PyResolveTestCase;
 import com.jetbrains.python.fixtures.PyTestCase;
+import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -76,7 +77,7 @@ public class PyAddImportTest extends PyTestCase {
 
   // PY-12018
   public void testNewFromImportFromSameModule() {
-    doAddFromImport("mod", "b", BUILTIN);
+    doAddFromImport("mod", "b", THIRD_PARTY);
   }
 
   // PY-6020
@@ -97,6 +98,13 @@ public class PyAddImportTest extends PyTestCase {
   // PY-13668
   public void testLocalImportInlineBranch() {
     testLocalImport();
+  }
+
+  // PY-16373
+  public void testLocalImportQuickFixAvailable() {
+    myFixture.configureByFile(getTestName(true) + ".py");
+    myFixture.enableInspections(PyUnresolvedReferencesInspection.class);
+    assertNotNull(myFixture.findSingleIntention("Import 'sys' locally"));
   }
 
   private void doAddOrUpdateFromImport(final String path, final String name, final ImportPriority priority) {
@@ -156,7 +164,7 @@ public class PyAddImportTest extends PyTestCase {
     WriteCommandAction.runWriteCommandAction(myFixture.getProject(), new Runnable() {
       @Override
       public void run() {
-        final PsiPolyVariantReference reference = PyResolveTestCase.findReferenceByMarker(myFixture.getFile());
+        final PsiReference reference = PyResolveTestCase.findReferenceByMarker(myFixture.getFile());
         if (qualifier != null) {
           AddImportHelper.addLocalFromImportStatement(reference.getElement(), qualifier, name);
         }

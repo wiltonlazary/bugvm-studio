@@ -82,12 +82,12 @@ public class PyAttributeOutsideInitInspection extends PyInspection {
         attributesInInit.put(classAttr.getName(), classAttr);
       }
 
-      final PyFunction initMethod = containingClass.findMethodByName(PyNames.INIT, false);
+      final PyFunction initMethod = containingClass.findMethodByName(PyNames.INIT, false, null);
       if (initMethod != null) {
         PyClassImpl.collectInstanceAttributes(initMethod, attributesInInit);
       }
       for (PyClass superClass : containingClass.getAncestorClasses(myTypeEvalContext)) {
-        final PyFunction superInit = superClass.findMethodByName(PyNames.INIT, false);
+        final PyFunction superInit = superClass.findMethodByName(PyNames.INIT, false, null);
         if (superInit != null)
           PyClassImpl.collectInstanceAttributes(superInit, attributesInInit);
 
@@ -102,7 +102,7 @@ public class PyAttributeOutsideInitInspection extends PyInspection {
       for (Map.Entry<String, PyTargetExpression> attribute : attributes.entrySet()) {
         String attributeName = attribute.getKey();
         if (attributeName == null) continue;
-        final Property property = containingClass.findProperty(attributeName, true);
+        final Property property = containingClass.findProperty(attributeName, true, null);
         if (!attributesInInit.containsKey(attributeName) && property == null) {
           registerProblem(attribute.getValue(), PyBundle.message("INSP.attribute.$0.outside.init", attributeName),
                           new PyMoveAttributeToInitQuickFix());
@@ -112,6 +112,6 @@ public class PyAttributeOutsideInitInspection extends PyInspection {
   }
 
   private static boolean isApplicable(@NotNull final PyClass containingClass) {
-    return !PythonUnitTestUtil.isUnitTestCaseClass(containingClass) && !containingClass.isSubclass("django.db.models.base.Model");
+    return !PythonUnitTestUtil.isUnitTestCaseClass(containingClass) && !containingClass.isSubclass("django.db.models.base.Model", null);
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,32 +16,28 @@
 package com.intellij.openapi.components.impl.stores;
 
 import com.intellij.openapi.components.*;
-import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.util.messages.Topic;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
 import java.util.List;
 
 public interface StateStorageManager {
-  void addMacro(@NotNull String macro, @NotNull String expansion);
+  Topic<IStorageManagerListener> STORAGE_TOPIC = new Topic<IStorageManagerListener>("STORAGE_LISTENER", IStorageManagerListener.class, Topic.BroadcastDirection.TO_PARENT);
 
   @Nullable
   TrackingPathMacroSubstitutor getMacroSubstitutor();
 
-  @Nullable
+  @NotNull
   StateStorage getStateStorage(@NotNull Storage storageSpec);
 
-  @Nullable
-  StateStorage getStateStorage(@NotNull String fileSpec, @NotNull RoamingType roamingType);
-
-  @NotNull
-  Couple<Collection<FileBasedStorage>> getCachedFileStateStorages(@NotNull Collection<String> changed, @NotNull Collection<String> deleted);
-
-  @NotNull
-  Collection<String> getStorageFileNames();
-
-  void clearStateStorage(@NotNull String file);
+  /**
+   * Rename file
+   * @param path System-independent full old path (/project/bar.iml or collapse $MODULE_FILE$)
+   * @param newName Only new file name (foo.iml)
+   */
+  void rename(@NotNull String path, @NotNull String newName);
 
   @Nullable
   ExternalizationSession startExternalization();
@@ -50,15 +46,7 @@ public interface StateStorageManager {
   StateStorage getOldStorage(@NotNull Object component, @NotNull String componentName, @NotNull StateStorageOperation operation);
 
   @NotNull
-  String expandMacros(@NotNull String file);
-
-  @NotNull
-  String collapseMacros(@NotNull String path);
-
-  void setStreamProvider(@Nullable StreamProvider streamProvider);
-
-  @Nullable
-  StreamProvider getStreamProvider();
+  String expandMacros(@NotNull String path);
 
   interface ExternalizationSession {
     void setState(@NotNull Storage[] storageSpecs, @NotNull Object component, @NotNull String componentName, @NotNull Object state);
@@ -70,5 +58,12 @@ public interface StateStorageManager {
      */
     @NotNull
     List<StateStorage.SaveSession> createSaveSessions();
+  }
+
+  /**
+   * Don't use it directly, only {@link StorageManagerListener} must be used to avoid compatibility issues
+   **/
+  interface IStorageManagerListener {
+    void storageFileChanged(@NotNull VFileEvent event, @NotNull StateStorage storage, @NotNull ComponentManager componentManager);
   }
 }

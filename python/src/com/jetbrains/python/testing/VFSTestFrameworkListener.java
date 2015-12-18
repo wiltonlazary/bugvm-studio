@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@ package com.jetbrains.python.testing;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ApplicationComponent;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.OrderRootType;
@@ -44,7 +42,7 @@ import java.util.List;
 /**
  * User: catherine
  */
-public class VFSTestFrameworkListener implements ApplicationComponent {
+public class VFSTestFrameworkListener {
   private static final Logger LOG = Logger.getInstance("#com.jetbrains.python.testing.VFSTestFrameworkListener");
   private static final MergingUpdateQueue myQueue = new MergingUpdateQueue("TestFrameworkChecker", 5000, true, null);
   private PyTestFrameworkService myService;
@@ -108,20 +106,6 @@ public class VFSTestFrameworkListener implements ApplicationComponent {
     });
   }
 
-  @Override
-  public void initComponent() {
-  }
-
-  @Override
-  public void disposeComponent() {
-  }
-
-  @NotNull
-  @Override
-  public String getComponentName() {
-    return "VFSTestFrameworkListener";
-  }
-
   /**
    * @return null if we can't be sure
    */
@@ -141,7 +125,7 @@ public class VFSTestFrameworkListener implements ApplicationComponent {
   }
 
   public static VFSTestFrameworkListener getInstance() {
-    return ServiceManager.getService(VFSTestFrameworkListener.class);
+    return ApplicationManager.getApplication().getComponent(VFSTestFrameworkListener.class);
   }
 
   public void pyTestInstalled(boolean installed, String sdkHome) {

@@ -96,8 +96,20 @@ public final class DocumentUtil {
     return document.getLineStartOffset(lineNumber);
   }
 
+  public static int getLineEndOffset(int offset, @NotNull Document document) {
+    if (offset < 0 || offset > document.getTextLength()) {
+      return offset;
+    }
+    int lineNumber = document.getLineNumber(offset);
+    return document.getLineEndOffset(lineNumber);
+  }
+
   @NotNull
   public static TextRange getLineTextRange(@NotNull Document document, int line) {
     return TextRange.create(document.getLineStartOffset(line), document.getLineEndOffset(line));
+  }
+
+  public static boolean isAtLineStart(int offset, @NotNull Document document) {
+    return offset >= 0 && offset <= document.getTextLength() && offset == document.getLineStartOffset(document.getLineNumber(offset));
   }
 }

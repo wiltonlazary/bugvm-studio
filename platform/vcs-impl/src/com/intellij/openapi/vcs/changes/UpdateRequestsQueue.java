@@ -28,6 +28,7 @@ import com.intellij.util.Consumer;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.io.storage.HeavyProcessLatch;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.util.ArrayList;
@@ -150,12 +151,17 @@ public class UpdateRequestsQueue {
     LOG.debug("Stop finished for project: " + myProject.getName());
   }
 
+  @TestOnly
   public void waitUntilRefreshed() {
     while (true) {
       final Semaphore semaphore = new Semaphore();
       synchronized (myLock) {
         if (!myRequestSubmitted && !myRequestRunning) {
           return;
+        }
+
+        if (!myRequestRunning) {
+          myExecutor.get().schedule(new MyRunnable(), 0, TimeUnit.MILLISECONDS);
         }
 
         semaphore.down();
@@ -182,15 +188,11 @@ public class UpdateRequestsQueue {
     LOG.debug("invokeAfterUpdate for project: " + myProject.getName());
     final CallbackData data = CallbackData.create(afterUpdate, title, state, mode, myProject);
 
-    VcsDirtyScopeManagerProxy managerProxy = null;
     if (dirtyScopeManagerFiller != null) {
-      managerProxy  = new VcsDirtyScopeManagerProxy();
-      dirtyScopeManagerFiller.consume(managerProxy);
-    }
+      VcsDirtyScopeManagerProxy managerProxy = new VcsDirtyScopeManagerProxy();
 
-    // can ask stopped without a lock
-    if (! myStopped) {
-      if (managerProxy != null) {
+      dirtyScopeManagerFiller.consume(managerProxy);
+      if (!myProject.isDisposed()) {
         managerProxy.callRealManager(VcsDirtyScopeManager.getInstance(myProject));
       }
     }
@@ -236,6 +238,8 @@ public class UpdateRequestsQueue {
       final List<Runnable> copy = new ArrayList<Runnable>(myWaitingUpdateCompletionQueue.size());
       try {
         synchronized (myLock) {
+          if (!myRequestSubmitted) return;
+          
           LOG.assertTrue(!myRequestRunning);
           myRequestRunning = true;
           if (myStopped) {

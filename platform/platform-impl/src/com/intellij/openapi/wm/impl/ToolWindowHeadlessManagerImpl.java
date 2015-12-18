@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -301,10 +301,19 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
       return false;
     }
 
+    @Override
+    public void setShowStripeButton(boolean show) {
+    }
+
+    @Override
+    public boolean isShowStripeButton() {
+      return false;
+    }
+
     @NotNull
     @Override
     public ActionCallback getReady(@NotNull Object requestor) {
-      return new ActionCallback.Done();
+      return ActionCallback.DONE;
     }
 
     @Override
@@ -446,7 +455,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
 
     @Override
     public ActionCallback getActivation() {
-      return new ActionCallback.Done();
+      return ActionCallback.DONE;
     }
 
     @Override
@@ -497,7 +506,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
     @NotNull
     @Override
     public ActionCallback getReady(@NotNull Object requestor) {
-      return new ActionCallback.Done();
+      return ActionCallback.DONE;
     }
 
     @Override
@@ -666,7 +675,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
     @Override
     public ActionCallback removeContent(@NotNull Content content, boolean dispose, boolean trackFocus, boolean implicitFocus) {
       removeContent(content, dispose);
-      return new ActionCallback.Done();
+      return ActionCallback.DONE;
     }
 
     @Override
@@ -682,12 +691,12 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
 
     @Override
     public ActionCallback selectNextContent() {
-      return new ActionCallback.Done();
+      return ActionCallback.DONE;
     }
 
     @Override
     public ActionCallback selectPreviousContent() {
-      return new ActionCallback.Done();
+      return ActionCallback.DONE;
     }
 
     @Override
@@ -704,7 +713,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
     @Override
     public ActionCallback setSelectedContentCB(@NotNull Content content) {
       setSelectedContent(content);
-      return new ActionCallback.Done();
+      return ActionCallback.DONE;
     }
 
     @Override
@@ -738,7 +747,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
     @NotNull
     @Override
     public ActionCallback requestFocus(@Nullable final Content content, final boolean forced) {
-      return new ActionCallback.Done();
+      return ActionCallback.DONE;
     }
 
     @Override

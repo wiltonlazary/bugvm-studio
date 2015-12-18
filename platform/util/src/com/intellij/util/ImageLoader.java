@@ -22,16 +22,16 @@ import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.util.io.URLUtil;
+import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.imgscalr.Scalr;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.geom.AffineTransform;
-import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
@@ -63,34 +63,49 @@ public class ImageLoader implements Serializable {
 
   @Nullable
   public static Image loadFromUrl(@NotNull URL url) {
-    for (Pair<String, Integer> each : getFileNames(url.toString())) {
+    return loadFromUrl(url, true);
+  }
+
+  @Nullable
+  public static Image loadFromUrl(@NotNull URL url, boolean allowFloatScaling) {
+    final float scaleFactor = allowFloatScaling ? JBUI.scale(1f) : JBUI.scale(1f) > 1.5f ? 2f : 1f;
+    assert scaleFactor >= 1.0f : "By design, only scale factors >= 1.0 are supported";
+
+    // We can't check all 3rd party plugins and convince the authors to add @2x icons.
+    // (scaleFactor > 1.0) != isRetina() => we should scale images manually.
+    // Note we never scale images on Retina displays because scaling is handled by the system.
+    final boolean scaleImages = (scaleFactor > 1.0f) && !UIUtil.isRetina();
+
+    // For any scale factor > 1.0, always prefer retina images, because downscaling
+    // retina images provides a better result than upscaling non-retina images.
+    final boolean loadRetinaImages = UIUtil.isRetina() || scaleImages;
+
+    for (Pair<String, Integer> each : getFileNames(url.toString(), UIUtil.isUnderDarcula(), loadRetinaImages)) {
       try {
         Image image = loadFromStream(URLUtil.openStream(new URL(each.first)), each.second);
-
-        //we can't check all 3rd party plugins and convince the authors to add @2x icons.
-        // isHiDPI() != isRetina() => we should scale images manually
-        if (image != null && JBUI.isHiDPI() && !each.first.contains("@2x")) {
-          image = upscale(image);
+        if (image != null && scaleImages) {
+          if (each.first.contains("@2x"))
+            image = scaleImage(image, scaleFactor / 2.0f);  // divide by 2.0 as Retina images are 2x the resolution.
+          else
+            image = scaleImage(image, scaleFactor);
         }
         return image;
       }
       catch (IOException ignore) {
+        // Image file may not exist, try next one
       }
     }
     return null;
   }
 
   @NotNull
-  private static Image upscale(Image image) {
-    float scale = JBUI.scale(1f);
+  private static Image scaleImage(Image image, float scale) {
     int width = (int)(scale * image.getWidth(null));
     int height = (int)(scale * image.getHeight(null));
-    @SuppressWarnings("UndesirableClassUsage")
-    BufferedImage tmp = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-    Graphics2D g = tmp.createGraphics();
-    g.drawImage(image, AffineTransform.getScaleInstance(scale, scale), null);
-    image = tmp;
-    return image;
+    // Using "QUALITY" instead of "ULTRA_QUALITY" results in images that are less blurry
+    // because ultra quality performs a few more passes when scaling, which introduces blurriness
+    // when the scaling factor is relatively small (i.e. <= 3.0f) -- which is the case here.
+    return Scalr.resize(ImageUtil.toBufferedImage(image), Scalr.Method.QUALITY, width, height);
   }
 
   @Nullable
@@ -124,7 +139,7 @@ public class ImageLoader implements Serializable {
   }
 
   public static List<Pair<String, Integer>> getFileNames(@NotNull String file) {
-    return getFileNames(file, UIUtil.isUnderDarcula(), UIUtil.isRetina() || JBUI.isHiDPI());
+    return getFileNames(file, UIUtil.isUnderDarcula(), UIUtil.isRetina() || JBUI.scale(1.0f) >= 1.5f);
   }
 
   public static List<Pair<String, Integer>> getFileNames(@NotNull String file, boolean dark, boolean retina) {

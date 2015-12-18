@@ -84,7 +84,7 @@ public class AddMethodQuickFix implements LocalQuickFix {
       sure(FileModificationService.getInstance().preparePsiElementForWrite(clsStmtList));
       // try to at least match parameter count
       // TODO: get parameter style from code style
-      PyFunctionBuilder builder = new PyFunctionBuilder(myIdentifier);
+      PyFunctionBuilder builder = new PyFunctionBuilder(myIdentifier, cls);
       PsiElement pe = problemElement.getParent();
       String decoratorName = null; // set to non-null to add a decorator
       PyExpression[] args = new PyExpression[0];
@@ -97,7 +97,7 @@ public class AddMethodQuickFix implements LocalQuickFix {
       if (callByClass) {
         if (args.length > 0) {
           PyType firstArgType = TypeEvalContext.userInitiated(cls.getProject(), cls.getContainingFile()).getType(args[0]);
-          if (firstArgType instanceof PyClassType && ((PyClassType)firstArgType).getPyClass().isSubclass(cls)) {
+          if (firstArgType instanceof PyClassType && ((PyClassType)firstArgType).getPyClass().isSubclass(cls, null)) {
             // class, first arg ok: instance method
             builder.parameter("self"); // NOTE: might use a name other than 'self', according to code style.
             madeInstance = true;

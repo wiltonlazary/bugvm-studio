@@ -31,6 +31,7 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
@@ -42,8 +43,8 @@ import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.ui.MessageCategory;
-import com.intellij.vcsUtil.Rethrow;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -138,8 +139,7 @@ public class CodeSmellDetectorImpl extends CodeSmellDetector {
       }
     });
     if (!exception.isNull()) {
-      Exception t = exception.get();
-      Rethrow.reThrowRuntime(t);
+      ExceptionUtil.rethrowAllAsUnchecked(exception.get());
     }
 
     return result;
@@ -161,7 +161,7 @@ public class CodeSmellDetectorImpl extends CodeSmellDetector {
     ProgressManager.getInstance().runProcess(new Runnable() {
       @Override
       public void run() {
-        ApplicationManager.getApplication().runReadAction(new Runnable() {
+        DumbService.getInstance(myProject).runReadActionInSmartMode(new Runnable() {
           @Override
           public void run() {
             final PsiFile psiFile = PsiManager.getInstance(myProject).findFile(file);

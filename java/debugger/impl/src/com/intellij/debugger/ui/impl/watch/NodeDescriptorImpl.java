@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,10 @@
  */
 package com.intellij.debugger.ui.impl.watch;
 
+import com.intellij.codeInspection.SmartHashMap;
 import com.intellij.debugger.DebuggerBundle;
 import com.intellij.debugger.engine.DebugProcess;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
-import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.render.DescriptorLabelListener;
@@ -29,10 +29,9 @@ import com.intellij.xdebugger.impl.ui.tree.ValueMarkup;
 import com.sun.jdi.InconsistentDebugInfoException;
 import com.sun.jdi.InvalidStackFrameException;
 import com.sun.jdi.ObjectReference;
+import com.sun.jdi.VMDisconnectedException;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 public abstract class NodeDescriptorImpl implements NodeDescriptor {
@@ -47,9 +46,8 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
   private EvaluateException myEvaluateException;
   private String myLabel = UNKNOWN_VALUE_MESSAGE;
 
-  private HashMap<Key, Object> myUserData;
+  private Map<Key, Object> myUserData;
 
-  private final List<NodeDescriptorImpl> myChildren = new ArrayList<NodeDescriptorImpl>();
   private static final Key<Map<ObjectReference, ValueMarkup>> MARKUP_MAP_KEY = new Key<Map<ObjectReference, ValueMarkup>>("ValueMarkupMap");
 
   @Override
@@ -69,7 +67,7 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
   @Override
   public <T> void putUserData(Key<T> key, T value) {
     if(myUserData == null) {
-      myUserData = new HashMap<Key, Object>();
+      myUserData = new SmartHashMap<Key, Object>();
     }
     myUserData.put(key, value);
   }
@@ -85,9 +83,21 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
         myEvaluateException = null;
         myLabel = calcRepresentation(context, labelListener);
       }
+      catch (InconsistentDebugInfoException e) {
+        throw new EvaluateException(DebuggerBundle.message("error.inconsistent.debug.info"));
+      }
+      catch (InvalidStackFrameException e) {
+        throw new EvaluateException(DebuggerBundle.message("error.invalid.stackframe"));
+      }
+      catch (VMDisconnectedException e) {
+        throw e;
+      }
       catch (RuntimeException e) {
-        LOG.debug(e);
-        throw processException(e);
+        if (e.getCause() instanceof InterruptedException) {
+          throw e;
+        }
+        LOG.error(e);
+        throw new EvaluateException("Internal error, see logs for more details");
       }
     }
     catch (EvaluateException e) {
@@ -96,19 +106,6 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
   }
 
   protected abstract String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener labelListener) throws EvaluateException;
-
-  private static EvaluateException processException(Exception e) {
-    if (e instanceof InconsistentDebugInfoException) {
-      return new EvaluateException(DebuggerBundle.message("error.inconsistent.debug.info"), null);
-    }
-
-    else if (e instanceof InvalidStackFrameException) {
-      return new EvaluateException(DebuggerBundle.message("error.invalid.stackframe"), null);
-    }
-    else {
-      return EvaluateExceptionUtil.DEBUG_INFO_UNAVAILABLE;
-    }
-  }
 
   @Override
   public void displayAs(NodeDescriptor descriptor) {
@@ -151,10 +148,6 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
   public void clear() {
     myEvaluateException = null;
     myLabel = "";
-  }
-
-  public List<NodeDescriptorImpl> getChildren() {
-    return myChildren;
   }
 
   @Override

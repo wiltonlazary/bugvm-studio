@@ -55,7 +55,7 @@ public final class Responses {
 
   public static void setDate(@NotNull HttpResponse response) {
     if (!response.headers().contains(HttpHeaderNames.DATE)) {
-      HttpHeaders.setDateHeader(response, HttpHeaderNames.DATE, Calendar.getInstance().getTime());
+      response.headers().set(HttpHeaderNames.DATE, Calendar.getInstance().getTime());
     }
   }
 
@@ -82,8 +82,8 @@ public final class Responses {
   }
 
   public static void send(@NotNull HttpResponse response, Channel channel, @Nullable HttpRequest request) {
-    if (response.status() != HttpResponseStatus.NOT_MODIFIED && !HttpHeaderUtil.isContentLengthSet(response)) {
-      HttpHeaderUtil.setContentLength(response,
+    if (response.status() != HttpResponseStatus.NOT_MODIFIED && !HttpUtil.isContentLengthSet(response)) {
+      HttpUtil.setContentLength(response,
                                    response instanceof FullHttpResponse ? ((FullHttpResponse)response).content().readableBytes() : 0);
     }
 
@@ -92,8 +92,8 @@ public final class Responses {
   }
 
   public static boolean addKeepAliveIfNeed(HttpResponse response, HttpRequest request) {
-    if (HttpHeaderUtil.isKeepAlive(request)) {
-      HttpHeaderUtil.setKeepAlive(response, true);
+    if (HttpUtil.isKeepAlive(request)) {
+      HttpUtil.setKeepAlive(response, true);
       return true;
     }
     return false;

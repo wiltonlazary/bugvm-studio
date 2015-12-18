@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import com.intellij.ide.structureView.impl.java.JavaInheritedMembersNodeProvider
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.ide.util.treeView.smartTree.TreeStructureUtil;
 import com.intellij.testFramework.FileStructureTestBase;
-import com.intellij.testFramework.IdeaTestCase;
 
 /**
  * @author Konstantin Bulenkov
@@ -29,16 +28,17 @@ import com.intellij.testFramework.IdeaTestCase;
 public abstract class JavaFileStructureTestCase extends FileStructureTestBase {
   private boolean myShowAnonymousByDefault;
   
-  protected JavaFileStructureTestCase() {
-    IdeaTestCase.initPlatformPrefix();
-  }
-
   protected abstract String getTestDataFolderName();
 
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    myShowAnonymousByDefault = PropertiesComponent.getInstance().getBoolean(getAnonymousPropertyName(), false);
+    myShowAnonymousByDefault = PropertiesComponent.getInstance().getBoolean(getAnonymousPropertyName());
+  }
+
+  @Override
+  protected void configureDefault() {
+    super.configureDefault();
     if (getTestName(false).contains("Anonymous")) {
       setShowAnonymous(true);
     }
@@ -50,18 +50,18 @@ public abstract class JavaFileStructureTestCase extends FileStructureTestBase {
   }
 
   public void setShowAnonymous(boolean show) {
-    myPopup.setTreeActionState(JavaAnonymousClassesNodeProvider.class, show);
-    update();
+    myPopupFixture.getPopup().setTreeActionState(JavaAnonymousClassesNodeProvider.class, show);
+    myPopupFixture.update();
   }
 
   public void setShowParents(boolean show) {
-    myPopup.setTreeActionState(JavaInheritedMembersNodeProvider.class, show);
-    update();
+    myPopupFixture.getPopup().setTreeActionState(JavaInheritedMembersNodeProvider.class, show);
+    myPopupFixture.update();
   }
 
   @Override
   public void tearDown() throws Exception {
-    PropertiesComponent.getInstance().setValue(getAnonymousPropertyName(), Boolean.toString(myShowAnonymousByDefault));
+    PropertiesComponent.getInstance().setValue(getAnonymousPropertyName(), myShowAnonymousByDefault);
     super.tearDown();
   }
 

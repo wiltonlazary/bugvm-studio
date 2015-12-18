@@ -43,6 +43,7 @@ import com.intellij.openapi.editor.markup.LineMarkerRenderer;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
@@ -66,6 +67,9 @@ import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
+
+import static com.intellij.diff.util.DiffUtil.getDiffType;
+import static com.intellij.diff.util.DiffUtil.getLineCount;
 
 /**
  * @author irengrig
@@ -147,9 +151,9 @@ public class LineStatusTrackerDrawing {
 
   private static int lineToY(@NotNull Editor editor, int line) {
     Document document = editor.getDocument();
-    if (line >= document.getLineCount()) {
-      int y = lineToY(editor, document.getLineCount() - 1);
-      return y + editor.getLineHeight() * (line - document.getLineCount() + 1);
+    if (line >= getLineCount(document)) {
+      int y = lineToY(editor, getLineCount(document) - 1);
+      return y + editor.getLineHeight() * (line - getLineCount(document) + 1);
     }
     return editor.logicalPositionToXY(editor.offsetToLogicalPosition(document.getLineStartOffset(line))).y;
   }
@@ -216,6 +220,8 @@ public class LineStatusTrackerDrawing {
     Pair<JComponent, Integer> editorComponent = createEditorComponent(range, editor, tracker, wordDiff);
 
     ActionToolbar toolbar = buildToolbar(range, editor, tracker, disposable);
+    toolbar.updateActionsImmediately(); // we need valid ActionToolbar.getPreferredSize() to calc size of popup
+
     PopupPanel popupPanel = new PopupPanel(editor, toolbar, editorComponent.first, editorComponent.second);
 
     LightweightHint hint = new LightweightHint(popupPanel);
@@ -312,9 +318,9 @@ public class LineStatusTrackerDrawing {
     for (DiffFragment fragment : wordDiff) {
       int currentStart = currentStartShift + fragment.getStartOffset2();
       int currentEnd = currentStartShift + fragment.getEndOffset2();
-      TextDiffType type = DiffUtil.getDiffType(fragment);
+      TextDiffType type = getDiffType(fragment);
 
-      highlighters.add(DiffDrawUtil.createInlineHighlighter(editor, currentStart, currentEnd, type));
+      highlighters.addAll(DiffDrawUtil.createInlineHighlighter(editor, currentStart, currentEnd, type));
     }
 
     Disposer.register(parentDisposable, new Disposable() {
@@ -338,6 +344,9 @@ public class LineStatusTrackerDrawing {
     EditorEx uEditor = (EditorEx)EditorFactory.getInstance().createViewer(doc, tracker.getProject());
     uEditor.setColorsScheme(editor.getColorsScheme());
 
+    FileType fileType = tracker.getVirtualFile().getFileType();
+    DiffUtil.setEditorCodeStyle(tracker.getProject(), uEditor, fileType);
+
     EditorHighlighterFactory highlighterFactory = EditorHighlighterFactory.getInstance();
     EditorHighlighter highlighter = highlighterFactory.createEditorHighlighter(tracker.getProject(), getFileName(tracker.getDocument()));
     uEditor.setHighlighter(highlighter);
@@ -347,7 +356,7 @@ public class LineStatusTrackerDrawing {
       for (DiffFragment fragment : wordDiff) {
         int vcsStart = vcsStartShift + fragment.getStartOffset1();
         int vcsEnd = vcsStartShift + fragment.getEndOffset1();
-        TextDiffType type = DiffUtil.getDiffType(fragment);
+        TextDiffType type = getDiffType(fragment);
 
         DiffDrawUtil.createInlineHighlighter(uEditor, vcsStart, vcsEnd, type);
       }
@@ -370,7 +379,7 @@ public class LineStatusTrackerDrawing {
 
   public static void moveToRange(final Range range, final Editor editor, final LineStatusTracker tracker) {
     final Document document = tracker.getDocument();
-    int line = Math.min(range.getType() == Range.DELETED ? range.getLine2() : range.getLine2() - 1, document.getLineCount() - 1);
+    int line = Math.min(range.getType() == Range.DELETED ? range.getLine2() : range.getLine2() - 1, getLineCount(document) - 1);
     final int lastOffset = document.getLineStartOffset(line);
     editor.getCaretModel().moveToOffset(lastOffset);
     editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);

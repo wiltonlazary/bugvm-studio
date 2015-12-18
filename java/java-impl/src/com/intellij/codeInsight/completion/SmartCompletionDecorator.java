@@ -23,9 +23,12 @@ import com.intellij.codeInsight.lookup.Lookup;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupItem;
 import com.intellij.codeInsight.lookup.TailTypeDecorator;
+import com.intellij.lang.java.JavaLanguage;
+import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.psi.util.TypeConversionUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
@@ -43,7 +46,7 @@ public class SmartCompletionDecorator extends TailTypeDecorator<LookupElement> {
   @NotNull private final Collection<ExpectedTypeInfo> myExpectedTypeInfos;
   private PsiElement myPosition;
 
-  public SmartCompletionDecorator(LookupElement item, Collection<ExpectedTypeInfo> expectedTypeInfos) {
+  public SmartCompletionDecorator(LookupElement item, @NotNull Collection<ExpectedTypeInfo> expectedTypeInfos) {
     super(item);
     myExpectedTypeInfos = expectedTypeInfos;
   }
@@ -114,9 +117,9 @@ public class SmartCompletionDecorator extends TailTypeDecorator<LookupElement> {
   public void handleInsert(InsertionContext context) {
     if (getObject() instanceof PsiVariable && context.getCompletionChar() == Lookup.REPLACE_SELECT_CHAR) {
       context.commitDocument();
-      DefaultInsertHandler.removeEndOfIdentifier(context);
-      context.commitDocument();
+      replaceMethodCallIfNeeded(context);
     }
+    context.commitDocument();
     myPosition = getPosition(context, this);
 
     TailType tailType = computeTailType(context);
@@ -125,6 +128,20 @@ public class SmartCompletionDecorator extends TailTypeDecorator<LookupElement> {
 
     if (tailType == TailType.COMMA) {
       AutoPopupController.getInstance(context.getProject()).autoPopupParameterInfo(context.getEditor(), null);
+    }
+  }
+
+  private static void replaceMethodCallIfNeeded(InsertionContext context) {
+    PsiFile file = context.getFile();
+    PsiElement element = file.findElementAt(context.getTailOffset());
+    if (element instanceof PsiWhiteSpace &&
+        (!element.textContains('\n') ||
+         CodeStyleSettingsManager.getSettings(file.getProject()).getCommonSettings(JavaLanguage.INSTANCE).METHOD_PARAMETERS_LPAREN_ON_NEXT_LINE
+        )) {
+      element = file.findElementAt(element.getTextRange().getEndOffset());
+    }
+    if (element != null && PsiUtilCore.getElementType(element) == JavaTokenType.LPARENTH && element.getParent() instanceof PsiExpressionList) {
+      context.getDocument().deleteString(context.getTailOffset(), element.getParent().getTextRange().getEndOffset());
     }
   }
 
@@ -177,20 +194,12 @@ public class SmartCompletionDecorator extends TailTypeDecorator<LookupElement> {
     return false;
   }
 
-  public static PsiSubstitutor calculateMethodReturnTypeSubstitutor(PsiMethod method, final PsiType expected) {
-    PsiSubstitutor substitutor = PsiSubstitutor.EMPTY;
-    PsiResolveHelper helper = JavaPsiFacade.getInstance(method.getProject()).getResolveHelper();
-    final PsiTypeParameter[] typeParameters = method.getTypeParameters();
-    for (PsiTypeParameter typeParameter : typeParameters) {
-      PsiType substitution = helper.getSubstitutionForTypeParameter(typeParameter, method.getReturnType(), expected,
-                                                                    false, PsiUtil.getLanguageLevel(method));
-      if (PsiType.NULL.equals(substitution)) {
-        substitution = TypeConversionUtil.typeParameterErasure(typeParameter);
-      }
+  public static PsiSubstitutor calculateMethodReturnTypeSubstitutor(@NotNull PsiMethod method, @NotNull final PsiType expected) {
+    PsiType returnType = method.getReturnType();
+    if (returnType == null) return PsiSubstitutor.EMPTY;
 
-      substitutor = substitutor.put(typeParameter, substitution);
-    }
-    return substitutor;
+    PsiResolveHelper helper = JavaPsiFacade.getInstance(method.getProject()).getResolveHelper();
+    return helper.inferTypeArguments(method.getTypeParameters(), new PsiType[]{expected}, new PsiType[]{returnType}, LanguageLevel.HIGHEST);
   }
 
   @Nullable

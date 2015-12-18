@@ -62,6 +62,7 @@ import com.intellij.usages.*;
 import com.intellij.usages.impl.*;
 import com.intellij.usages.rules.UsageFilteringRuleProvider;
 import com.intellij.util.Alarm;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.Processor;
 import com.intellij.util.messages.MessageBusConnection;
@@ -158,8 +159,15 @@ public class ShowUsagesAction extends AnAction implements PopupAction {
   }
 
   @Override
-  public void update(@NotNull AnActionEvent e){
+  public void update(@NotNull AnActionEvent e) {
     FindUsagesInFileAction.updateFindUsagesAction(e);
+
+    if (e.getPresentation().isEnabled()) {
+      UsageTarget[] usageTargets = e.getData(UsageView.USAGE_TARGETS_KEY);
+      if (usageTargets != null && !(ArrayUtil.getFirstElement(usageTargets) instanceof PsiElementUsageTarget)) {
+        e.getPresentation().setEnabled(false);
+      }
+    }
   }
 
   @Override
@@ -191,7 +199,7 @@ public class ShowUsagesAction extends AnAction implements PopupAction {
         }
       });
     }
-    else {
+    else if (ArrayUtil.getFirstElement(usageTargets) instanceof PsiElementUsageTarget) {
       PsiElement element = ((PsiElementUsageTarget)usageTargets[0]).getElement();
       if (element != null) {
         startFindUsages(element, popupPosition, editor, USAGES_PAGE_SIZE);
@@ -251,7 +259,7 @@ public class ShowUsagesAction extends AnAction implements PopupAction {
 
     addUsageNodes(usageView.getRoot(), usageView, new ArrayList<UsageNode>());
 
-    TableScrollingUtil.installActions(table);
+    ScrollingUtil.installActions(table);
 
     final List<UsageNode> data = collectData(usages, visibleNodes, usageView, presentation);
     setTableModel(table, usageView, data, outOfScopeUsages, options.searchScope);
@@ -1000,13 +1008,13 @@ public class ShowUsagesAction extends AnAction implements PopupAction {
 
     int newSelection = updateModel(tableModel, existingData, data, row == -1 ? 0 : row);
     if (newSelection < 0 || newSelection >= tableModel.getRowCount()) {
-      TableScrollingUtil.ensureSelectionExists(table);
+      ScrollingUtil.ensureSelectionExists(table);
       newSelection = table.getSelectedRow();
     }
     else {
       table.getSelectionModel().setSelectionInterval(newSelection, newSelection);
     }
-    TableScrollingUtil.ensureIndexIsVisible(table, newSelection, 0);
+    ScrollingUtil.ensureIndexIsVisible(table, newSelection, 0);
 
     if (popup != null) {
       setSizeAndDimensions(table, popup, popupPosition, data);
@@ -1051,7 +1059,7 @@ public class ShowUsagesAction extends AnAction implements PopupAction {
     Dimension dimension = new Dimension(newWidth, table.getRowHeight() * rowsToShow);
     Rectangle rectangle = fitToScreen(dimension, popupPosition, table);
     if (!data.isEmpty()) {
-      TableScrollingUtil.ensureSelectionExists(table);
+      ScrollingUtil.ensureSelectionExists(table);
     }
     table.setSize(rectangle.getSize());
     //table.setPreferredSize(dimension);
@@ -1174,6 +1182,11 @@ public class ShowUsagesAction extends AnAction implements PopupAction {
   }
 
   private static class MyTable extends JBTableWithHintProvider implements DataProvider {
+
+    public MyTable() {
+      ScrollingUtil.installActions(this);
+    }
+
     @Override
     public boolean getScrollableTracksViewportWidth() {
       return true;

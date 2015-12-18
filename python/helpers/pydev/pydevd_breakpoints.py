@@ -94,21 +94,24 @@ def _excepthook(exctype, value, tb):
     if tb is None:  #sometimes it can be None, e.g. with GTK
         return
 
+    if exctype is KeyboardInterrupt:
+        return
+
     frames = []
     debugger = GetGlobalDebugger()
-    user_frames = []
+    user_frame = None
 
     while tb:
         frame = tb.tb_frame
         if exception_breakpoint.ignore_libraries and not debugger.not_in_scope(frame.f_code.co_filename):
-            user_frames.append(tb.tb_frame)
+            user_frame = tb.tb_frame
         frames.append(tb.tb_frame)
         tb = tb.tb_next
 
     thread = threadingCurrentThread()
     frames_byid = dict([(id(frame),frame) for frame in frames])
-    if exception_breakpoint.ignore_libraries:
-        frame = user_frames[-1]
+    if exception_breakpoint.ignore_libraries and user_frame is not None:
+        frame = user_frame
     else:
         frame = frames[-1]
     thread.additionalInfo.exception = (exctype, value, tb)

@@ -126,7 +126,8 @@ public class WeakestTypeFinder {
       }
       else if (referenceGrandParent instanceof PsiMethodCallExpression) {
         final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)referenceGrandParent;
-        if (!findWeakestType(methodCallExpression, weakestTypeClasses)) {
+        if (PsiUtil.skipParenthesizedExprUp(methodCallExpression.getParent()) instanceof PsiTypeCastExpression || 
+            !findWeakestType(methodCallExpression, weakestTypeClasses)) {
           return Collections.emptyList();
         }
       }
@@ -398,13 +399,8 @@ public class WeakestTypeFinder {
       }
     }
     if (!checked) {
-      final PsiType returnType = method.getReturnType();
-      if (returnType instanceof PsiClassType) {
-        final PsiClassType classType = (PsiClassType)returnType;
-        final PsiClass aClass = classType.resolve();
-        if (aClass instanceof PsiTypeParameter) {
-          return false;
-        }
+      if (TypeUtils.isTypeParameter(method.getReturnType())) {
+        return false;
       }
       final PsiClass containingClass = method.getContainingClass();
       checkClass(containingClass, weakestTypeClasses);
@@ -413,7 +409,7 @@ public class WeakestTypeFinder {
   }
 
   private static List<PsiMethod> findAllSuperMethods(PsiMethod method) {
-    final List<PsiMethod> result = new ArrayList();
+    final List<PsiMethod> result = new ArrayList<PsiMethod>();
     SuperMethodsSearch.search(method, null, true, false).forEach(new Processor<MethodSignatureBackedByPsiMethod>() {
 
       @Override

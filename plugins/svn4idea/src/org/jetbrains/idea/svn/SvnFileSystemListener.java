@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -281,7 +281,6 @@ public class SvnFileSystemListener extends CommandAdapter implements LocalFileOp
   }
 
   private boolean doMove(@NotNull SvnVcs vcs, final File src, final File dst) {
-    long srcTime = src.lastModified();
     try {
       final boolean isUndo = isUndo(vcs);
       final String list = isUndo ? null : SvnChangelistListener.getCurrentMapping(vcs, src);
@@ -301,7 +300,6 @@ public class SvnFileSystemListener extends CommandAdapter implements LocalFileOp
       if (! isUndo && list != null) {
         SvnChangelistListener.putUnderList(vcs.getProject(), list, dst);
       }
-      dst.setLastModified(srcTime);
     }
     catch(VcsException e) {
       addToMoveExceptions(vcs.getProject(), e);
@@ -337,7 +335,7 @@ public class SvnFileSystemListener extends CommandAdapter implements LocalFileOp
       // check destination directory
       if (isUnversioned(vcs, dst.getParentFile())) {
         try {
-          copyFileOrDir(src, dst);
+          FileUtil.copyFileOrDir(src, dst);
         }
         catch (IOException e) {
           throw new SvnBindException(e);
@@ -369,7 +367,7 @@ public class SvnFileSystemListener extends CommandAdapter implements LocalFileOp
           File newFile = new File(dst, relativePath);
           if (!newFile.exists()) {
             try {
-              copyFileOrDir(src, dst);
+              FileUtil.copyFileOrDir(src, dst);
             }
             catch (IOException e) {
               exc[0] = new SvnBindException(e);
@@ -382,14 +380,6 @@ public class SvnFileSystemListener extends CommandAdapter implements LocalFileOp
       if (exc[0] != null) {
         throw exc[0];
       }
-    }
-  }
-
-  private static void copyFileOrDir(File src, File dst) throws IOException {
-    if (src.isDirectory()) {
-      FileUtil.copyDir(src, dst);
-    } else {
-      FileUtil.copy(src, dst);
     }
   }
 

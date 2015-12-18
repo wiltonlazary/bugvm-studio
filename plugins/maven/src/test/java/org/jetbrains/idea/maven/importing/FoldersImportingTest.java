@@ -16,13 +16,13 @@
 package org.jetbrains.idea.maven.importing;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProviderImpl;
 import com.intellij.openapi.vfs.VirtualFile;
-import junit.framework.Test;
-import junit.framework.TestSuite;
 import org.jetbrains.idea.maven.MavenCustomRepositoryHelper;
 import org.jetbrains.idea.maven.MavenImportingTestCase;
 import org.jetbrains.idea.maven.project.MavenImportingSettings;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
+import org.jetbrains.idea.maven.server.MavenServerManager;
 import org.jetbrains.idea.maven.utils.Path;
 import org.jetbrains.jps.model.java.JavaSourceRootType;
 
@@ -100,7 +100,7 @@ public class FoldersImportingTest extends MavenImportingTestCase {
       public void run() {
         MavenRootModelAdapter adapter = new MavenRootModelAdapter(myProjectsTree.findProject(myProjectPom),
                                                                   getModule("project"),
-                                                                  new MavenDefaultModifiableModelsProvider(myProject));
+                                                                  new IdeModifiableModelsProviderImpl(myProject));
         adapter.addSourceFolder(dir1.getPath(), JavaSourceRootType.SOURCE);
         adapter.addExcludedFolder(dir2.getPath());
         adapter.getRootModel().commit();
@@ -514,44 +514,50 @@ public class FoldersImportingTest extends MavenImportingTestCase {
   }
 
   public void testDownloadingNecessaryPlugins() throws Exception {
-    MavenCustomRepositoryHelper helper = new MavenCustomRepositoryHelper(myDir, "local1");
-    setRepositoryPath(helper.getTestDataPath("local1"));
+    try {
+      MavenCustomRepositoryHelper helper = new MavenCustomRepositoryHelper(myDir, "local1");
+      setRepositoryPath(helper.getTestDataPath("local1"));
 
-    File pluginFile = new File(getRepositoryPath(),
-                               "org/codehaus/mojo/build-helper-maven-plugin/1.2/build-helper-maven-plugin-1.2.jar");
-    assertFalse(pluginFile.exists());
+      File pluginFile = new File(getRepositoryPath(),
+                                 "org/codehaus/mojo/build-helper-maven-plugin/1.2/build-helper-maven-plugin-1.2.jar");
+      assertFalse(pluginFile.exists());
 
-    importProject("<groupId>test</groupId>" +
-                  "<artifactId>project</artifactId>" +
-                  "<version>1</version>" +
+      importProject("<groupId>test</groupId>" +
+                    "<artifactId>project</artifactId>" +
+                    "<version>1</version>" +
 
-                  "<build>" +
-                  "  <plugins>" +
-                  "    <plugin>" +
-                  "      <groupId>org.codehaus.mojo</groupId>" +
-                  "      <artifactId>build-helper-maven-plugin</artifactId>" +
-                  "      <version>1.2</version>" +
-                  "      <executions>" +
-                  "        <execution>" +
-                  "          <id>someId</id>" +
-                  "          <phase>generate-sources</phase>" +
-                  "          <goals>" +
-                  "            <goal>add-source</goal>" +
-                  "          </goals>" +
-                  "          <configuration>" +
-                  "            <sources>" +
-                  "              <source>src</source>" +
-                  "            </sources>" +
-                  "          </configuration>" +
-                  "        </execution>" +
-                  "      </executions>" +
-                  "    </plugin>" +
-                  "  </plugins>" +
-                  "</build>");
-    resolveDependenciesAndImport();
-    resolveFoldersAndImport();
+                    "<build>" +
+                    "  <plugins>" +
+                    "    <plugin>" +
+                    "      <groupId>org.codehaus.mojo</groupId>" +
+                    "      <artifactId>build-helper-maven-plugin</artifactId>" +
+                    "      <version>1.2</version>" +
+                    "      <executions>" +
+                    "        <execution>" +
+                    "          <id>someId</id>" +
+                    "          <phase>generate-sources</phase>" +
+                    "          <goals>" +
+                    "            <goal>add-source</goal>" +
+                    "          </goals>" +
+                    "          <configuration>" +
+                    "            <sources>" +
+                    "              <source>src</source>" +
+                    "            </sources>" +
+                    "          </configuration>" +
+                    "        </execution>" +
+                    "      </executions>" +
+                    "    </plugin>" +
+                    "  </plugins>" +
+                    "</build>");
+      resolveDependenciesAndImport();
+      resolveFoldersAndImport();
 
-    assertTrue(pluginFile.exists());
+      assertTrue(pluginFile.exists());
+    }
+    finally {
+      // do not lock files by maven process
+      MavenServerManager.getInstance().shutdown(true);
+    }
   }
 
   public void testAddingExistingGeneratedSources() throws Exception {

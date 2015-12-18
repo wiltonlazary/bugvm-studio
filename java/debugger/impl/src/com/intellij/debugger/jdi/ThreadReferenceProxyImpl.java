@@ -24,7 +24,9 @@ import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.jdi.ThreadReferenceProxy;
+import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Comparing;
 import com.sun.jdi.*;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -37,7 +39,7 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
   private String myName;
   private int                       myFrameCount = -1;
   // stack frames, 0 - bottom
-  private final List<StackFrameProxyImpl> myFramesFromBottom = new ArrayList<StackFrameProxyImpl>();
+  private final LinkedList<StackFrameProxyImpl> myFramesFromBottom = new LinkedList<StackFrameProxyImpl>();
   //cache build on the base of myFramesFromBottom 0 - top, initially nothing is cached
   private List<StackFrameProxyImpl> myFrames = null;
 
@@ -46,7 +48,11 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
   public static final Comparator<ThreadReferenceProxyImpl> ourComparator = new Comparator<ThreadReferenceProxyImpl>() {
     @Override
     public int compare(ThreadReferenceProxyImpl th1, ThreadReferenceProxyImpl th2) {
-      return th1.name().compareToIgnoreCase(th2.name());
+      int res = Comparing.compare(th2.isSuspended(), th1.isSuspended());
+      if (res == 0) {
+        return th1.name().compareToIgnoreCase(th2.name());
+      }
+      return res;
     }
   };
 
@@ -60,6 +66,7 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
     return (ThreadReference)getObjectReference();
   }
 
+  @NotNull
   @Override
   public VirtualMachineProxyImpl getVirtualMachine() {
     DebuggerManagerThreadImpl.assertIsManagerThread();
@@ -105,15 +112,12 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
 
   @NonNls
   public String toString() {
-    //noinspection HardCodedStringLiteral
-    @NonNls String threadRefString;
     try {
-      threadRefString = getThreadReference().toString() ;
+      return name() + ": " + DebuggerUtilsEx.getThreadStatusText(status());
     }
     catch (ObjectCollectedException ignored) {
-      threadRefString = "[thread collected]";
+      return "[thread collected]";
     }
-    return "ThreadReferenceProxyImpl: " + threadRefString + " " + super.toString();
   }
 
   public void resume() {
@@ -231,11 +235,11 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
   }
 
   private void checkFrames(@NotNull final ThreadReference threadRef) throws EvaluateException {
-    if (myFramesFromBottom.size() < frameCount()) {
-      int count = frameCount();
+    int frameCount = frameCount();
+    if (myFramesFromBottom.size() < frameCount) {
       List<StackFrame> frames;
       try {
-        frames = threadRef.frames(0, count - myFramesFromBottom.size());
+        frames = threadRef.frames(0, frameCount - myFramesFromBottom.size());
       }
       catch (IncompatibleThreadStateException e) {
         throw EvaluateExceptionUtil.createEvaluateException(e);
@@ -245,9 +249,14 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
       }
 
       int index = myFramesFromBottom.size() + 1;
-      for (ListIterator<StackFrame> iterator = frames.listIterator(count - myFramesFromBottom.size()); iterator.hasPrevious();) {
+      for (ListIterator<StackFrame> iterator = frames.listIterator(frameCount - myFramesFromBottom.size()); iterator.hasPrevious();) {
         myFramesFromBottom.add(new StackFrameProxyImpl(this, iterator.previous(), index));
         index++;
+      }
+    }
+    else { // avoid leaking frames
+      while (myFramesFromBottom.size() > frameCount) {
+        myFramesFromBottom.removeLast();
       }
     }
   }
@@ -292,6 +301,17 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
     }
     catch (IncompatibleThreadStateException e) {
       throw EvaluateExceptionUtil.createEvaluateException(e);
+    }
+    finally {
+      clearCaches();
+      getVirtualMachineProxy().clearCaches();
+    }
+  }
+
+  public void forceEarlyReturn(Value value) throws ClassNotLoadedException, IncompatibleThreadStateException, InvalidTypeException {
+    DebuggerManagerThreadImpl.assertIsManagerThread();
+    try {
+      getThreadReference().forceEarlyReturn(value);
     }
     finally {
       clearCaches();

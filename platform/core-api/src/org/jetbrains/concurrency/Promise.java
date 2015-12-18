@@ -15,14 +15,19 @@
  */
 package org.jetbrains.concurrency;
 
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.AsyncResult;
 import com.intellij.util.Consumer;
 import com.intellij.util.Function;
+import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.List;
 
 public abstract class Promise<T> {
   public static final Promise<Void> DONE = new DonePromise<Void>(null);
@@ -65,8 +70,13 @@ public abstract class Promise<T> {
   }
 
   @NotNull
-  public static Promise<Void> all(@NotNull Collection<Promise<?>> promises) {
-    return all(promises, null);
+  public static Promise<?> all(@NotNull Collection<Promise<?>> promises) {
+    if (promises.size() == 1) {
+      return promises instanceof List ? ((List<Promise<?>>)promises).get(0) : promises.iterator().next();
+    }
+    else {
+      return all(promises, null);
+    }
   }
 
   @NotNull
@@ -81,9 +91,7 @@ public abstract class Promise<T> {
     Consumer<Throwable> rejected = new Consumer<Throwable>() {
       @Override
       public void consume(Throwable error) {
-        if (totalPromise.state == AsyncPromise.State.PENDING) {
-          totalPromise.setError(error);
-        }
+        totalPromise.setError(error);
       }
     };
 
@@ -106,7 +114,7 @@ public abstract class Promise<T> {
     }).doWhenRejected(new Consumer<String>() {
       @Override
       public void consume(String error) {
-        promise.setError(createError(error));
+        promise.setError(createError(error == null ? "Internal error" : error));
       }
     });
     return promise;
@@ -123,7 +131,7 @@ public abstract class Promise<T> {
     }).doWhenRejected(new Consumer<String>() {
       @Override
       public void consume(String error) {
-        promise.setError(createError(error));
+        promise.setError(error);
       }
     });
     return promise;
@@ -151,8 +159,18 @@ public abstract class Promise<T> {
 
   @SuppressWarnings("ExceptionClassNameDoesntEndWithException")
   public static class MessageError extends RuntimeException {
+    private final ThreeState log;
+
     public MessageError(@NotNull String error) {
       super(error);
+
+      log = ThreeState.UNSURE;
+    }
+
+    public MessageError(@NotNull String error, boolean log) {
+      super(error);
+
+      this.log = ThreeState.fromBoolean(log);
     }
 
     @NotNull
@@ -162,5 +180,20 @@ public abstract class Promise<T> {
     }
   }
 
-  abstract void notify(@NotNull AsyncPromise<T> child);
+  /**
+   * Log error if not message error
+   */
+  public static void logError(@NotNull Logger logger, @NotNull Throwable e) {
+    if (e instanceof MessageError) {
+      ThreeState log = ((MessageError)e).log;
+      if (log == ThreeState.YES || (log == ThreeState.UNSURE && ApplicationManager.getApplication().isUnitTestMode())) {
+        logger.error(e);
+      }
+    }
+    else if (!(e instanceof ProcessCanceledException)) {
+      logger.error(e);
+    }
+  }
+
+  public abstract void notify(@NotNull AsyncPromise<T> child);
 }

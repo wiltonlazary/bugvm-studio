@@ -24,8 +24,6 @@ import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Condition;
-import com.intellij.util.containers.ContainerUtil;
 import git4idea.GitBranch;
 import git4idea.branch.GitBranchUtil;
 import git4idea.branch.GitBrancher;
@@ -37,6 +35,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
+import static git4idea.GitStatisticsCollectorKt.reportUsage;
 
 class GitBranchPopupActions {
 
@@ -89,6 +89,7 @@ class GitBranchPopupActions {
       if (name != null) {
         GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
         brancher.checkoutNewBranch(name, myRepositories);
+        reportUsage("git.branch.create.new");
       }
     }
   }
@@ -114,6 +115,7 @@ class GitBranchPopupActions {
       if (reference != null) {
         GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
         brancher.checkout(reference, true, Collections.singletonList(myRepository), null);
+        reportUsage("git.branch.checkout.revision");
       }
     }
 
@@ -174,6 +176,7 @@ class GitBranchPopupActions {
         new CheckoutAction(myProject, myRepositories, myBranchName),
         new CheckoutAsNewBranch(myProject, myRepositories, myBranchName),
         new CompareAction(myProject, myRepositories, myBranchName, mySelectedRepository),
+        new RebaseAction(myProject, myRepositories, myBranchName),
         new MergeAction(myProject, myRepositories, myBranchName, true),
         new DeleteAction(myProject, myRepositories, myBranchName)
       };
@@ -195,8 +198,8 @@ class GitBranchPopupActions {
       public void actionPerformed(AnActionEvent e) {
         GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
         brancher.checkout(myBranchName, false, myRepositories, null);
+        reportUsage("git.branch.checkout.local");
       }
-
     }
 
     private static class CheckoutAsNewBranch extends DumbAwareAction {
@@ -220,8 +223,8 @@ class GitBranchPopupActions {
           GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
           brancher.checkoutNewBranchStartingFrom(name, myBranchName, myRepositories, null);
         }
+        reportUsage("git.checkout.as.new.branch");
       }
-
     }
 
     private static class DeleteAction extends DumbAwareAction {
@@ -240,6 +243,7 @@ class GitBranchPopupActions {
       public void actionPerformed(AnActionEvent e) {
         GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
         brancher.deleteBranch(myBranchName, myRepositories);
+        reportUsage("git.branch.delete.local");
       }
     }
   }
@@ -270,6 +274,7 @@ class GitBranchPopupActions {
       return new AnAction[] {
         new CheckoutRemoteBranchAction(myProject, myRepositories, myBranchName),
         new CompareAction(myProject, myRepositories, myBranchName, mySelectedRepository),
+        new RebaseAction(myProject, myRepositories, myBranchName),
         new MergeAction(myProject, myRepositories, myBranchName, false),
         new RemoteDeleteAction(myProject, myRepositories, myBranchName)
       };
@@ -284,31 +289,26 @@ class GitBranchPopupActions {
                                         @NotNull String remoteBranchName) {
         super("Checkout as new local branch");
         myProject = project;
+        myRepositories = repositories;
         myRemoteBranchName = remoteBranchName;
-        myRepositories = ContainerUtil.filter(repositories, new Condition<GitRepository>() {
-          @Override
-          public boolean value(GitRepository repository) {
-            return !guessBranchName(myRemoteBranchName).equals(repository.getCurrentBranchName());
-          }
-        });
       }
 
       @Override
       public void actionPerformed(AnActionEvent e) {
         final String name = Messages.showInputDialog(myProject, "Enter name of new branch", "Checkout Remote Branch", Messages.getQuestionIcon(),
-                                                     guessBranchName(myRemoteBranchName),
-                                                     GitNewBranchNameValidator.newInstance(myRepositories));
+                                               guessBranchName(), GitNewBranchNameValidator.newInstance(myRepositories));
         if (name != null) {
           GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
           brancher.checkoutNewBranchStartingFrom(name, myRemoteBranchName, myRepositories, null);
+          reportUsage("git.branch.checkout.remote");
         }
       }
 
-      private static String guessBranchName(@NotNull String remoteBranchName) {
+      private String guessBranchName() {
         // TODO: check if we already have a branch with that name; check if that branch tracks this remote branch. Show different messages
-        int slashPosition = remoteBranchName.indexOf("/");
+        int slashPosition = myRemoteBranchName.indexOf("/");
         // if no slash is found (for example, in the case of git-svn remote branches), propose the whole name.
-        return remoteBranchName.substring(slashPosition + 1);
+        return myRemoteBranchName.substring(slashPosition+1);
       }
     }
 
@@ -328,9 +328,9 @@ class GitBranchPopupActions {
       public void actionPerformed(AnActionEvent e) {
         GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
         brancher.deleteRemoteBranch(myBranchName, myRepositories);
+        reportUsage("git.branch.delete.remote");
       }
     }
-
   }
   
   private static class CompareAction extends DumbAwareAction {
@@ -353,8 +353,8 @@ class GitBranchPopupActions {
     public void actionPerformed(AnActionEvent e) {
       GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
       brancher.compare(myBranchName, myRepositories, mySelectedRepository);
+      reportUsage("git.branch.compare");
     }
-
   }
 
   private static class MergeAction extends DumbAwareAction {
@@ -377,6 +377,7 @@ class GitBranchPopupActions {
     public void actionPerformed(AnActionEvent e) {
       GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
       brancher.merge(myBranchName, deleteOnMerge(), myRepositories);
+      reportUsage("git.branch.merge");
     }
 
     private GitBrancher.DeleteOnMergeOption deleteOnMerge() {
@@ -384,6 +385,27 @@ class GitBranchPopupActions {
         return GitBrancher.DeleteOnMergeOption.PROPOSE;
       }
       return GitBrancher.DeleteOnMergeOption.NOTHING;
+    }
+  }
+
+  private static class RebaseAction extends DumbAwareAction {
+
+    private final Project myProject;
+    private final List<GitRepository> myRepositories;
+    private final String myBranchName;
+
+    public RebaseAction(@NotNull Project project, @NotNull List<GitRepository> repositories, @NotNull String branchName) {
+      super("Rebase onto");
+      myProject = project;
+      myRepositories = repositories;
+      myBranchName = branchName;
+    }
+
+    @Override
+    public void actionPerformed(AnActionEvent e) {
+      GitBrancher brancher = ServiceManager.getService(myProject, GitBrancher.class);
+      brancher.rebase(myRepositories, myBranchName);
+      reportUsage("git.branch.rebase");
     }
   }
 }

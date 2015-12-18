@@ -54,6 +54,7 @@ import com.intellij.psi.impl.light.LightElement;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.StringInterner;
 import gnu.trove.THashMap;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -79,12 +80,14 @@ public class RefManagerImpl extends RefManager {
   private final PsiManager myPsiManager;
 
   private volatile boolean myIsInProcess;
+  private volatile boolean myOfflineView;
 
   private final List<RefGraphAnnotator> myGraphAnnotators = new ArrayList<RefGraphAnnotator>();
   private GlobalInspectionContext myContext;
 
   private final Map<Key, RefManagerExtension> myExtensions = new THashMap<Key, RefManagerExtension>();
   private final Map<Language, RefManagerExtension> myLanguageExtensions = new HashMap<Language, RefManagerExtension>();
+  private final StringInterner myNameInterner = new StringInterner();
 
   public RefManagerImpl(@NotNull Project project, @Nullable AnalysisScope scope, @NotNull GlobalInspectionContext context) {
     myProject = project;
@@ -103,6 +106,12 @@ public class RefManagerImpl extends RefManager {
       for (Module module : ModuleManager.getInstance(getProject()).getModules()) {
         getRefModule(module);
       }
+    }
+  }
+
+  public String internName(@NotNull String name) {
+    synchronized (myNameInterner) {
+      return myNameInterner.intern(name);
     }
   }
 
@@ -318,7 +327,14 @@ public class RefManagerImpl extends RefManager {
     myIsInProcess = false;
   }
 
+  public void startOfflineView() {
+    myOfflineView = true;
+  }
 
+  public boolean isOfflineView() {
+    return myOfflineView;
+  }
+  
   public boolean isInProcess() {
     return myIsInProcess;
   }
@@ -623,6 +639,6 @@ public class RefManagerImpl extends RefManager {
   }
 
   protected boolean isValidPointForReference() {
-    return myIsInProcess || ApplicationManager.getApplication().isUnitTestMode();
+    return myIsInProcess || myOfflineView || ApplicationManager.getApplication().isUnitTestMode();
   }
 }

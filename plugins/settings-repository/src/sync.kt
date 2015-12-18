@@ -15,41 +15,41 @@
  */
 package org.jetbrains.settingsRepository
 
+import com.intellij.configurationStore.*
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.application.impl.ApplicationImpl
-import com.intellij.openapi.components.impl.stores.ComponentStoreImpl
-import com.intellij.openapi.components.impl.stores.FileBasedStorage
-import com.intellij.openapi.components.impl.stores.IComponentStore
+import com.intellij.openapi.application.runBatchUpdate
+import com.intellij.openapi.components.StateStorage
+import com.intellij.openapi.components.stateStore
 import com.intellij.openapi.options.SchemesManagerFactory
-import com.intellij.openapi.options.SchemesManagerFactoryImpl
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
+import com.intellij.util.messages.MessageBus
 import com.intellij.util.ui.UIUtil
 import gnu.trove.THashSet
-import java.util.LinkedHashSet
+import java.util.*
 
-class SyncManager(private val icsManager: IcsManager, private val autoSyncManager: AutoSyncManager) {
-  volatile var writeAndDeleteProhibited = false
+private val LOG_1 = org.jetbrains.settingsRepository.LOG
+
+internal class SyncManager(private val icsManager: IcsManager, private val autoSyncManager: AutoSyncManager) {
+  @Volatile var writeAndDeleteProhibited = false
     private set
 
-  public fun sync(syncType: SyncType, project: Project?, localRepositoryInitializer: (() -> Unit)? = null): UpdateResult? {
-    ApplicationManager.getApplication()!!.assertIsDispatchThread()
-
+  public fun sync(syncType: SyncType, project: Project? = null, localRepositoryInitializer: (() -> Unit)? = null): UpdateResult? {
     var exception: Throwable? = null
     var restartApplication = false
     var updateResult: UpdateResult? = null
     icsManager.runInAutoCommitDisabledMode {
-      ApplicationManager.getApplication()!!.saveSettings()
+      UIUtil.invokeAndWaitIfNeeded(Runnable { ApplicationManager.getApplication()!!.saveSettings() })
       try {
         writeAndDeleteProhibited = true
-        ProgressManager.getInstance().run(object : Task.Modal(project, IcsBundle.message("task.sync.title"), true) {
+        ProgressManager.getInstance().run(object : Task.Modal(project, icsMessage("task.sync.title"), true) {
           override fun run(indicator: ProgressIndicator) {
-            indicator.setIndeterminate(true)
+            indicator.isIndeterminate = true
 
             autoSyncManager.waitAutoSync(indicator)
 
@@ -57,15 +57,15 @@ class SyncManager(private val icsManager: IcsManager, private val autoSyncManage
             if (localRepositoryInitializer == null) {
               try {
                 // we commit before even if sync "RESET_TO_THEIRS" — preserve history and ability to undo
-                repositoryManager.commitIfCan(indicator)
+                repositoryManager.commit(indicator, syncType)
                 // well, we cannot commit? No problem, upcoming action must do something smart and solve the situation
               }
               catch (e: ProcessCanceledException) {
-                LOG.debug("Canceled")
+                LOG_1.warn("Canceled")
                 return
               }
               catch (e: Throwable) {
-                LOG.error(e)
+                LOG_1.error(e)
 
                 // "RESET_TO_*" will do "reset hard", so, probably, error will be gone, so, we can continue operation
                 if (syncType == SyncType.MERGE) {
@@ -75,7 +75,7 @@ class SyncManager(private val icsManager: IcsManager, private val autoSyncManage
               }
             }
 
-            if (indicator.isCanceled()) {
+            if (indicator.isCanceled) {
               return
             }
 
@@ -83,13 +83,19 @@ class SyncManager(private val icsManager: IcsManager, private val autoSyncManage
               when (syncType) {
                 SyncType.MERGE -> {
                   updateResult = repositoryManager.pull(indicator)
+                  var doPush = true
                   if (localRepositoryInitializer != null) {
                     // must be performed only after initial pull, so, local changes will be relative to remote files
                     localRepositoryInitializer()
-                    repositoryManager.commit(indicator)
-                    updateResult = updateResult.concat(repositoryManager.pull(indicator))
+                    if (!repositoryManager.commit(indicator, syncType) || repositoryManager.getAheadCommitsCount() == 0) {
+                      // avoid error during findRemoteRefUpdatesFor on push - if localRepositoryInitializer specified and nothing to commit (failed or just no files to commit (empty local configuration - no files)),
+                      // so, nothing to push
+                      doPush = false
+                    }
                   }
-                  repositoryManager.push(indicator)
+                  if (doPush) {
+                    repositoryManager.push(indicator)
+                  }
                 }
                 SyncType.OVERWRITE_LOCAL -> {
                   // we don't push - probably, repository will be modified/removed (user can do something, like undo) before any other next push activities (so, we don't want to disturb remote)
@@ -97,17 +103,19 @@ class SyncManager(private val icsManager: IcsManager, private val autoSyncManage
                 }
                 SyncType.OVERWRITE_REMOTE -> {
                   updateResult = repositoryManager.resetToMy(indicator, localRepositoryInitializer)
-                  repositoryManager.push(indicator)
+                  if (repositoryManager.getAheadCommitsCount() > 0) {
+                    repositoryManager.push(indicator)
+                  }
                 }
               }
             }
             catch (e: ProcessCanceledException) {
-              LOG.debug("Canceled")
+              LOG_1.debug("Canceled")
               return
             }
             catch (e: Throwable) {
-              if (e !is AuthenticationException && e !is NoRemoteRepositoryException) {
-                LOG.error(e)
+              if (e !is AuthenticationException && e !is NoRemoteRepositoryException && e !is CannotResolveConflictInTestMode) {
+                LOG_1.error(e)
               }
               exception = e
               return
@@ -115,10 +123,11 @@ class SyncManager(private val icsManager: IcsManager, private val autoSyncManage
 
             icsManager.repositoryActive = true
             if (updateResult != null) {
-              restartApplication = updateStoragesFromStreamProvider((ApplicationManager.getApplication() as ApplicationImpl).getStateStore(), updateResult!!)
+              val app = ApplicationManager.getApplication()
+              restartApplication = updateStoragesFromStreamProvider(app.stateStore as ComponentStoreImpl, updateResult!!, app.messageBus)
             }
             if (!restartApplication && syncType == SyncType.OVERWRITE_LOCAL) {
-              (SchemesManagerFactory.getInstance() as SchemesManagerFactoryImpl).process {
+              (SchemesManagerFactory.getInstance() as SchemeManagerFactoryBase).process {
                 it.reload()
               }
             }
@@ -141,52 +150,44 @@ class SyncManager(private val icsManager: IcsManager, private val autoSyncManage
   }
 }
 
-private fun updateStoragesFromStreamProvider(store: IComponentStore.Reloadable, updateResult: UpdateResult): Boolean {
+internal fun updateStoragesFromStreamProvider(store: ComponentStoreImpl, updateResult: UpdateResult, messageBus: MessageBus): Boolean {
   val changedComponentNames = LinkedHashSet<String>()
-  val stateStorages = store.getStateStorageManager().getCachedFileStateStorages(updateResult.changed, updateResult.deleted)
-  val changed = stateStorages.first!!
-  val deleted = stateStorages.second!!
+  val (changed, deleted) = (store.storageManager as StateStorageManagerImpl).getCachedFileStorages(updateResult.changed, updateResult.deleted)
   if (changed.isEmpty() && deleted.isEmpty()) {
     return false
   }
 
-  return UIUtil.invokeAndWaitIfNeeded(object : Computable<Boolean> {
-    override fun compute(): Boolean {
-      val notReloadableComponents: Collection<String>
-      val token = WriteAction.start()
-      try {
-        updateStateStorage(changedComponentNames, changed, false)
-        updateStateStorage(changedComponentNames, deleted, true)
+  return UIUtil.invokeAndWaitIfNeeded(Computable<kotlin.Boolean> {
+    val notReloadableComponents: Collection<String>
+    updateStateStorage(changedComponentNames, changed, false)
+    updateStateStorage(changedComponentNames, deleted, true)
 
-        if (changedComponentNames.isEmpty()) {
-          return false
-        }
-
-        notReloadableComponents = store.getNotReloadableComponents(changedComponentNames)
-
-        val changedStorageSet = THashSet(changed)
-        changedStorageSet.addAll(deleted)
-        (store as ComponentStoreImpl).reinitComponents(changedComponentNames, notReloadableComponents, changedStorageSet)
-      }
-      finally {
-        token.finish()
-      }
-
-      if (notReloadableComponents.isEmpty()) {
-        return false
-      }
-      return ComponentStoreImpl.askToRestart(store, notReloadableComponents, null)
+    if (changedComponentNames.isEmpty()) {
+      return@Computable false
     }
+
+    notReloadableComponents = store.getNotReloadableComponents(changedComponentNames)
+
+    val changedStorageSet = THashSet<StateStorage>(changed)
+    changedStorageSet.addAll(deleted)
+    runBatchUpdate(messageBus) {
+      store.reinitComponents(changedComponentNames, changedStorageSet, notReloadableComponents)
+    }
+
+    if (notReloadableComponents.isEmpty()) {
+      return@Computable false
+    }
+    askToRestart(store, notReloadableComponents, null, true)
   })!!
 }
 
-private fun updateStateStorage(changedComponentNames: Set<String>, stateStorages: Collection<FileBasedStorage>, deleted: Boolean) {
+private fun updateStateStorage(changedComponentNames: MutableSet<String>, stateStorages: Collection<StateStorage>, deleted: Boolean) {
   for (stateStorage in stateStorages) {
     try {
-      stateStorage.updatedFromStreamProvider(changedComponentNames, deleted)
+      (stateStorage as XmlElementStorage).updatedFromStreamProvider(changedComponentNames, deleted)
     }
     catch (e: Throwable) {
-      LOG.error(e)
+      LOG_1.error(e)
     }
   }
 }
@@ -196,3 +197,7 @@ enum class SyncType {
   OVERWRITE_LOCAL,
   OVERWRITE_REMOTE
 }
+
+class NoRemoteRepositoryException(cause: Throwable) : RuntimeException(cause.message, cause)
+
+class CannotResolveConflictInTestMode() : RuntimeException()

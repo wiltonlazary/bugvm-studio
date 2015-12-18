@@ -23,10 +23,7 @@ import com.intellij.execution.configurations.ParametersList;
 import com.intellij.execution.process.*;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
-import com.intellij.execution.testframework.Printable;
-import com.intellij.execution.testframework.Printer;
-import com.intellij.execution.testframework.TestFrameworkRunningModel;
-import com.intellij.execution.testframework.TestSearchScope;
+import com.intellij.execution.testframework.*;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
@@ -218,6 +215,17 @@ public class TestNGRunnableState extends JavaTestFrameworkRunnableState<TestNGCo
     createServerSocket(javaParameters);
     createTempFiles(javaParameters);
     return javaParameters;
+  }
+
+  @Override
+  protected List<String> getNamedParams(String parameters) {
+    try {
+      Integer.parseInt(parameters);
+      return super.getNamedParams(parameters);
+    }
+    catch (NumberFormatException e) {
+      return Arrays.asList(parameters.split(" "));
+    }
   }
 
   @NotNull

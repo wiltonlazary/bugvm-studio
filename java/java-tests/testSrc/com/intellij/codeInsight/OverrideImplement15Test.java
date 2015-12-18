@@ -16,11 +16,11 @@
 package com.intellij.codeInsight;
 
 import com.intellij.codeInsight.generation.JavaOverrideMethodsHandler;
+import com.intellij.codeInsight.generation.OverrideImplementExploreUtil;
 import com.intellij.codeInsight.generation.OverrideImplementUtil;
 import com.intellij.codeInsight.generation.PsiMethodMember;
 import com.intellij.codeInsight.intention.impl.ImplementAbstractMethodHandler;
 import com.intellij.lang.java.JavaLanguage;
-import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
@@ -68,6 +68,7 @@ public class OverrideImplement15Test extends LightCodeInsightTestCase {
   public void testMultipleInterfaceInheritance() { doTest(false); }
   public void testResolveTypeParamConflict() { doTest(false); }
   public void testRawInheritance() { doTest(false); }
+  public void testRawInheritanceWithMethodTypeParameters() { doTest(false); }
 
   public void testLongFinalParameterList() {
     CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject()).clone();
@@ -77,6 +78,18 @@ public class OverrideImplement15Test extends LightCodeInsightTestCase {
       javaSettings.KEEP_LINE_BREAKS = true;
       codeStyleSettings.GENERATE_FINAL_PARAMETERS = true;
       javaSettings.METHOD_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
+      CodeStyleSettingsManager.getInstance(getProject()).setTemporarySettings(codeStyleSettings);
+      doTest(false);
+    }
+    finally {
+      CodeStyleSettingsManager.getInstance(getProject()).dropTemporarySettings();
+    }
+  }
+
+  public void testOverridingLibraryFunctionWithConfiguredParameterPrefix() throws Exception {
+    CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject()).clone();
+    try {
+      codeStyleSettings.PARAMETER_NAME_PREFIX = "in";
       CodeStyleSettingsManager.getInstance(getProject()).setTemporarySettings(codeStyleSettings);
       doTest(false);
     }
@@ -108,7 +121,7 @@ public class OverrideImplement15Test extends LightCodeInsightTestCase {
     PsiClass psiClass = PsiTreeUtil.getParentOfType(context, PsiClass.class);
     assert psiClass != null;
 
-    final Collection<MethodSignature> signatures = OverrideImplementUtil.getMethodSignaturesToOverride(psiClass);
+    final Collection<MethodSignature> signatures = OverrideImplementExploreUtil.getMethodSignaturesToOverride(psiClass);
     final Collection<String> strings = ContainerUtil.map(signatures, FunctionUtil.string());
 
     assertTrue(strings.toString(), strings.contains("HierarchicalMethodSignatureImpl: A([PsiType:String])"));
@@ -156,7 +169,8 @@ public class OverrideImplement15Test extends LightCodeInsightTestCase {
       assert superClass != null;
       PsiMethod method = superClass.getMethods()[0];
       final PsiSubstitutor substitutor = TypeConversionUtil.getSuperClassSubstitutor(superClass, psiClass, PsiSubstitutor.EMPTY);
-      final List<PsiMethodMember> candidates = Collections.singletonList(new PsiMethodMember(method, substitutor));
+      final List<PsiMethodMember> candidates = Collections.singletonList(new PsiMethodMember(method, 
+                                                                                             OverrideImplementExploreUtil.correctSubstitutor(method, substitutor)));
       OverrideImplementUtil.overrideOrImplementMethodsInRightPlace(getEditor(), psiClass, candidates, copyJavadoc, true);
     }
     else {

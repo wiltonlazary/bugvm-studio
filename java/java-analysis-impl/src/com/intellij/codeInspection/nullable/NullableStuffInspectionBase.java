@@ -25,6 +25,7 @@ import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.dataFlow.DfaPsiUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -77,7 +78,8 @@ public class NullableStuffInspectionBase extends BaseJavaBatchLocalInspectionToo
   @Override
   @NotNull
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
-    if (!PsiUtil.isLanguageLevel5OrHigher(holder.getFile())) {
+    final PsiFile file = holder.getFile();
+    if (!PsiUtil.isLanguageLevel5OrHigher(file) || nullabilityAnnotationsNotAvailable(file)) {
       return new PsiElementVisitor() { };
     }
     return new JavaElementVisitor() {
@@ -103,11 +105,11 @@ public class NullableStuffInspectionBase extends BaseJavaBatchLocalInspectionToo
 
           checkAccessors(field, annotated, project, manager, anno, annoToRemove, holder);
 
-          if (REQUIRE_NOTNULL_FIELDS_INITIALIZED) {
-            checkNotNullFieldsInitialized(field, annotated, manager, holder);
-          }
-
           checkConstructorParameters(field, annotated, manager, anno, annoToRemove, holder);
+        }
+
+        if (REQUIRE_NOTNULL_FIELDS_INITIALIZED && !annotated.isDeclaredNullable) {
+          checkNotNullFieldsInitialized(field, manager, holder);
         }
       }
 
@@ -144,6 +146,18 @@ public class NullableStuffInspectionBase extends BaseJavaBatchLocalInspectionToo
         return false;
       }
     };
+  }
+
+  private static boolean nullabilityAnnotationsNotAvailable(final PsiFile file) {
+    final Project project = file.getProject();
+    final GlobalSearchScope scope = GlobalSearchScope.allScope(project);
+    final JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
+    return ContainerUtil.find(NullableNotNullManager.getInstance(project).getNullables(), new Condition<String>() {
+      @Override
+      public boolean value(String s) {
+        return facade.findClass(s, scope) != null;
+      }
+    }) == null;
   }
 
   private static boolean checkNonStandardAnnotations(PsiField field,
@@ -245,17 +259,14 @@ public class NullableStuffInspectionBase extends BaseJavaBatchLocalInspectionToo
     LOG.assertTrue(parameter.isPhysical(), setter.getText());
   }
 
-  private static void checkNotNullFieldsInitialized(PsiField field,
-                                                    Annotated annotated,
-                                                    NullableNotNullManager manager, @NotNull ProblemsHolder holder) {
-    if (annotated.isDeclaredNotNull && !HighlightControlFlowUtil.isFieldInitializedAfterObjectConstruction(field)) {
-      final PsiAnnotation annotation = AnnotationUtil.findAnnotation(field, manager.getNotNulls());
-      if (annotation != null) {
-        holder.registerProblem(annotation.isPhysical() ? annotation : field.getNameIdentifier(),
-                               "Not-null fields must be initialized",
-                               ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
-      }
-    }
+  private static void checkNotNullFieldsInitialized(PsiField field, NullableNotNullManager manager, @NotNull ProblemsHolder holder) {
+    PsiAnnotation annotation = manager.getNotNullAnnotation(field, false);
+    if (annotation == null || HighlightControlFlowUtil.isFieldInitializedAfterObjectConstruction(field)) return;
+
+    boolean byDefault = manager.isContainerAnnotation(annotation);
+    PsiJavaCodeReferenceElement name = annotation.getNameReferenceElement();
+    holder.registerProblem(annotation.isPhysical() && !byDefault ? annotation : field.getNameIdentifier(),
+                           (byDefault && name != null ? "@" + name.getReferenceName() : "Not-null") + " fields must be initialized");
   }
 
   private void checkConstructorParameters(PsiField field,

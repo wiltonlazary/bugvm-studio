@@ -31,6 +31,7 @@ import java.util.Map;
  */
 public class ObjectStubTree<T extends Stub> {
   protected static final Key<ObjectStubTree> STUB_TO_TREE_REFERENCE = Key.create("stub to tree reference");
+  public static final Key<Integer> LAST_STUB_TREE_HASH = Key.create("LAST_STUB_TREE_HASH");
   protected final ObjectStubBase myRoot;
   private String myDebugInfo;
   protected final List<T> myPlainList = new ArrayList<T>();
@@ -71,23 +72,19 @@ public class ObjectStubTree<T extends Stub> {
     return sink.getResult();
   }
 
-  protected void enumerateStubs(@NotNull Stub root, @NotNull List<Stub> result) {
-    enumerateStubs(root, result, 0);
-  }
-
-  protected static void enumerateStubs(@NotNull Stub root, @NotNull List<Stub> result, int idOffset) {
-    ((ObjectStubBase)root).id = idOffset + result.size();
+  private static void enumerateStubs(@NotNull Stub root, @NotNull List<Stub> result) {
+    ((ObjectStubBase)root).id = result.size();
     result.add(root);
     List<? extends Stub> childrenStubs = root.getChildrenStubs();
     //noinspection ForLoopReplaceableByForEach
     for (int i = 0; i < childrenStubs.size(); i++) {
       Stub child = childrenStubs.get(i);
-      enumerateStubs(child, result, idOffset);
+      enumerateStubs(child, result);
     }
   }
 
   public void setDebugInfo(String info) {
-    ObjectStubTree ref = myRoot.getUserData(STUB_TO_TREE_REFERENCE);
+    ObjectStubTree ref = getStubTree(myRoot);
     if (ref != null) {
       assert ref == this;
       info += "; with backReference";
@@ -95,11 +92,20 @@ public class ObjectStubTree<T extends Stub> {
     myDebugInfo = info;
   }
 
+  static ObjectStubTree getStubTree(ObjectStubBase root) {
+    return root.getUserData(STUB_TO_TREE_REFERENCE);
+  }
+
   public String getDebugInfo() {
     return myDebugInfo;
   }
 
-  private static class StubIndexSink implements IndexSink, TObjectProcedure<Map<Object, int[]>>,TObjectObjectProcedure<Object,int[]> {
+  @Override
+  public String toString() {
+    return getClass().getSimpleName() + "{myDebugInfo='" + myDebugInfo + '\'' + ", myRoot=" + myRoot + '}' + hashCode();
+  }
+
+  private static class StubIndexSink implements IndexSink, TObjectProcedure<Map<Object, int[]>>, TObjectObjectProcedure<Object,int[]> {
     private final THashMap<StubIndexKey, Map<Object, int[]>> myResult = new THashMap<StubIndexKey, Map<Object, int[]>>();
     private int myStubIdx;
     private Map<Object, int[]> myProcessingMap;

@@ -20,8 +20,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.SdkModificator;
-import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -85,18 +83,29 @@ public class PyUserSkeletonsUtil {
   }
 
   public static boolean isUnderUserSkeletonsDirectory(@NotNull PsiFile file) {
-    final VirtualFile skeletonsDir = getUserSkeletonsDirectory();
     final VirtualFile virtualFile = file.getVirtualFile();
-    return skeletonsDir != null && virtualFile != null && VfsUtilCore.isAncestor(skeletonsDir, virtualFile, false);
+    if (virtualFile == null) {
+      return false;
+    }
+    return isUnderUserSkeletonsDirectory(virtualFile);
+  }
+
+  public static boolean isUnderUserSkeletonsDirectory(@NotNull final VirtualFile virtualFile) {
+    final VirtualFile skeletonsDir = getUserSkeletonsDirectory();
+    return skeletonsDir != null && VfsUtilCore.isAncestor(skeletonsDir, virtualFile, false);
   }
 
   @Nullable
   public static <T extends PyElement> T getUserSkeleton(@NotNull T element) {
+    return getUserSkeletonWithContext(element, null);
+  }
+  @Nullable
+  public static <T extends PyElement> T getUserSkeletonWithContext(@NotNull T element, @Nullable final TypeEvalContext context) {
     final PsiFile file = element.getContainingFile();
     if (file instanceof PyFile) {
       final PyFile skeletonFile = getUserSkeletonForFile((PyFile)file);
       if (skeletonFile != null && skeletonFile != file) {
-        final PsiElement skeletonElement = getUserSkeleton(element, skeletonFile);
+        final PsiElement skeletonElement = getUserSkeleton(element, skeletonFile, context);
         if (element.getClass().isInstance(skeletonElement) && skeletonElement != element) {
           //noinspection unchecked
           return (T)skeletonElement;
@@ -137,15 +146,8 @@ public class PyUserSkeletonsUtil {
     return null;
   }
 
-  public static void addUserSkeletonsRoot(@NotNull SdkModificator sdkModificator) {
-    final VirtualFile root = getUserSkeletonsDirectory();
-    if (root != null) {
-      sdkModificator.addRoot(root, OrderRootType.CLASSES);
-    }
-  }
-
   @Nullable
-  private static PsiElement getUserSkeleton(@NotNull PyElement element, @NotNull PyFile skeletonFile) {
+  private static PsiElement getUserSkeleton(@NotNull PyElement element, @NotNull PyFile skeletonFile, @Nullable TypeEvalContext context) {
     if (element instanceof PyFile) {
       return skeletonFile;
     }
@@ -153,15 +155,19 @@ public class PyUserSkeletonsUtil {
     final String name = element.getName();
     if (owner != null && name != null) {
       assert owner != element;
-      final PsiElement originalOwner = getUserSkeleton(owner, skeletonFile);
+      final PsiElement originalOwner = getUserSkeleton(owner, skeletonFile, context);
       if (originalOwner instanceof PyClass) {
         final PyClass classOwner = (PyClass)originalOwner;
         final PyType type = TypeEvalContext.codeInsightFallback(classOwner.getProject()).getType(classOwner);
         if (type instanceof PyClassLikeType) {
           final PyClassLikeType classType = (PyClassLikeType)type;
           final PyClassLikeType instanceType = classType.toInstance();
+          PyResolveContext resolveContext = PyResolveContext.noImplicits();
+          if (context != null) {
+            resolveContext = resolveContext.withTypeEvalContext(context);
+          }
           final List<? extends RatedResolveResult> resolveResults = instanceType.resolveMember(name, null, AccessDirection.READ,
-                                                                                               PyResolveContext.noImplicits(), false);
+                                                                                               resolveContext, false);
           if (resolveResults != null && !resolveResults.isEmpty()) {
             return resolveResults.get(0).getElement();
           }

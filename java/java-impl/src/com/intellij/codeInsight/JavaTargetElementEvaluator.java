@@ -22,9 +22,11 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
+import com.intellij.psi.search.searches.FunctionalExpressionSearch;
 import com.intellij.psi.util.*;
 import com.intellij.util.Processor;
 import com.intellij.util.ThreeState;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -272,7 +274,10 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
         PsiClass containingClass = ((PsiMember)element).getContainingClass();
         final PsiExpression expression = ((PsiReferenceExpression)reference).getQualifierExpression();
         PsiClass psiClass;
-        if (expression != null) {
+        if (reference instanceof PsiMethodReferenceExpression) {
+          psiClass = PsiMethodReferenceUtil.getQualifierResolveResult((PsiMethodReferenceExpression)reference).getContainingClass();
+        }
+        else if (expression != null) {
           psiClass = PsiUtil.resolveClassInType(expression.getType());
         } else {
           if (element instanceof PsiClass) {
@@ -306,25 +311,29 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
   
   @Override
   @Nullable
-  public SearchScope getSearchScope(Editor editor, @NotNull PsiElement element) {
+  public SearchScope getSearchScope(Editor editor, @NotNull final PsiElement element) {
     final PsiReferenceExpression referenceExpression = editor != null ? findReferenceExpression(editor) : null;
     if (referenceExpression != null && element instanceof PsiMethod) {
       final PsiClass[] memberClass = getMemberClass(referenceExpression, element);
       if (memberClass != null && memberClass.length == 1) {
-        return CachedValuesManager.getCachedValue(referenceExpression, new CachedValueProvider<SearchScope>() {
+        return CachedValuesManager.getCachedValue(memberClass[0], new CachedValueProvider<SearchScope>() {
           @Nullable
           @Override
           public Result<SearchScope> compute() {
-            final List<PsiClass> classesToSearch = new ArrayList<PsiClass>();
+            final List<PsiClass> classesToSearch = ContainerUtil.newArrayList(memberClass);
             classesToSearch.addAll(ClassInheritorsSearch.search(memberClass[0], true).findAll());
 
             final Set<PsiClass> supers = new HashSet<PsiClass>();
             for (PsiClass psiClass : classesToSearch) {
               supers.addAll(InheritanceUtil.getSuperClasses(psiClass));
             }
-            classesToSearch.addAll(supers);
 
-            return new Result<SearchScope>(new LocalSearchScope(PsiUtilCore.toPsiElementArray(classesToSearch)), PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
+            final List<PsiElement> elements = new ArrayList<PsiElement>();
+            elements.addAll(classesToSearch);
+            elements.addAll(supers);
+            elements.addAll(FunctionalExpressionSearch.search(memberClass[0]).findAll());
+
+            return new Result<SearchScope>(new LocalSearchScope(PsiUtilCore.toPsiElementArray(elements)), PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
           }
         });
       }

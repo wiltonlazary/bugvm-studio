@@ -117,9 +117,8 @@ public class PsiLambdaExpressionImpl extends ExpressionPsiElement implements Psi
           return false;
         }
       }
-      catch (AnalysisCanceledException e) {
-        return false;
-      }
+      //error would be shown inside body
+      catch (AnalysisCanceledException ignore) {}
 
       for (PsiReturnStatement statement : PsiUtil.findReturnStatements((PsiCodeBlock)body)) {
         if (statement.getReturnValue() == null) {
@@ -225,7 +224,7 @@ public class PsiLambdaExpressionImpl extends ExpressionPsiElement implements Psi
     }
 
     PsiType methodReturnType = interfaceMethod.getReturnType();
-    if (methodReturnType != null && methodReturnType != PsiType.VOID) {
+    if (methodReturnType != null && !PsiType.VOID.equals(methodReturnType)) {
       Map<PsiElement, PsiType> map = LambdaUtil.getFunctionalTypeMap();
       try {
         if (map.put(this, leftType) != null) {
@@ -250,7 +249,7 @@ public class PsiLambdaExpressionImpl extends ExpressionPsiElement implements Psi
     }
     final PsiType methodReturnType = interfaceMethod.getReturnType();
     final PsiElement body = getBody();
-    if (methodReturnType == PsiType.VOID) {
+    if (PsiType.VOID.equals(methodReturnType)) {
       if (body instanceof PsiCodeBlock) {
         return isVoidCompatible();
       } else {

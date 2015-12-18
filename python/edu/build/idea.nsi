@@ -751,10 +751,22 @@ FunctionEnd
 Function searchPython
   ;$R2 - version of python
   ReadRegStr $1 "HKCU" "Software\Python\PythonCore\$R2\InstallPath" ""
-  StrCmp $1 "" installationForAllUsers
-  goto verifyPythonLauncher
+  StrCmp $1 "" CU_32bit verifyPythonLauncher
+CU_32bit:  
+  ReadRegStr $1 "HKCU" "Software\Python\PythonCore\$R2-32\InstallPath" ""
+  StrCmp $1 "" CU_64bit verifyPythonLauncher
+CU_64bit:
+  ReadRegStr $1 "HKCU" "Software\Python\PythonCore\$R2-64\InstallPath" ""
+  StrCmp $1 "" installationForAllUsers verifyPythonLauncher
+
 installationForAllUsers:
   ReadRegStr $1 "HKLM" "Software\Python\PythonCore\$R2\InstallPath" ""
+  StrCmp $1 "" LM_32bit verifyPythonLauncher
+LM_32bit:    
+  ReadRegStr $1 "HKLM" "Software\Python\PythonCore\$R2-32\InstallPath" ""
+  StrCmp $1 "" LM_64bit verifyPythonLauncher
+LM_64bit:      
+  ReadRegStr $1 "HKLM" "Software\Python\PythonCore\$R2-64\InstallPath" ""
   StrCmp $1 "" pythonAbsent
 verifyPythonLauncher:
   IfFileExists $1python.exe pythonExists pythonAbsent
@@ -780,12 +792,16 @@ getPythonInfo:
   Call getPythonInfo
   StrCmp $0 "Error" skip_python_download
   !insertmacro INSTALLOPTIONS_READ $R2 "Desktop.ini" "Field 4" "State"
+  StrCpy $R8 "$0.msi"
+  StrCpy $R9 "/quiet /qn /norestart"
   StrCmp $R2 1 "" python3
   StrCpy $R2 $0
   StrCpy $R3 $1
   goto check_python
 python3:  
   !insertmacro INSTALLOPTIONS_READ $R2 "Desktop.ini" "Field 5" "State"
+  StrCpy $R8 "$R0.exe"
+  StrCpy $R9 "InstallAllUsers=1 /quiet"
   StrCmp $R2 1 "" skip_python_download
   StrCpy $R2 $R0
   StrCpy $R3 $R1
@@ -800,14 +816,14 @@ verefy_python_launcher:
   IfFileExists $1python.exe python_exists get_python
 get_python:
   CreateDirectory "$INSTDIR\python"
-  inetc::get "$R3" "$INSTDIR\python\python_$R2.msi"
+  inetc::get "$R3" "$INSTDIR\python\python_$R8"
   Pop $0
-  ${If} $0 == "OK" 
-    ExecCmd::exec 'msiexec /i "$INSTDIR\python\python_$R2.msi" /quiet /qn /norestart'
+  ${If} $0 == "OK"
+    ExecCmd::exec '"$INSTDIR\python\python_$R8" $R9'
   ${Else}
     MessageBox MB_OK|MB_ICONEXCLAMATION "The download is failed"
   ${EndIf}
-python_exists:  
+python_exists:
 skip_python_download:  
 ; create shortcuts
   !insertmacro INSTALLOPTIONS_READ $R2 "Desktop.ini" "Field 1" "State"
@@ -929,10 +945,15 @@ skip_properties:
   ; set the current time for installation files under $INSTDIR\bin
   ExecCmd::exec 'copy "$INSTDIR\bin\*.*s" +,,'
   call winVersion
-  ${If} $0 == "1"  
+  ${If} $0 == "1"
     ;ExecCmd::exec 'icacls "$INSTDIR" /grant %username%:F /T >"$INSTDIR"\installation_log.txt 2>"$INSTDIR"\installation_error.txt'
     AccessControl::GrantOnFile \
       "$INSTDIR" "(S-1-5-32-545)" "GenericRead + GenericExecute"
+    AccessControl::GrantOnFile \
+      "$INSTDIR\bin\${PRODUCT_EXE_FILE}.vmoptions" "(S-1-5-32-545)" "GenericRead + GenericWrite"
+    ${StrRep} $0 ${PRODUCT_EXE_FILE} ".exe" "64.exe.vmoptions"
+    AccessControl::GrantOnFile \
+      "$INSTDIR\bin\$0" "(S-1-5-32-545)" "GenericRead + GenericWrite"
   ${EndIf}
 SectionEnd
 
@@ -999,8 +1020,8 @@ checkPython3:
   StrCpy $R5 "Field 4"
   Call updatePythonControls
 association:
-  StrCmp "${ASSOCIATION}" "NoAssociation" skip_association
   StrCpy $R0 6
+  StrCmp "${ASSOCIATION}" "NoAssociation" skip_association
   push "${ASSOCIATION}"
 loop:
   call SplitStr
@@ -1010,7 +1031,6 @@ loop:
   !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $R0" "Text" "$0"
   goto loop
 skip_association:
-  StrCpy $R0 2
   call winVersion
   ${If} $0 == "1"
   IntOp $R0 $R0 - 1

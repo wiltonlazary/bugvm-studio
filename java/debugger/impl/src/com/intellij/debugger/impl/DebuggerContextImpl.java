@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,7 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.sun.jdi.ObjectReference;
 import com.sun.jdi.Value;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 
@@ -87,6 +88,7 @@ public final class DebuggerContextImpl implements DebuggerContext {
     return myDebugProcess;
   }
 
+  @Nullable
   public ThreadReferenceProxyImpl getThreadProxy() {
     return myThreadProxy;
   }
@@ -143,12 +145,12 @@ public final class DebuggerContextImpl implements DebuggerContext {
     return context != null ? new EvaluationContextImpl(context, frameProxy, objectReference) : null;
   }
 
+  @NotNull
   public static DebuggerContextImpl createDebuggerContext(@Nullable DebuggerSession session,
                                                           @Nullable SuspendContextImpl context,
                                                           ThreadReferenceProxyImpl threadProxy,
                                                           StackFrameProxyImpl frameProxy) {
     LOG.assertTrue(frameProxy == null || threadProxy == null || threadProxy == frameProxy.threadProxy());
-    LOG.assertTrue(session == null || session.getProcess() != null);
     return new DebuggerContextImpl(session, session != null ? session.getProcess() : null, context, threadProxy, frameProxy, null, null, context == null);
   }
 

@@ -98,7 +98,7 @@ public interface Editor extends UserDataHolder {
    * (for example, highlighters added by "Highlight usages in file"), which are painted in addition
    * to the highlighters contained in the markup model for the document.
    * <p>
-   * See also com.intellij.openapi.editor.impl.DocumentMarkupModel.forDocument(Document, Project, boolean).
+   * See also {@link com.intellij.openapi.editor.impl.DocumentMarkupModel.forDocument(Document, Project, boolean)}.
    *
    * @return the markup model instance.
    */
@@ -229,6 +229,8 @@ public interface Editor extends UserDataHolder {
    * <p>
    * It's assumed that original position is associated with character immediately preceding given offset, 
    * {@link VisualPosition#leansRight leansRight} value for visual position will be determined correspondingly.
+   * <p>
+   * If there's a soft wrap at given offset, visual position on a line following the wrap will be returned.
    *
    * @param offset the offset in the document.
    * @return the corresponding visual position.
@@ -238,18 +240,17 @@ public interface Editor extends UserDataHolder {
 
   /**
    * Maps an offset in the document to a visual position.
-   * <p>
-   * It's assumed that original position is associated with character immediately preceding given offset, 
-   * {@link VisualPosition#leansRight leansRight} value for visual position will be determined correspondingly.
    *
    * @param offset the offset in the document.
    * @param leanForward if <code>true</code>, original position is associated with character after given offset, if <code>false</code> - 
    *                    with character before given offset. This can make a difference in bidirectional text (see {@link LogicalPosition},
    *                    {@link VisualPosition})
+   * @param beforeSoftWrap if <code>true</code>, visual position at line preceeding the wrap will be returned, otherwise - visual position
+   *                       at line following the wrap.
    * @return the corresponding visual position.
    */
   @NotNull
-  VisualPosition offsetToVisualPosition(int offset, boolean leanForward);
+  VisualPosition offsetToVisualPosition(int offset, boolean leanForward, boolean beforeSoftWrap);
 
   /**
    * Maps the pixel coordinates in the editor to a logical position.

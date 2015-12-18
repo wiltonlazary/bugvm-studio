@@ -41,7 +41,6 @@ import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiManager;
-import com.intellij.psi.search.GlobalSearchScopes;
 import com.intellij.psi.search.GlobalSearchScopesCore;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
 import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
@@ -226,9 +225,10 @@ public class InspectionApplication {
             return;
           }
           inspectionContext.launchInspectionsOffline(scope, resultsDataPath, myRunGlobalToolsOnly, inspectionsResults);
-          logMessageLn(1, "\n" +
-                          InspectionsBundle.message("inspection.capitalized.done") +
-                          "\n");
+          logMessageLn(1, "\n" + InspectionsBundle.message("inspection.capitalized.done") + "\n");
+          if (!myErrorCodeRequired) {
+            closeProject();
+          }
         }
       }, new ProgressIndicatorBase() {
         private String lastPrefix = "";
@@ -303,7 +303,15 @@ public class InspectionApplication {
       System.exit(1);
     }
     else {
+      closeProject();
       throw new RuntimeException("Failed to proceed");
+    }
+  }
+
+  private void closeProject() {
+    if (myProject != null && !myProject.isDisposed()) {
+      ProjectUtil.closeAndDispose(myProject);
+      myProject = null;
     }
   }
 

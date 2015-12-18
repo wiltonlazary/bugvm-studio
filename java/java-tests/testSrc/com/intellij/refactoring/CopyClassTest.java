@@ -34,6 +34,7 @@ import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.util.IncorrectOperationException;
 
 import java.io.File;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 
@@ -52,6 +53,10 @@ public class CopyClassTest extends CodeInsightTestCase {
     doTest("Foo", "Bar");
   }
 
+  public void testRecursiveTypes() throws Exception {
+    doTest("Foo", "Bar");
+  }
+
   public void testLibraryClass() throws Exception {  // IDEADEV-28791
     JavaCodeStyleSettings javaSettings = getCurrentCodeStyleSettings().getCustomSettings(JavaCodeStyleSettings.class);
     javaSettings.CLASS_NAMES_IN_JAVADOC = JavaCodeStyleSettings.FULLY_QUALIFY_NAMES_ALWAYS;
@@ -64,7 +69,7 @@ public class CopyClassTest extends CodeInsightTestCase {
     PsiTestUtil.removeAllRoots(myModule, IdeaTestUtil.getMockJdk17("java 1.5"));
     myRootDir = PsiTestUtil.createTestProjectStructure(myProject, myModule, root, myFilesToDelete);
 
-    PsiElement element = performAction(oldName, copyName);
+    performAction(oldName, copyName);
 
     myProject.getComponent(PostprocessReformattingAspect.class).doPostponedFormatting();
     FileDocumentManager.getInstance().saveAllDocuments();
@@ -75,10 +80,10 @@ public class CopyClassTest extends CodeInsightTestCase {
     PlatformTestUtil.assertFilesEqual(fileExpected, fileAfter);
   }
 
-  private PsiElement performAction(final String oldName, final String copyName) throws IncorrectOperationException {
+  private void performAction(final String oldName, final String copyName) throws IncorrectOperationException {
     final PsiClass oldClass = JavaPsiFacade.getInstance(myProject).findClass(oldName, ProjectScope.getAllScope(myProject));
 
-    return WriteCommandAction.runWriteCommandAction(null, (Computable<PsiElement>)() -> CopyClassesHandler.doCopyClasses(
+    WriteCommandAction.runWriteCommandAction(null, (Computable<Collection<PsiFile>>)() -> CopyClassesHandler.doCopyClasses(
           Collections.singletonMap(oldClass.getNavigationElement().getContainingFile(), new PsiClass[]{oldClass}), copyName,
           myPsiManager.findDirectory(myRootDir),
           myProject));

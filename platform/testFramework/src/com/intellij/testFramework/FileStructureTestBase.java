@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,10 @@
  */
 package com.intellij.testFramework;
 
-import com.intellij.ide.actions.ViewStructureAction;
-import com.intellij.ide.util.FileStructurePopup;
-import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase;
-import com.intellij.ui.treeStructure.Tree;
-import com.intellij.ui.treeStructure.filtered.FilteringTreeBuilder;
-import com.intellij.ui.treeStructure.filtered.FilteringTreeStructure;
 import com.intellij.util.ui.tree.TreeUtil;
-import org.junit.Before;
 
 import javax.swing.tree.TreePath;
 
@@ -33,27 +26,26 @@ import javax.swing.tree.TreePath;
  * @author Konstantin Bulenkov
  */
 public abstract class FileStructureTestBase extends CodeInsightFixtureTestCase {
-  protected FileStructurePopup myPopup;
 
-  @Before
-  public void setUp() throws Exception {
+  protected FileStructureTestFixture myPopupFixture;
+
+  @Override
+  protected void setUp() throws Exception {
     super.setUp();
+    myPopupFixture = new FileStructureTestFixture(myFixture);
+    Disposer.register(getProject(), myPopupFixture);
+  }
+
+  protected void configureDefault() {
     myFixture.configureByFile(getFileName(getFileExtension()));
-    myPopup = ViewStructureAction.createPopup(
-      myFixture.getProject(),
-      TextEditorProvider.getInstance().getTextEditor(myFixture.getEditor()));
-    assert myPopup != null;
-    myPopup.createCenterPanel();
-    getBuilder().getUi().getUpdater().setPassThroughMode(true);
-    update();
   }
 
   protected abstract String getFileExtension();
 
   @Override
   public void tearDown() throws Exception {
-    Disposer.dispose(myPopup);
     super.tearDown();
+    myPopupFixture = null;
   }
 
   private String getFileName(String ext) {
@@ -65,63 +57,22 @@ public abstract class FileStructureTestBase extends CodeInsightFixtureTestCase {
   }
 
   protected void checkTree(String filter) {
-    myPopup.setSearchFilterForTests(filter);
-    getBuilder().refilter(null, false, true);
-    getBuilder().queueUpdate();
-    TreeUtil.selectPath(getTree(), (TreePath)getSpeedSearch().findElement(filter));
-    checkTree();
+    configureDefault();
+    myPopupFixture.update();
+    myPopupFixture.getPopup().setSearchFilterForTests(filter);
+    myPopupFixture.getBuilder().refilter(null, false, true);
+    myPopupFixture.getBuilder().queueUpdate();
+    TreeUtil.selectPath(myPopupFixture.getTree(), (TreePath)myPopupFixture.getSpeedSearch().findElement(filter));
+    checkResult();
   }
 
   protected void checkTree() {
-    assertSameLinesWithFile(getTestDataPath() + "/" + getTreeFileName(), PlatformTestUtil.print(getTree(), true).trim());
+    configureDefault();
+    myPopupFixture.update();
+    checkResult();
   }
 
-
-  public void update() {
-    myPopup.getTreeBuilder().refilter().doWhenProcessed(new Runnable() {
-      @Override
-      public void run() {
-        getStructure().rebuild();
-        updateTree();
-        getBuilder().updateFromRoot();
-        TreeUtil.expandAll(getTree());
-        final FilteringTreeStructure.FilteringNode node = myPopup.selectPsiElement(myPopup.getCurrentElement(getFile()));
-        getBuilder().getUi().select(node, null);
-      }
-    });
-  }
-
-  protected Tree getTree() {
-    return myPopup.getTree();
-  }
-
-  protected FilteringTreeBuilder getBuilder() {
-    return myPopup.getTreeBuilder();
-  }
-
-  protected FileStructurePopup.MyTreeSpeedSearch getSpeedSearch() {
-    return (FileStructurePopup.MyTreeSpeedSearch)myPopup.getSpeedSearch();
-  }
-
-
-  protected void updateTree() {
-    updateRecursively(getRootNode());
-  }
-
-  protected FilteringTreeStructure getStructure() {
-    final FilteringTreeStructure structure = (FilteringTreeStructure)getBuilder().getTreeStructure();
-    assert structure != null;
-    return structure;
-  }
-
-  protected FilteringTreeStructure.FilteringNode getRootNode() {
-    return getStructure().getRootElement();
-  }
-
-  protected void updateRecursively(final FilteringTreeStructure.FilteringNode node) {
-    node.update();
-    for (FilteringTreeStructure.FilteringNode child : node.children()) {
-      updateRecursively(child);
-    }
+  protected void checkResult() {
+    assertSameLinesWithFile(getTestDataPath() + "/" + getTreeFileName(), PlatformTestUtil.print(myPopupFixture.getTree(), true).trim());
   }
 }

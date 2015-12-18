@@ -15,6 +15,7 @@
  */
 package org.jetbrains.settingsRepository
 
+import com.intellij.configurationStore.ComponentStoreImpl
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.notification.NotificationsAdapter
@@ -23,6 +24,7 @@ import com.intellij.openapi.application.ApplicationAdapter
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.impl.ApplicationImpl
+import com.intellij.openapi.components.stateStore
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
@@ -32,20 +34,20 @@ import com.intellij.openapi.vcs.VcsNotifier
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier
 import java.util.concurrent.Future
 
-class AutoSyncManager(private val icsManager: IcsManager) {
-  private volatile var autoSyncFuture: Future<*>? = null
+internal class AutoSyncManager(private val icsManager: IcsManager) {
+  private @Volatile var autoSyncFuture: Future<*>? = null
 
   fun waitAutoSync(indicator: ProgressIndicator) {
     val autoFuture = autoSyncFuture
     if (autoFuture != null) {
-      if (autoFuture.isDone()) {
+      if (autoFuture.isDone) {
         autoSyncFuture = null
       }
       else if (autoSyncFuture != null) {
         LOG.info("Wait for auto sync future")
-        indicator.setText("Wait for auto sync completion")
-        while (!autoFuture.isDone()) {
-          if (indicator.isCanceled()) {
+        indicator.text = "Wait for auto sync completion"
+        while (!autoFuture.isDone) {
+          if (indicator.isCanceled) {
             return
           }
           Thread.sleep(5)
@@ -63,21 +65,21 @@ class AutoSyncManager(private val icsManager: IcsManager) {
   }
 
   fun registerListeners(project: Project) {
-    project.getMessageBus().connect().subscribe(Notifications.TOPIC, object : NotificationsAdapter() {
+    project.messageBus.connect().subscribe(Notifications.TOPIC, object : NotificationsAdapter() {
       override fun notify(notification: Notification) {
-        if (!icsManager.repositoryActive || project.isDisposed()) {
+        if (!icsManager.repositoryActive || project.isDisposed) {
           return
         }
 
         if (when {
-          notification.getGroupId() == VcsBalloonProblemNotifier.NOTIFICATION_GROUP.getDisplayId() -> {
-            val message = notification.getContent()
+          notification.groupId == VcsBalloonProblemNotifier.NOTIFICATION_GROUP.displayId -> {
+            val message = notification.content
             message.startsWith("VCS Update Finished") ||
               message == VcsBundle.message("message.text.file.is.up.to.date") ||
               message == VcsBundle.message("message.text.all.files.are.up.to.date")
           }
 
-          notification.getGroupId() == VcsNotifier.NOTIFICATION_GROUP_ID.getDisplayId() && notification.getTitle() == "Push successful" -> true
+          notification.groupId == VcsNotifier.NOTIFICATION_GROUP_ID.displayId && notification.title == "Push successful" -> true
 
           else -> false
         }) {
@@ -87,13 +89,13 @@ class AutoSyncManager(private val icsManager: IcsManager) {
     })
   }
 
-  fun autoSync(onAppExit: Boolean = false) {
-    if (!icsManager.repositoryActive) {
+  fun autoSync(onAppExit: Boolean = false, force: Boolean = false) {
+    if (!icsManager.repositoryActive || (!force && !icsManager.settings.autoSync)) {
       return
     }
 
     var future = autoSyncFuture
-    if (future != null && !future.isDone()) {
+    if (future != null && !future.isDone) {
       return
     }
 
@@ -103,7 +105,7 @@ class AutoSyncManager(private val icsManager: IcsManager) {
       sync(app, onAppExit)
       return
     }
-    else if (app.isDisposeInProgress()) {
+    else if (app.isDisposeInProgress) {
       // will be handled by applicationExiting listener
       return
     }
@@ -143,7 +145,7 @@ class AutoSyncManager(private val icsManager: IcsManager) {
         app.invokeAndWait({
           catchAndLog {
             val updateResult = updater.merge()
-            if (!onAppExit && !app.isDisposeInProgress() && updateResult != null && updateStoragesFromStreamProvider(app.getStateStore(), updateResult)) {
+            if (!onAppExit && !app.isDisposeInProgress && updateResult != null && updateStoragesFromStreamProvider(app.stateStore as ComponentStoreImpl, updateResult, app.messageBus)) {
               // force to avoid saveAll & confirmation
               app.exit(true, true, true, true)
             }
@@ -158,7 +160,7 @@ class AutoSyncManager(private val icsManager: IcsManager) {
   }
 }
 
-inline fun catchAndLog(runnable: () -> Unit) {
+inline internal fun catchAndLog(runnable: () -> Unit) {
   try {
     runnable()
   }

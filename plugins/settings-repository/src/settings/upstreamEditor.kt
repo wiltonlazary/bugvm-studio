@@ -1,3 +1,18 @@
+/*
+ * Copyright 2000-2015 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.jetbrains.settingsRepository
 
 import com.intellij.notification.NotificationType
@@ -17,14 +32,14 @@ import javax.swing.Action
 fun updateSyncButtonState(url: String?, syncActions: Array<Action>) {
   val enabled: Boolean
   try {
-    enabled = url != null && url.length() > 1 && icsManager.repositoryService.checkUrl(url, null);
+    enabled = url != null && url.length > 1 && icsManager.repositoryService.checkUrl(url, null);
   }
-  catch (e: Exception) {
+  catch (e: Throwable) {
     enabled = false;
   }
 
   for (syncAction in syncActions) {
-    syncAction.setEnabled(enabled);
+    syncAction.isEnabled = enabled;
   }
 }
 
@@ -38,9 +53,9 @@ fun createMergeActions(project: Project?, urlTextField: TextFieldWithBrowseButto
 
   return Array(3) {
     val syncType = syncTypes[it]
-    object : AbstractAction(IcsBundle.message("action." + (if (syncType == SyncType.MERGE) "Merge" else (if (syncType == SyncType.OVERWRITE_LOCAL) "ResetToTheirs" else "ResetToMy")) + "Settings.text")) {
-      fun saveRemoteRepositoryUrl(): Boolean {
-        val url = StringUtil.nullize(urlTextField.getText())
+    object : AbstractAction(icsMessage("action.${if (syncType == SyncType.MERGE) "Merge" else (if (syncType == SyncType.OVERWRITE_LOCAL) "ResetToTheirs" else "ResetToMy")}Settings.text")) {
+      private fun saveRemoteRepositoryUrl(): Boolean {
+        val url = StringUtil.nullize(urlTextField.text)
         if (url != null && !icsManager.repositoryService.checkUrl(url, dialogParent)) {
           return false
         }
@@ -82,16 +97,16 @@ fun createMergeActions(project: Project?, urlTextField: TextFieldWithBrowseButto
           LOG.warn(e)
 
           if (!upstreamSet || e is NoRemoteRepositoryException) {
-            Messages.showErrorDialog(dialogParent, IcsBundle.message("set.upstream.failed.message", e.getMessage()), IcsBundle.message("set.upstream.failed.title"))
+            Messages.showErrorDialog(dialogParent, icsMessage("set.upstream.failed.message", e.getMessage()), icsMessage("set.upstream.failed.title"))
           }
           else {
-            Messages.showErrorDialog(dialogParent, StringUtil.notNullize(e.getMessage(), "Internal error"), IcsBundle.message(if (e is AuthenticationException) "sync.not.authorized.title" else "sync.rejected.title"))
+            Messages.showErrorDialog(dialogParent, StringUtil.notNullize(e.getMessage(), "Internal error"), icsMessage(if (e is AuthenticationException) "sync.not.authorized.title" else "sync.rejected.title"))
           }
           return
         }
 
 
-        NOTIFICATION_GROUP.createNotification(IcsBundle.message("sync.done.message"), NotificationType.INFORMATION).notify(project)
+        NOTIFICATION_GROUP.createNotification(icsMessage("sync.done.message"), NotificationType.INFORMATION).notify(project)
         okAction()
       }
     }

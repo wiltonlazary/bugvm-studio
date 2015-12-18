@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,6 @@ import com.intellij.icons.AllIcons;
 import com.intellij.ide.SelectInTarget;
 import com.intellij.ide.projectView.ProjectView;
 import com.intellij.ide.projectView.impl.AbstractProjectViewPane;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
-import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ActionCallback;
@@ -41,13 +38,12 @@ import javax.swing.*;
 public class FavoritesProjectViewPane extends AbstractProjectViewPane {
   @NonNls public static final String ID = "Favorites";
   private FavoritesTreeViewPanel myViewPanel;
-  private final ProjectView myProjectView;
   private final FavoritesManager myFavoritesManager;
-  private static final Logger LOG = Logger.getInstance("#" + FavoritesProjectViewPane.class.getName());
+  private static final Logger LOG = Logger.getInstance(FavoritesProjectViewPane.class);
 
-  protected FavoritesProjectViewPane(final Project project, ProjectView projectView, FavoritesManager favoritesManager) {
+  protected FavoritesProjectViewPane(@NotNull Project project, @NotNull FavoritesManager favoritesManager) {
     super(project);
-    myProjectView = projectView;
+
     myFavoritesManager = favoritesManager;
     FavoritesListener favoritesListener = new FavoritesListener() {
       private boolean enabled = true;
@@ -68,19 +64,22 @@ public class FavoritesProjectViewPane extends AbstractProjectViewPane {
       }
 
       private void refreshMySubIdsAndSelect(String listName) {
-        if (enabled) {
-          try {
-            enabled = false;
-            myProjectView.removeProjectPane(FavoritesProjectViewPane.this);
-            myProjectView.addProjectPane(FavoritesProjectViewPane.this);
-            if (!myFavoritesManager.getAvailableFavoritesListNames().contains(listName)) {
-              listName = null;
-            }
-            myProjectView.changeView(ID, listName);
+        if (!enabled) {
+          return;
+        }
+
+        try {
+          enabled = false;
+          ProjectView projectView = ProjectView.getInstance(myProject);
+          projectView.removeProjectPane(FavoritesProjectViewPane.this);
+          projectView.addProjectPane(FavoritesProjectViewPane.this);
+          if (!myFavoritesManager.getAvailableFavoritesListNames().contains(listName)) {
+            listName = null;
           }
-          finally {
-            enabled = true;
-          }
+          projectView.changeView(ID, listName);
+        }
+        finally {
+          enabled = true;
         }
       }
     };
@@ -176,10 +175,5 @@ public class FavoritesProjectViewPane extends AbstractProjectViewPane {
   @Override
   public SelectInTarget createSelectInTarget() {
     return new FavoritesViewSelectInTarget(myProject);
-  }
-
-  @Override
-  public void addToolbarActions(final DefaultActionGroup group) {
-    group.add(ActionManager.getInstance().getAction(IdeActions.RENAME_FAVORITES_LIST));
   }
 }

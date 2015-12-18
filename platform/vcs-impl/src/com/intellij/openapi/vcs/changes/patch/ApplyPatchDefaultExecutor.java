@@ -15,10 +15,7 @@
  */
 package com.intellij.openapi.vcs.changes.patch;
 
-import com.intellij.openapi.diff.impl.patch.BinaryFilePatch;
-import com.intellij.openapi.diff.impl.patch.FilePatch;
-import com.intellij.openapi.diff.impl.patch.PatchEP;
-import com.intellij.openapi.diff.impl.patch.PatchSyntaxException;
+import com.intellij.openapi.diff.impl.patch.*;
 import com.intellij.openapi.diff.impl.patch.formove.PatchApplier;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
@@ -33,6 +30,7 @@ import com.intellij.util.Consumer;
 import com.intellij.util.containers.Convertor;
 import com.intellij.util.containers.HashSet;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.CalledInAwt;
 
 import java.util.Collection;
 import java.util.LinkedList;
@@ -52,6 +50,7 @@ public class ApplyPatchDefaultExecutor implements ApplyPatchExecutor<AbstractFil
     return null;
   }
 
+  @CalledInAwt
   @Override
   public void apply(MultiMap<VirtualFile, AbstractFilePatchInProgress> patchGroups,
                     LocalChangeList localList,
@@ -71,9 +70,9 @@ public class ApplyPatchDefaultExecutor implements ApplyPatchExecutor<AbstractFil
                                                                                   }), localList, null, commitContext);
       appliers.add(patchApplier);
     }
-    PatchApplier.executePatchGroup(appliers, localList);
-
-    applyAdditionalInfo(myProject, additionalInfo, commitContext);
+    if (PatchApplier.executePatchGroup(appliers, localList) != ApplyPatchStatus.ABORT) {
+      applyAdditionalInfo(myProject, additionalInfo, commitContext);
+    }
   }
 
   public static void applyAdditionalInfoBefore(final Project project,

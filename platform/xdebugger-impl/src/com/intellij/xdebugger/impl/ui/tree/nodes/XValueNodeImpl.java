@@ -18,6 +18,7 @@ package com.intellij.xdebugger.impl.ui.tree.nodes;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -122,7 +123,9 @@ public class XValueNodeImpl extends XValueContainerNode<XValue> implements XValu
   public void applyPresentation(@Nullable Icon icon, @NotNull XValuePresentation valuePresentation, boolean hasChildren) {
     // extra check for obsolete nodes - tree root was changed
     // too dangerous to put this into isObsolete - it is called from anywhere, not only EDT
-    if (isObsolete() || !TreeUtil.isAncestor(getTree().getRoot(), this)) return;
+    if (isObsolete()) return;
+    XDebuggerTreeNode root = getTree().getRoot();
+    if (root != null && !TreeUtil.isAncestor(root, this)) return;
 
     setIcon(icon);
     myValuePresentation = valuePresentation;
@@ -149,6 +152,10 @@ public class XValueNodeImpl extends XValueContainerNode<XValue> implements XValu
         public void computed(XSourcePosition position) {
           if (position == null) return;
           VirtualFile file = position.getFile();
+          // filter out values from other files
+          if (!Comparing.equal(debuggerPosition.getFile(), file)) {
+            return;
+          }
           final Document document = FileDocumentManager.getInstance().getDocument(file);
           if (document == null) return;
 

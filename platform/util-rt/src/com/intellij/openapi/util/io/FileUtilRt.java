@@ -32,7 +32,9 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Stripped-down version of {@code com.intellij.openapi.util.io.FileUtil}.
@@ -95,9 +97,7 @@ public class FileUtilRt {
         ourPathToFileMethod = pathClass.getMethod("toFile");
         ourFilesWalkMethod = filesClass.getMethod("walkFileTree", pathClass, visitorClass);
         ourFilesDeleteIfExistsMethod = filesClass.getMethod("deleteIfExists", pathClass);
-        final Class<?> fileVisitResultClass = Class.forName("java.nio.file.FileVisitResult");
-        final Object Result_Continue = fileVisitResultClass.getDeclaredField("CONTINUE").get(null);
-        final Object Result_Terminate = fileVisitResultClass.getDeclaredField("TERMINATE").get(null);
+        final Object Result_Continue = Class.forName("java.nio.file.FileVisitResult").getDeclaredField("CONTINUE").get(null);
         ourDeletionVisitor = Proxy.newProxyInstance(FileUtilRt.class.getClassLoader(), new Class[]{visitorClass}, new InvocationHandler() {
           @Override
           public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
@@ -109,7 +109,13 @@ public class FileUtilRt {
               final String methodName = method.getName();
               if ("visitFile".equals(methodName) || "postVisitDirectory".equals(methodName)) {
                 if (!performDelete(args[0])) {
-                  return Result_Terminate;
+                  throw new IOException("Failed to delete " + args[0]) {
+                    // optimization: the stacktrace is not needed: the exception is used to terminate tree walkup and to pass the result
+                    @Override
+                    public synchronized Throwable fillInStackTrace() {
+                      return this;
+                    }
+                  };
                 }
               }
             }
@@ -298,12 +304,33 @@ public class FileUtilRt {
                                          boolean deleteOnExit) throws IOException {
     File file = doCreateTempFile(dir, prefix, suffix, true);
     if (deleteOnExit) {
-      file.deleteOnExit();
+      //file.deleteOnExit();
+      // default deleteOnExit does not remove dirs if they are not empty
+      FilesToDeleteHolder.ourFilesToDelete.add(file.getPath());
     }
     if (!file.isDirectory()) {
       throw new IOException("Cannot create directory: " + file);
     }
     return file;
+  }
+
+  private static class FilesToDeleteHolder {
+    public static final Queue<String> ourFilesToDelete = createFilesToDelete();
+
+    private static Queue<String> createFilesToDelete() {
+      final ConcurrentLinkedQueue<String> queue = new ConcurrentLinkedQueue<String>();
+      Runtime.getRuntime().addShutdownHook(new Thread("FileUtil deleteOnExit") {
+        @Override
+        public void run() {
+          String name = queue.poll();
+          while (name != null) {
+            delete(new File(name));
+            name = queue.poll();
+          }
+        }
+      });
+      return queue;
+    }
   }
 
   @NotNull
@@ -337,6 +364,7 @@ public class FileUtilRt {
                                     boolean create, boolean deleteOnExit) throws IOException {
     File file = doCreateTempFile(dir, prefix, suffix, false);
     if (deleteOnExit) {
+      //noinspection SSBasedInspection
       file.deleteOnExit();
     }
     if (!create) {
@@ -365,7 +393,8 @@ public class FileUtilRt {
     int exceptionsCount = 0;
     while (true) {
       try {
-        final File temp = createTemp(prefix, suffix, dir, isDirectory);
+        // If there was an IOException, there's no reason to do sequential search - fallback to random
+        final File temp = createTemp(prefix, suffix, dir, isDirectory, exceptionsCount > 0);
         return normalizeFile(temp);
       }
       catch (IOException e) { // Win32 createFileExclusively access denied
@@ -377,7 +406,23 @@ public class FileUtilRt {
   }
 
   @NotNull
-  private static File createTemp(@NotNull String prefix, @NotNull String suffix, @NotNull File directory, boolean isDirectory) throws IOException {
+  private static File createTemp(@NotNull String prefix,
+                                 @NotNull String suffix,
+                                 @NotNull File directory,
+                                 boolean isDirectory,
+                                 boolean randomName) throws IOException {
+    // Fallback to the original File.createTempFile
+    if (randomName) {
+      @SuppressWarnings("SSBasedInspection")
+      File res = File.createTempFile(prefix, suffix, directory);
+      if (isDirectory) {
+        if (!res.delete() || !res.mkdir()) {
+          throw new IOException("Cannot create directory: " + res);
+        }
+      }
+      return res;
+    }
+
     // normalize and use only the file name from the prefix
     prefix = new File(prefix).getName();
 
@@ -576,13 +621,7 @@ public class FileUtilRt {
   @NotNull
   public static byte[] loadBytes(@NotNull InputStream stream) throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    final byte[] bytes = BUFFER.get();
-    while (true) {
-      int n = stream.read(bytes, 0, bytes.length);
-      if (n <= 0) break;
-      buffer.write(bytes, 0, n);
-    }
-    buffer.close();
+    copy(stream, buffer);
     return buffer.toByteArray();
   }
 
@@ -637,7 +676,7 @@ public class FileUtilRt {
   /**
    * Warning! this method is _not_ symlinks-aware. Consider using com.intellij.openapi.util.io.FileUtil.delete()
    * @param file file or directory to delete
-   * @return true if the file did not exist or was successfully deleted 
+   * @return true if the file did not exist or was successfully deleted
    */
   public static boolean delete(@NotNull File file) {
     if (NIOReflect.IS_AVAILABLE) {
@@ -655,7 +694,7 @@ public class FileUtilRt {
           Files.deleteIfExists(file);
           return FileVisitResult.CONTINUE;
         }
-      
+
         @Override
         public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
           Files.deleteIfExists(dir);
@@ -679,7 +718,7 @@ public class FileUtilRt {
     }
     return true;
   }
-  
+
   private static boolean deleteRecursively(@NotNull File file) {
     File[] files = file.listFiles();
     if (files != null) {
@@ -756,6 +795,7 @@ public class FileUtilRt {
     return path.isDirectory() || path.mkdirs();
   }
 
+  @SuppressWarnings("Duplicates")
   public static void copy(@NotNull File fromFile, @NotNull File toFile) throws IOException {
     if (!ensureCanCreateFile(toFile)) {
       return;
@@ -801,7 +841,7 @@ public class FileUtilRt {
       }
     }
     else {
-      final byte[] buffer = BUFFER.get();
+      final byte[] buffer = getThreadLocalBuffer();
       while (true) {
         int read = inputStream.read(buffer);
         if (read < 0) break;
@@ -809,6 +849,12 @@ public class FileUtilRt {
       }
     }
   }
+
+  @NotNull
+  public static byte[] getThreadLocalBuffer() {
+    return BUFFER.get();
+  }
+
 
   public static int getUserFileSizeLimit() {
     try {

@@ -19,7 +19,6 @@ import com.intellij.codeInsight.completion.CompletionUtil;
 import com.intellij.lang.ASTNode;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
@@ -39,8 +38,9 @@ import com.jetbrains.python.PythonDialectsTokenSetProvider;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
-import com.jetbrains.python.documentation.DocStringUtil;
+import com.jetbrains.python.documentation.docstrings.DocStringUtil;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.stubs.PyClassElementType;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
 import com.jetbrains.python.psi.resolve.PyResolveUtil;
 import com.jetbrains.python.psi.resolve.QualifiedNameFinder;
@@ -72,23 +72,27 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
 
   public static final PyClass[] EMPTY_ARRAY = new PyClassImpl[0];
 
-  private List<PyTargetExpression> myInstanceAttributes;
-  private final NotNullLazyValue<CachedValue<Boolean>> myNewStyle = new NotNullLazyValue<CachedValue<Boolean>>() {
-    @NotNull
-    @Override
-    protected CachedValue<Boolean> compute() {
-      return CachedValuesManager.getManager(getProject()).createCachedValue(new NewStyleCachedValueProvider(), false);
-    }
-  };
+  /**
+   * Ancestors cache is lazy because provider ({@link PyClassImpl.CachedAncestorsProvider}) needs
+   * {@link #getProject()} which is not available during constructor time.
+   */
+  private TypeEvalContextBasedCache<List<PyClassLikeType>> myAncestorsCache;
 
-  private volatile Map<String, Property> myPropertyCache;
+  /**
+   * Lock to create {@link #myAncestorsCache} in lazy way.
+   */
+  @NotNull
+  private final Object myAncestorsCacheLock = new Object();
 
-  private class CachedAncestorsProvider implements ParameterizedCachedValueProvider<List<PyClassLikeType>, TypeEvalContext> {
+  /**
+   * Engine to create list of ancestors based on context
+   */
+  private class CachedAncestorsProvider implements Function<TypeEvalContext, List<PyClassLikeType>> {
     @Nullable
     @Override
-    public CachedValueProvider.Result<List<PyClassLikeType>> compute(@NotNull TypeEvalContext context) {
+    public List<PyClassLikeType> fun(@NotNull TypeEvalContext context) {
       List<PyClassLikeType> ancestorTypes;
-      if (isNewStyleClass()) {
+      if (isNewStyleClass(context)) {
         try {
           ancestorTypes = getMROAncestorTypes(context);
         }
@@ -109,22 +113,25 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
       else {
         ancestorTypes = getOldStyleAncestorTypes(context);
       }
-      return CachedValueProvider.Result.create(ancestorTypes, PsiModificationTracker.MODIFICATION_COUNT);
+      return ancestorTypes;
     }
   }
 
-  private final Key<ParameterizedCachedValue<List<PyClassLikeType>, TypeEvalContext>> myCachedValueKey = Key.create("cached ancestors");
-  private final CachedAncestorsProvider myCachedAncestorsProvider = new CachedAncestorsProvider();
+  private List<PyTargetExpression> myInstanceAttributes;
+
+  private volatile Map<String, Property> myPropertyCache;
 
   @Override
   public PyType getType(@NotNull TypeEvalContext context, @NotNull TypeEvalContext.Key key) {
     return new PyClassTypeImpl(this, true);
   }
 
-  private class NewStyleCachedValueProvider implements CachedValueProvider<Boolean> {
+  private class NewStyleCachedValueProvider implements ParameterizedCachedValueProvider<Boolean, TypeEvalContext> {
+
+    @Nullable
     @Override
-    public Result<Boolean> compute() {
-      return new Result<Boolean>(calculateNewStyleClass(), PsiModificationTracker.MODIFICATION_COUNT);
+    public CachedValueProvider.Result<Boolean> compute(TypeEvalContext param) {
+      return new CachedValueProvider.Result<Boolean>(calculateNewStyleClass(param), PsiModificationTracker.MODIFICATION_COUNT);
     }
   }
 
@@ -138,6 +145,25 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
 
   public PyClassImpl(@NotNull final PyClassStub stub, @NotNull IStubElementType nodeType) {
     super(stub, nodeType);
+  }
+
+  /**
+   * @return ancestors cache. It is created lazily if needed.
+   */
+  @NotNull
+  private TypeEvalContextBasedCache<List<PyClassLikeType>> getAncestorsCache() {
+    if (myAncestorsCache != null) {
+      return myAncestorsCache;
+    }
+    synchronized (myAncestorsCacheLock) {
+      if (myAncestorsCache == null) {
+        myAncestorsCache = new TypeEvalContextBasedCache<List<PyClassLikeType>>(
+          CachedValuesManager.getManager(getProject()),
+          new CachedAncestorsProvider()
+        );
+      }
+      return myAncestorsCache;
+    }
   }
 
   public PsiElement setName(@NotNull String name) throws IncorrectOperationException {
@@ -198,6 +224,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     return null;
   }
 
+  @Override
   @NotNull
   public PyExpression[] getSuperClassExpressions() {
     final PyArgumentList argList = getSuperClassExpressionList();
@@ -230,15 +257,10 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
 
   @NotNull
   @Override
-  public List<PyClass> getAncestorClasses() {
-    return getAncestorClasses(TypeEvalContext.codeInsightFallback(getProject()));
-  }
-
-  @NotNull
-  @Override
-  public List<PyClass> getAncestorClasses(@NotNull TypeEvalContext context) {
+  public final List<PyClass> getAncestorClasses(@Nullable final TypeEvalContext context) {
     final List<PyClass> results = new ArrayList<PyClass>();
-    for (PyClassLikeType type : getAncestorTypes(context)) {
+    final TypeEvalContext contextToUse = (context != null ? context : TypeEvalContext.codeInsightFallback(getProject()));
+    for (final PyClassLikeType type : getAncestorTypes(contextToUse)) {
       if (type instanceof PyClassType) {
         results.add(((PyClassType)type).getPyClass());
       }
@@ -246,22 +268,29 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     return results;
   }
 
-  public boolean isSubclass(PyClass parent) {
+  public boolean isSubclass(PyClass parent, @Nullable TypeEvalContext context) {
     if (this == parent) {
       return true;
     }
-    for (PyClass superclass : getAncestorClasses()) {
+    for (PyClass superclass : getAncestorClasses(context)) {
       if (parent == superclass) return true;
     }
     return false;
   }
 
+  public boolean isSubclass(PyClass parent) {
+    return isSubclass(parent, null);
+  }
+
   @Override
-  public boolean isSubclass(@NotNull String superClassQName) {
+  public boolean isSubclass(@NotNull String superClassQName, @Nullable TypeEvalContext context) {
+    if (context == null) {
+      context = TypeEvalContext.codeInsightFallback(getProject());
+    }
     if (superClassQName.equals(getQualifiedName())) {
       return true;
     }
-    for (PyClassLikeType type : getAncestorTypes(TypeEvalContext.codeInsightFallback(getProject()))) {
+    for (PyClassLikeType type : getAncestorTypes(context)) {
       if (type != null && superClassQName.equals(type.getClassQName())) {
         return true;
       }
@@ -279,7 +308,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
   }
 
   @Override
-  public List<String> getSlots() {
+  public List<String> getSlots(TypeEvalContext context) {
     final Set<String> result = new LinkedHashSet<String>();
     boolean found = false;
     final List<String> ownSlots = getOwnSlots();
@@ -287,7 +316,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
       found = true;
       result.addAll(ownSlots);
     }
-    for (PyClass cls : getAncestorClasses()) {
+    for (PyClass cls : getAncestorClasses(context)) {
       final List<String> ancestorSlots = cls.getOwnSlots();
       if (ancestorSlots != null) {
         found = true;
@@ -308,8 +337,11 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
   }
 
   @NotNull
-  public PyClass[] getSuperClasses() {
-    final List<PyClassLikeType> superTypes = getSuperClassTypes(TypeEvalContext.codeInsightFallback(getProject()));
+  public PyClass[] getSuperClasses(@Nullable TypeEvalContext context) {
+    if (context == null) {
+      context = TypeEvalContext.codeInsightFallback(getProject());
+    }
+    final List<PyClassLikeType> superTypes = getSuperClassTypes(context);
     if (superTypes.isEmpty()) {
       return EMPTY_ARRAY;
     }
@@ -442,32 +474,8 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
 
   @Override
   @NotNull
-  public PyFunction[] getMethods(final boolean inherited) {
-    final PyFunction[] thisClassFunctions =
-      getClassChildren(PythonDialectsTokenSetProvider.INSTANCE.getFunctionDeclarationTokens(), PyFunction.ARRAY_FACTORY);
-    if (!inherited) {
-      return thisClassFunctions;
-    }
-    // Map to get rid of duplicated (overwritten methods)
-    final Map<String, PyFunction> result = new HashMap<String, PyFunction>();
-    // We get classes in MRO order (hopefully), so last methods are last
-    for (final PyClass superClass : getSuperClasses()) {
-      for (final PyFunction function : superClass.getMethods(false)) {
-        final String functionName = function.getName();
-        if (functionName != null) {
-          result.put(functionName, function);
-        }
-      }
-    }
-    // We now need to add our own methods
-    for (final PyFunction function : thisClassFunctions) {
-      final String functionName = function.getName();
-      if (functionName != null) {
-        result.put(functionName, function);
-      }
-    }
-    final Collection<PyFunction> functionsToReturn = result.values();
-    return functionsToReturn.toArray(new PyFunction[functionsToReturn.size()]);
+  public PyFunction[] getMethods() {
+    return getClassChildren(PythonDialectsTokenSetProvider.INSTANCE.getFunctionDeclarationTokens(), PyFunction.ARRAY_FACTORY);
   }
 
   @Override
@@ -524,10 +532,11 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     }
   }
 
-  public PyFunction findMethodByName(@Nullable final String name, boolean inherited) {
+  @Override
+  public PyFunction findMethodByName(@Nullable final String name, boolean inherited, @Nullable TypeEvalContext context) {
     if (name == null) return null;
     NameFinder<PyFunction> proc = new NameFinder<PyFunction>(name);
-    visitMethods(proc, inherited);
+    visitMethods(proc, inherited, context);
     return proc.getResult();
   }
 
@@ -541,15 +550,15 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
   }
 
   @Nullable
-  public PyFunction findInitOrNew(boolean inherited) {
+  public PyFunction findInitOrNew(boolean inherited, final @Nullable TypeEvalContext context) {
     NameFinder<PyFunction> proc;
-    if (isNewStyleClass()) {
+    if (isNewStyleClass(context)) {
       proc = new NameFinder<PyFunction>(PyNames.INIT, PyNames.NEW);
     }
     else {
       proc = new NameFinder<PyFunction>(PyNames.INIT);
     }
-    visitMethods(proc, inherited, true);
+    visitMethods(proc, inherited, true, context);
     return proc.getResult();
   }
 
@@ -590,7 +599,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     // look at @property decorators
     Map<String, List<PyFunction>> grouped = new HashMap<String, List<PyFunction>>();
     // group suitable same-named methods, each group defines a property
-    for (PyFunction method : getMethods(false)) {
+    for (PyFunction method : getMethods()) {
       final String methodName = method.getName();
       if (name == null || name.equals(methodName)) {
         List<PyFunction> bucket = grouped.get(methodName);
@@ -651,7 +660,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
       if (value == null || PyNames.NONE.equals(value)) {
         return NONE;
       }
-      PyFunction method = findMethodByName(value, true);
+      PyFunction method = findMethodByName(value, true, null);
       if (method != null) return new Maybe<PyCallable>(method);
     }
     return UNKNOWN_CALL;
@@ -683,16 +692,16 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
 
   @Nullable
   @Override
-  public Property findProperty(@NotNull final String name, boolean inherited) {
+  public Property findProperty(@NotNull final String name, boolean inherited, @Nullable final TypeEvalContext context) {
     Property property = findLocalProperty(name);
     if (property != null) {
       return property;
     }
-    if (findMethodByName(name, false) != null || findClassAttribute(name, false) != null) {
+    if (findMethodByName(name, false, null) != null || findClassAttribute(name, false, null) != null) {
       return null;
     }
     if (inherited) {
-      for (PyClass aClass : getAncestorClasses()) {
+      for (PyClass aClass : getAncestorClasses(context)) {
         final Property ancestorProperty = ((PyClassImpl)aClass).findLocalProperty(name);
         if (ancestorProperty != null) {
           return ancestorProperty;
@@ -761,10 +770,10 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
       return local;
     }
     if (inherited) {
-      if (name != null && (findMethodByName(name, false) != null || findClassAttribute(name, false) != null)) {
+      if (name != null && (findMethodByName(name, false, null) != null || findClassAttribute(name, false, null) != null)) {
         return null;
       }
-      for (PyClass cls : getAncestorClasses()) {
+      for (PyClass cls : getAncestorClasses(null)) {
         final Property property = ((PyClassImpl)cls).processPropertiesInClass(name, filter, useAdvancedSyntax);
         if (property != null) {
           return property;
@@ -895,21 +904,21 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     }
   }
 
-  public boolean visitMethods(Processor<PyFunction> processor, boolean inherited) {
-    return visitMethods(processor, inherited, false);
+  public boolean visitMethods(Processor<PyFunction> processor, boolean inherited, @Nullable final TypeEvalContext context) {
+    return visitMethods(processor, inherited, false, context);
   }
 
-  public boolean visitMethods(Processor<PyFunction> processor,
+  private boolean visitMethods(Processor<PyFunction> processor,
                               boolean inherited,
-                              boolean skipClassObj) {
-    PyFunction[] methods = getMethods(false);
+                              boolean skipClassObj, TypeEvalContext context) {
+    PyFunction[] methods = getMethods();
     if (!ContainerUtil.process(methods, processor)) return false;
     if (inherited) {
-      for (PyClass ancestor : getAncestorClasses()) {
+      for (PyClass ancestor : getAncestorClasses(context)) {
         if (skipClassObj && PyNames.FAKE_OLD_BASE.equals(ancestor.getName())) {
           continue;
         }
-        if (!ancestor.visitMethods(processor, false)) {
+        if (!ancestor.visitMethods(processor, false, null)) {
           return false;
         }
       }
@@ -921,7 +930,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     PyClass[] nestedClasses = getNestedClasses();
     if (!ContainerUtil.process(nestedClasses, processor)) return false;
     if (inherited) {
-      for (PyClass ancestor : getAncestorClasses()) {
+      for (PyClass ancestor : getAncestorClasses(null)) {
         if (!((PyClassImpl)ancestor).visitNestedClasses(processor, false)) {
           return false;
         }
@@ -930,18 +939,26 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     return true;
   }
 
-  public boolean visitClassAttributes(Processor<PyTargetExpression> processor, boolean inherited) {
+  public boolean visitClassAttributes(Processor<PyTargetExpression> processor, boolean inherited, @Nullable final TypeEvalContext context) {
     List<PyTargetExpression> methods = getClassAttributes();
     if (!ContainerUtil.process(methods, processor)) return false;
     if (inherited) {
-      for (PyClass ancestor : getAncestorClasses()) {
-        if (!ancestor.visitClassAttributes(processor, false)) {
+      for (PyClass ancestor : getAncestorClasses(context)) {
+        if (!ancestor.visitClassAttributes(processor, false, context)) {
           return false;
         }
       }
     }
     return true;
     // NOTE: sorry, not enough metaprogramming to generalize visitMethods and visitClassAttributes
+  }
+
+  @NotNull
+  @Override
+  public final List<PyTargetExpression> getClassAttributesInherited(@NotNull final TypeEvalContext context) {
+    final MyAttributesCollector attributesCollector = new MyAttributesCollector();
+    visitClassAttributes(attributesCollector, true, context);
+    return attributesCollector.getAttributes();
   }
 
   public List<PyTargetExpression> getClassAttributes() {
@@ -966,9 +983,9 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
   }
 
   @Override
-  public PyTargetExpression findClassAttribute(@NotNull String name, boolean inherited) {
+  public PyTargetExpression findClassAttribute(@NotNull String name, boolean inherited, TypeEvalContext context) {
     final NameFinder<PyTargetExpression> processor = new NameFinder<PyTargetExpression>(name);
-    visitClassAttributes(processor, inherited);
+    visitClassAttributes(processor, inherited, context);
     return processor.getResult();
   }
 
@@ -989,7 +1006,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
       }
     }
     if (inherited) {
-      for (PyClass ancestor : getAncestorClasses()) {
+      for (PyClass ancestor : getAncestorClasses(null)) {
         final PyTargetExpression attribute = ancestor.findInstanceAttribute(name, false);
         if (attribute != null) {
           return attribute;
@@ -1003,12 +1020,12 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     Map<String, PyTargetExpression> result = new HashMap<String, PyTargetExpression>();
 
     collectAttributesInNew(result);
-    PyFunctionImpl initMethod = (PyFunctionImpl)findMethodByName(PyNames.INIT, false);
+    PyFunctionImpl initMethod = (PyFunctionImpl)findMethodByName(PyNames.INIT, false, null);
     if (initMethod != null) {
       collectInstanceAttributes(initMethod, result);
     }
     Set<String> namesInInit = new HashSet<String>(result.keySet());
-    final PyFunction[] methods = getMethods(false);
+    final PyFunction[] methods = getMethods();
     for (PyFunction method : methods) {
       if (!PyNames.INIT.equals(method.getName())) {
         collectInstanceAttributes(method, result, namesInInit);
@@ -1020,7 +1037,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
   }
 
   private void collectAttributesInNew(@NotNull final Map<String, PyTargetExpression> result) {
-    final PyFunction newMethod = findMethodByName(PyNames.NEW, false);
+    final PyFunction newMethod = findMethodByName(PyNames.NEW, false, null);
     if (newMethod != null) {
       for (PyTargetExpression target : getTargetExpressions(newMethod)) {
         result.put(target.getName(), target);
@@ -1072,11 +1089,17 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     }
   }
 
-  public boolean isNewStyleClass() {
-    return myNewStyle.getValue().getValue();
+  public boolean isNewStyleClass(@Nullable TypeEvalContext context) {
+    return new NotNullLazyValue<ParameterizedCachedValue<Boolean, TypeEvalContext>>() {
+      @NotNull
+      @Override
+      protected ParameterizedCachedValue<Boolean, TypeEvalContext> compute() {
+        return CachedValuesManager.getManager(getProject()).createParameterizedCachedValue(new NewStyleCachedValueProvider(), false);
+      }
+    }.getValue().getValue(context);
   }
 
-  private boolean calculateNewStyleClass() {
+  private boolean calculateNewStyleClass(@Nullable TypeEvalContext context) {
     final PsiFile containingFile = getContainingFile();
     if (containingFile instanceof PyFile && ((PyFile)containingFile).getLanguageLevel().isPy3K()) {
       return true;
@@ -1084,7 +1107,8 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     final PyClass objClass = PyBuiltinCache.getInstance(this).getClass("object");
     if (this == objClass) return true; // a rare but possible case
     if (hasNewStyleMetaClass(this)) return true;
-    for (PyClassLikeType type : getOldStyleAncestorTypes(TypeEvalContext.codeInsightFallback(getProject()))) {
+    TypeEvalContext contextToUse = (context != null ? context : TypeEvalContext.codeInsightFallback(getProject()));
+    for (PyClassLikeType type : getOldStyleAncestorTypes(contextToUse)) {
       if (type == null) {
         // unknown, assume new-style class
         return true;
@@ -1110,7 +1134,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
         }
       }
     }
-    if (pyClass.findClassAttribute(PyNames.DUNDER_METACLASS, false) != null) {
+    if (pyClass.findClassAttribute(PyNames.DUNDER_METACLASS, false, null) != null) {
       return true;
     }
     return false;
@@ -1217,47 +1241,21 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
 
   @NotNull
   @Override
-  public List<PyClassLikeType> getSuperClassTypes(@NotNull TypeEvalContext context) {
+  public List<PyClassLikeType> getSuperClassTypes(@NotNull final TypeEvalContext context) {
     if (PyNames.FAKE_OLD_BASE.equals(getName())) {
       return Collections.emptyList();
     }
     final PyClassStub stub = getStub();
     final List<PyClassLikeType> result = new ArrayList<PyClassLikeType>();
-    if (stub != null) {
-      final PsiFile file = getContainingFile();
-      if (file instanceof PyFile) {
-        for (QualifiedName name : stub.getSuperClasses()) {
-          result.add(name != null ? classTypeFromQName(name, (PyFile)file, context) : null);
-        }
-      }
+
+    // In some cases stub may not provide all information, so we use stubs only if AST access id disabled
+    if (!context.maySwitchToAST(this)) {
+      fillSuperClassesNoSwitchToAst(context, stub, result);
     }
     else {
-      for (PyExpression expression : getSuperClassExpressions()) {
-        context.getType(expression);
-        expression = unfoldClass(expression);
-        if (expression instanceof PyKeywordArgument) {
-          continue;
-        }
-        final PyType type = context.getType(expression);
-        PyClassLikeType classLikeType = null;
-        if (type instanceof PyClassLikeType) {
-          classLikeType = (PyClassLikeType)type;
-        }
-        else {
-          final PsiReference ref = expression.getReference();
-          if (ref != null) {
-            final PsiElement resolved = ref.resolve();
-            if (resolved instanceof PyClass) {
-              final PyType resolvedType = context.getType((PyClass)resolved);
-              if (resolvedType instanceof PyClassLikeType) {
-                classLikeType = (PyClassLikeType)resolvedType;
-              }
-            }
-          }
-        }
-        result.add(classLikeType);
-      }
+      fillSuperClassesSwitchingToAst(context, result);
     }
+
     final PyBuiltinCache builtinCache = PyBuiltinCache.getInstance(this);
     if (result.isEmpty() && isValid() && !builtinCache.isBuiltin(this)) {
       final String implicitSuperName = LanguageLevel.forElement(this).isPy3K() ? PyNames.OBJECT : PyNames.FAKE_OLD_BASE;
@@ -1272,12 +1270,58 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
     return result;
   }
 
+  private void fillSuperClassesSwitchingToAst(@NotNull TypeEvalContext context, List<PyClassLikeType> result) {
+    for (PyExpression expression : getSuperClassExpressions()) {
+      context.getType(expression);
+      expression = unfoldClass(expression);
+      if (expression instanceof PyKeywordArgument) {
+        continue;
+      }
+      final PyType type = context.getType(expression);
+      PyClassLikeType classLikeType = null;
+      if (type instanceof PyClassLikeType) {
+        classLikeType = (PyClassLikeType)type;
+      }
+      else {
+        final PsiReference ref = expression.getReference();
+        if (ref != null) {
+          final PsiElement resolved = ref.resolve();
+          if (resolved instanceof PyClass) {
+            final PyType resolvedType = context.getType((PyClass)resolved);
+            if (resolvedType instanceof PyClassLikeType) {
+              classLikeType = (PyClassLikeType)resolvedType;
+            }
+          }
+        }
+      }
+      result.add(classLikeType);
+    }
+  }
+
+  private void fillSuperClassesNoSwitchToAst(@NotNull final TypeEvalContext context,
+                                             @Nullable final PyClassStub stub,
+                                             @NotNull final List<PyClassLikeType> result) {
+    final List<QualifiedName> qualifiedNames;
+    if (stub != null) {
+      qualifiedNames = Arrays.asList(stub.getSuperClasses());
+    }
+    else {
+      qualifiedNames = PyClassElementType.getSuperClassQNames(this);
+    }
+
+
+    final PsiFile file = getContainingFile();
+    if (file instanceof PyFile) {
+      for (QualifiedName name : qualifiedNames) {
+        result.add(name != null ? classTypeFromQName(name, (PyFile)file, context) : null);
+      }
+    }
+  }
+
   @NotNull
   @Override
   public List<PyClassLikeType> getAncestorTypes(@NotNull TypeEvalContext context) {
-    // TODO: Return different cached copies depending on the type eval context parameters
-    final CachedValuesManager manager = CachedValuesManager.getManager(getProject());
-    return manager.getParameterizedCachedValue(this, myCachedValueKey, myCachedAncestorsProvider, false, context);
+    return getAncestorsCache().getValue(context);
   }
 
   @Nullable
@@ -1333,7 +1377,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
       }
     }
     else {
-      final PyTargetExpression attribute = findClassAttribute(PyNames.DUNDER_METACLASS, false);
+      final PyTargetExpression attribute = findClassAttribute(PyNames.DUNDER_METACLASS, false, null);
       if (attribute != null) {
         return attribute.findAssignedValue();
       }
@@ -1377,7 +1421,7 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
         if (cls == metaClass) {
           return false;
         }
-        final PyFunction mroMethod = metaClass.findMethodByName(PyNames.MRO, true);
+        final PyFunction mroMethod = metaClass.findMethodByName(PyNames.MRO, true, null);
         if (mroMethod != null) {
           final PyClass mroClass = mroMethod.getContainingClass();
           if (mroClass != null && mroClass != typeClass) {
@@ -1493,5 +1537,20 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
   @Override
   public PyClassLikeType getType(@NotNull TypeEvalContext context) {
     return PyUtil.as(context.getType(this), PyClassLikeType.class);
+  }
+
+  private static final class MyAttributesCollector implements Processor<PyTargetExpression> {
+    private final List<PyTargetExpression> myAttributes = new ArrayList<PyTargetExpression>();
+
+    @Override
+    public boolean process(final PyTargetExpression expression) {
+      myAttributes.add(expression);
+      return true;
+    }
+
+    @NotNull
+    List<PyTargetExpression> getAttributes() {
+      return Collections.unmodifiableList(myAttributes);
+    }
   }
 }

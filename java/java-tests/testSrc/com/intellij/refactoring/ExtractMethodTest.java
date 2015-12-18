@@ -20,7 +20,6 @@ import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
@@ -36,7 +35,6 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class ExtractMethodTest extends LightCodeInsightTestCase {
@@ -222,6 +220,10 @@ public class ExtractMethodTest extends LightCodeInsightTestCase {
   }
 
   public void testCodeDuplicatesWithContinue() throws Exception {
+    doDuplicatesTest();
+  }
+
+  public void testDuplicatesFromAnonymous() throws Exception {
     doDuplicatesTest();
   }
 
@@ -668,6 +670,10 @@ public class ExtractMethodTest extends LightCodeInsightTestCase {
     doDuplicatesTest();
   }
 
+  public void testSuggestChangeSignatureWithFolding() throws Exception {
+    doDuplicatesTest();
+  }
+
   public void testSuggestChangeSignatureWithChangedParameterName() throws Exception {
     configureByFile(BASE_PATH + getTestName(false) + ".java");
     boolean success = performExtractMethod(true, true, getEditor(), getFile(), getProject(), false, null, false, "p");
@@ -700,6 +706,10 @@ public class ExtractMethodTest extends LightCodeInsightTestCase {
   }
 
   public void testInferredNotNullInReturnStatement() throws Exception {
+    doTest();
+  }
+
+  public void testSkipThrowsDeclaredInLambda() throws Exception {
     doTest();
   }
 
@@ -754,6 +764,10 @@ public class ExtractMethodTest extends LightCodeInsightTestCase {
   }
 
   public void testConditionalExitCombinedWithNullabilityShouldPreserveVarsUsedInExitStatements() throws Exception {
+    doTest();
+  }
+
+  public void testSingleExitPOintWithTryFinally() throws Exception {
     doTest();
   }
 

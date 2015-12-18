@@ -42,7 +42,7 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
 
   public static final int USER_ACTIVITY_TRIGGERING_DELAY = 30;
   public static final int MATCHES_LIMIT = 10000;
-  protected EditorSearchComponent myComponent;
+  protected EditorSearchSession myComponent;
 
   private int myUserActivityDelay = USER_ACTIVITY_TRIGGERING_DELAY;
 
@@ -95,6 +95,7 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
   };
 
   private void smartUpdate() {
+    if (myLivePreview == null) return;
     myLivePreview.inSmartUpdate();
     updateInBackground(mySearchResults.getFindModel(), false);
   }
@@ -111,7 +112,7 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
     return myReplaceDenied;
   }
 
-  public LivePreviewController(SearchResults searchResults, @Nullable EditorSearchComponent component) {
+  public LivePreviewController(SearchResults searchResults, @Nullable EditorSearchSession component) {
     mySearchResults = searchResults;
     myComponent = component;
     getEditor().getDocument().addDocumentListener(myDocumentListener);
@@ -243,7 +244,7 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
       mySuppressUpdate = false;
     }
     if (myComponent != null) {
-      myComponent.addTextToRecent(myComponent.getReplaceField());
+      myComponent.addTextToRecent(myComponent.getComponent().getReplaceTextComponent());
       myComponent.clearUndoInTextFields();
     }
   }
@@ -274,7 +275,6 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
   public void dispose() {
     if (myDisposed) return;
 
-    myLivePreview.cleanUp();
     off();
 
     mySearchResults.dispose();

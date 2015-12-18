@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,9 +29,8 @@ import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.packageDependencies.DependencyValidationManager;
+import com.intellij.profile.DefaultProjectProfileManager;
 import com.intellij.profile.Profile;
 import com.intellij.profile.ProfileEx;
 import com.intellij.psi.search.scope.packageSet.NamedScopeManager;
@@ -53,12 +52,12 @@ import java.util.concurrent.ConcurrentHashMap;
   name = "InspectionProjectProfileManager",
   storages = {
     @Storage(file = StoragePathMacros.PROJECT_FILE),
-    @Storage(file = StoragePathMacros.PROJECT_CONFIG_DIR + "/inspectionProfiles/", scheme = StorageScheme.DIRECTORY_BASED,
-             stateSplitter = InspectionProjectProfileManagerImpl.ProfileStateSplitter.class)
+    @Storage(file = "inspectionProfiles", scheme = StorageScheme.DIRECTORY_BASED, stateSplitter = DefaultProjectProfileManager.ProfileStateSplitter.class)
   }
 )
 public class InspectionProjectProfileManagerImpl extends InspectionProjectProfileManager {
   private final Map<String, InspectionProfileWrapper>  myName2Profile = new ConcurrentHashMap<String, InspectionProfileWrapper>();
+  private final Map<String, InspectionProfileWrapper>  myAppName2Profile = new ConcurrentHashMap<String, InspectionProfileWrapper>();
   private final SeverityRegistrar mySeverityRegistrar;
   private final NamedScopeManager myLocalScopesHolder;
   private NamedScopesHolder.ScopeListener myScopeListener;
@@ -78,17 +77,27 @@ public class InspectionProjectProfileManagerImpl extends InspectionProjectProfil
 
   @Override
   public boolean isProfileLoaded() {
-    return myName2Profile.containsKey(getInspectionProfile().getName());
+    final InspectionProfile profile = getInspectionProfile();
+    final String name = profile.getName();
+    return profile.getProfileManager() == this ? myName2Profile.containsKey(name) : myAppName2Profile.containsKey(name);
   }
 
   @NotNull
   public synchronized InspectionProfileWrapper getProfileWrapper(){
     final InspectionProfile profile = getInspectionProfile();
     final String profileName = profile.getName();
-    if (!myName2Profile.containsKey(profileName)){
-      initProfileWrapper(profile);
+    if (profile.getProfileManager() == this) {
+      if (!myName2Profile.containsKey(profileName)){
+        initProfileWrapper(profile);
+      }
+      return myName2Profile.get(profileName);
     }
-    return myName2Profile.get(profileName);
+    else {
+      if (!myAppName2Profile.containsKey(profileName)) {
+        initProfileWrapper(profile);
+      }
+      return myAppName2Profile.get(profileName);
+    }
   }
 
   public InspectionProfileWrapper getProfileWrapper(final String profileName){
@@ -165,7 +174,13 @@ public class InspectionProjectProfileManagerImpl extends InspectionProjectProfil
   public void initProfileWrapper(@NotNull Profile profile) {
     final InspectionProfileWrapper wrapper = new InspectionProfileWrapper((InspectionProfile)profile);
     wrapper.init(myProject);
-    myName2Profile.put(profile.getName(), wrapper);
+    String profileName = profile.getName();
+    if (profile.getProfileManager() == this) {
+      myName2Profile.put(profileName, wrapper);
+    }
+    else {
+      myAppName2Profile.put(profileName, wrapper);
+    }
   }
 
   @Override
@@ -175,6 +190,9 @@ public class InspectionProjectProfileManagerImpl extends InspectionProjectProfil
       @Override
       public void run() {
         for (InspectionProfileWrapper wrapper : myName2Profile.values()) {
+          wrapper.cleanup(myProject);
+        }
+        for (InspectionProfileWrapper wrapper : myAppName2Profile.values()) {
           wrapper.cleanup(myProject);
         }
         fireProfilesShutdown();
@@ -205,7 +223,7 @@ public class InspectionProjectProfileManagerImpl extends InspectionProjectProfil
     try {
       mySeverityRegistrar.readExternal(state);
     }
-    catch (InvalidDataException e) {
+    catch (Throwable e) {
       LOG.error(e);
     }
     super.loadState(state);
@@ -214,12 +232,7 @@ public class InspectionProjectProfileManagerImpl extends InspectionProjectProfil
   @Override
   public Element getState() {
     Element state = super.getState();
-    try {
-      mySeverityRegistrar.writeExternal(state);
-    }
-    catch (WriteExternalException e) {
-      LOG.error(e);
-    }
+    mySeverityRegistrar.writeExternal(state);
     return state;
   }
 
@@ -231,7 +244,7 @@ public class InspectionProjectProfileManagerImpl extends InspectionProjectProfil
   @Override
   public void convert(Element element) {
     super.convert(element);
-    if (myProjectProfile != null) {
+    if (getProjectProfile() != null) {
       ((ProfileEx)getProjectProfileImpl()).convert(element, getProject());
     }
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,6 +41,7 @@ import com.intellij.util.ui.update.Update;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeExpansionListener;
@@ -325,7 +326,7 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
 
   ActionCallback select(@Nullable final Configurable configurable) {
     if (myBuilder.isSelectionBeingAdjusted()) {
-      return new ActionCallback.Rejected();
+      return ActionCallback.REJECTED;
     }
     final ActionCallback callback = new ActionCallback();
     myQueuedConfigurable = configurable;
@@ -392,18 +393,18 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
   @Override
   public ActionCallback onModifiedAdded(Configurable configurable) {
     myTree.repaint();
-    return new ActionCallback.Done();
+    return ActionCallback.DONE;
   }
 
   @Override
   public ActionCallback onModifiedRemoved(Configurable configurable) {
     myTree.repaint();
-    return new ActionCallback.Done();
+    return ActionCallback.DONE;
   }
 
   @Override
   public ActionCallback onErrorsChanged() {
-    return new ActionCallback.Done();
+    return ActionCallback.DONE;
   }
 
   private final class MyRoot extends CachingSimpleNode {
@@ -486,6 +487,23 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
       setBorder(BorderFactory.createEmptyBorder(1, 10, 3, 10));
     }
 
+    @Override
+    public AccessibleContext getAccessibleContext() {
+      if (accessibleContext == null) {
+        accessibleContext = new MyAccessibleContext();
+      }
+      return accessibleContext;
+    }
+
+    // TODO: consider making MyRenderer a subclass of SimpleColoredComponent.
+    // This should eliminate the need to add this accessibility stuff.
+    private class MyAccessibleContext extends JPanel.AccessibleJPanel {
+      @Override
+      public String getAccessibleName() {
+        return myTextLabel.getText();
+      }
+    }
+
     public Component getTreeCellRendererComponent(JTree tree,
                                                   Object value,
                                                   boolean selected,
@@ -555,12 +573,12 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
       }
       // configure node icon
       Icon nodeIcon = null;
-      if (node != null) {
-        if (0 == node.getChildCount()) {
+      if (value instanceof DefaultMutableTreeNode) {
+        DefaultMutableTreeNode treeNode = (DefaultMutableTreeNode)value;
+        if (0 == treeNode.getChildCount()) {
           nodeIcon = myTree.getEmptyHandle();
         }
-        else if (value instanceof DefaultMutableTreeNode) {
-          DefaultMutableTreeNode treeNode = (DefaultMutableTreeNode)value;
+        else {
           nodeIcon = myTree.isExpanded(new TreePath(treeNode.getPath()))
                      ? myTree.getExpandedHandle()
                      : myTree.getCollapsedHandle();

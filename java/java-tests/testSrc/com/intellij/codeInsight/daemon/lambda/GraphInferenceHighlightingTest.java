@@ -283,6 +283,58 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
     doTest();
   }
 
+  public void testOuterMethodCallOnRawType() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA143390() throws Exception {
+    doTest();
+  }
+
+  public void testIntersectionWithArray() throws Exception {
+    doTest();
+  }
+
+  public void testIncorporationWithCaptureCalcGlbToGetOneTypeParameterBound() throws Exception {
+    doTest();
+  }
+
+  public void testEnumConstantInference() throws Exception {
+    doTest();
+  }
+
+  public void testReturnConstraintsWithCaptureIncorporationOfFreshVariables() throws Exception {
+    doTest();
+  }
+
+  public void testArrayTypeAssignability() throws Exception {
+    doTest();
+  }
+
+  public void testAcceptFirstPairOfCommonSupertypesDuringUpUpIncorporation() throws Exception {
+    doTest();
+  }
+
+  public void testDiamondWithExactMethodReferenceInside() throws Exception {
+    doTest();
+  }
+
+  public void testRecursiveCallsWithNestedInference() throws Exception {
+    doTest();
+  }
+
+  public void testIncorporationWithRawSubstitutors() throws Exception {
+    doTest();
+  }
+
+  public void testIncorporationOfBoundsAsTypeArguments() throws Exception {
+    doTest();
+  }
+
+  public void testEliminateIntersectionTypeWildcardElimination() throws Exception {
+    doTest();
+  }
+
   private void doTest() throws Exception {
     doTest(false);
   }

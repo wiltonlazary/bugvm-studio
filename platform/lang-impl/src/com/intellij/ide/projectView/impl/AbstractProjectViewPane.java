@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -602,7 +602,7 @@ public abstract class AbstractProjectViewPane implements DataProvider, Disposabl
 
   protected void enableDnD() {
     if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
-      myDropTarget = new ProjectViewDropTarget(myTree, new Retriever(){
+      myDropTarget = new ProjectViewDropTarget(myTree, new Retriever() {
         @Override
         public PsiElement getPsiElement(@Nullable TreeNode node) {
           return getPSIElement(getElementFromTreeNode(node));
@@ -612,13 +612,29 @@ public abstract class AbstractProjectViewPane implements DataProvider, Disposabl
         public Module getModule(TreeNode treeNode) {
           return getNodeModule(getElementFromTreeNode(treeNode));
         }
-      }, myProject);
+      }, myProject) {
+        @Override
+        public void cleanUpOnLeave() {
+          beforeDnDLeave();
+          super.cleanUpOnLeave();
+        }
+
+        @Override
+        public boolean update(DnDEvent event) {
+          beforeDnDUpdate();
+          return super.update(event);
+        }
+      };
       myDragSource = new MyDragSource();
       myDndManager = DnDManager.getInstance();
       myDndManager.registerSource(myDragSource, myTree);
       myDndManager.registerTarget(myDropTarget, myTree);
     }
   }
+
+  protected void beforeDnDUpdate() { }
+
+  protected void beforeDnDLeave() { }
 
   public void setTreeBuilder(final AbstractTreeBuilder treeBuilder) {
     if (treeBuilder != null) {
@@ -706,7 +722,7 @@ public abstract class AbstractProjectViewPane implements DataProvider, Disposabl
   @NotNull
   @Override
   public ActionCallback getReady(@NotNull Object requestor) {
-    if (myTreeBuilder == null || myTreeBuilder.isDisposed()) return new ActionCallback.Rejected();
+    if (myTreeBuilder == null || myTreeBuilder.isDisposed()) return ActionCallback.REJECTED;
     return myTreeBuilder.getUi().getReady(requestor);
   }
 }

@@ -16,10 +16,10 @@
 package org.jetbrains.settingsRepository
 
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.options.ConfigurableUi
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogBuilder
 import com.intellij.openapi.ui.TextBrowseFolderListener
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
@@ -33,13 +33,12 @@ import com.intellij.util.ui.table.TableModelEditor
 import gnu.trove.THashSet
 import org.jetbrains.settingsRepository.git.asProgressMonitor
 import org.jetbrains.settingsRepository.git.cloneBare
-import java.awt.Component
 import java.io.File
 import javax.swing.JTextField
 import javax.swing.event.DocumentEvent
 
 private val COLUMNS = arrayOf(object : TableModelEditor.EditableColumnInfo<ReadonlySource, Boolean>() {
-  override fun getColumnClass() = javaClass<Boolean>()
+  override fun getColumnClass() = Boolean::class.java
 
   override fun valueOf(item: ReadonlySource) = item.active
 
@@ -55,22 +54,22 @@ private val COLUMNS = arrayOf(object : TableModelEditor.EditableColumnInfo<Reado
       }
     })
 
-private fun createReadOnlySourcesEditor(dialogParent: Component, project: Project?): Configurable {
+internal fun createReadOnlySourcesEditor(): ConfigurableUi<IcsSettings> {
   val itemEditor = object : TableModelEditor.DialogItemEditor<ReadonlySource>() {
     override fun clone(item: ReadonlySource, forInPlaceEditing: Boolean) = ReadonlySource(item.url, item.active)
 
-    override fun getItemClass() = javaClass<ReadonlySource>()
+    override fun getItemClass() = ReadonlySource::class.java
 
     override fun edit(item: ReadonlySource, mutator: Function<ReadonlySource, ReadonlySource>, isAdd: Boolean) {
-      val dialogBuilder = DialogBuilder(dialogParent)
+      val dialogBuilder = DialogBuilder()
       val urlField = TextFieldWithBrowseButton(JTextField(20))
       urlField.addBrowseFolderListener(TextBrowseFolderListener(FileChooserDescriptorFactory.createSingleFolderDescriptor()))
-      urlField.getTextField().getDocument().addDocumentListener(object : DocumentAdapter() {
+      urlField.textField.document.addDocumentListener(object : DocumentAdapter() {
         override fun textChanged(event: DocumentEvent) {
-          val url = StringUtil.nullize(urlField.getText())
+          val url = StringUtil.nullize(urlField.text)
           val enabled: Boolean
           try {
-            enabled = url != null && url.length() > 1 && icsManager.repositoryService.checkUrl(url, null)
+            enabled = url != null && url.length > 1 && icsManager.repositoryService.checkUrl(url, null)
           }
           catch (e: Exception) {
             enabled = false
@@ -80,9 +79,9 @@ private fun createReadOnlySourcesEditor(dialogParent: Component, project: Projec
         }
       })
 
-      dialogBuilder.title("Add read-only source").resizable(false).centerPanel(FormBuilder.createFormBuilder().addLabeledComponent("URL:", urlField).getPanel()).setPreferredFocusComponent(urlField)
+      dialogBuilder.title("Add read-only source").resizable(false).centerPanel(FormBuilder.createFormBuilder().addLabeledComponent("URL:", urlField).panel).setPreferredFocusComponent(urlField)
       if (dialogBuilder.showAndGet()) {
-        mutator.`fun`(item).url = urlField.getText()
+        mutator.`fun`(item).url = urlField.text
       }
     }
 
@@ -95,12 +94,12 @@ private fun createReadOnlySourcesEditor(dialogParent: Component, project: Projec
 
   val editor = TableModelEditor(COLUMNS, itemEditor, "No sources configured")
   editor.reset(icsManager.settings.readOnlySources)
-  return object : Configurable {
-    override fun isModified() = editor.isModified()
+  return object : ConfigurableUi<IcsSettings> {
+    override fun isModified(settings: IcsSettings) = editor.isModified
 
-    override fun apply() {
-      val oldList = icsManager.settings.readOnlySources
-      val toDelete = THashSet<String>(oldList.size())
+    override fun apply(settings: IcsSettings) {
+      val oldList = settings.readOnlySources
+      val toDelete = THashSet<String>(oldList.size)
       for (oldSource in oldList) {
         ContainerUtil.addIfNotNull(toDelete, oldSource.path)
       }
@@ -115,22 +114,22 @@ private fun createReadOnlySourcesEditor(dialogParent: Component, project: Projec
         }
       }
 
-      if (toDelete.isEmpty() && toCheckout.isEmpty()) {
+      if (toDelete.isEmpty && toCheckout.isEmpty) {
         return
       }
 
-      ProgressManager.getInstance().run(object : Task.Modal(project, IcsBundle.message("task.sync.title"), true) {
+      ProgressManager.getInstance().run(object : Task.Modal(null, icsMessage("task.sync.title"), true) {
         override fun run(indicator: ProgressIndicator) {
-          indicator.setIndeterminate(true)
+          indicator.isIndeterminate = true
 
           val root = icsManager.readOnlySourcesManager.rootDir
 
           if (toDelete.isNotEmpty()) {
-            indicator.setText("Deleting old repositories")
+            indicator.text = "Deleting old repositories"
             for (path in toDelete) {
               indicator.checkCanceled()
               try {
-                indicator.setText2(path)
+                indicator.text2 = path
                 FileUtil.delete(File(root, path))
               }
               catch (e: Exception) {
@@ -143,8 +142,12 @@ private fun createReadOnlySourcesEditor(dialogParent: Component, project: Projec
             for (source in toCheckout) {
               indicator.checkCanceled()
               try {
-                indicator.setText("Cloning ${StringUtil.trimMiddle(source.url!!, 255)}")
-                cloneBare(source.url!!, File(root, source.path!!), credentialsStore, indicator.asProgressMonitor()).close()
+                indicator.text = "Cloning ${StringUtil.trimMiddle(source.url!!, 255)}"
+                val dir = File(root, source.path!!)
+                if (dir.exists()) {
+                  FileUtil.delete(dir)
+                }
+                cloneBare(source.url!!, dir, icsManager.credentialsStore, indicator.asProgressMonitor()).close()
               }
               catch (e: Exception) {
                 LOG.error(e)
@@ -157,8 +160,8 @@ private fun createReadOnlySourcesEditor(dialogParent: Component, project: Projec
       })
     }
 
-    override fun reset() {
-      editor.reset(icsManager.settings.readOnlySources)
+    override fun reset(settings: IcsSettings) {
+      editor.reset(settings.readOnlySources)
     }
 
     override fun getComponent() = editor.createComponent()

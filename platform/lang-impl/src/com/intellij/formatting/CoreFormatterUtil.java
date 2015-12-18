@@ -100,7 +100,7 @@ public class CoreFormatterUtil {
           return result;
         }
         block = block.getPreviousBlock();
-        if (block == null) return result;
+        if (result > CodeStyleSettings.MAX_RIGHT_MARGIN || block == null) return result;
         result += block.getSymbolsAtTheLastLine();
         if (block.containsLineFeeds()) return result;
       }
@@ -248,7 +248,7 @@ public class CoreFormatterUtil {
     }
     if (indent.getType() == Indent.Type.LABEL) return new IndentData(options.LABEL_INDENT_SIZE);
     if (indent.getType() == Indent.Type.NONE) return new IndentData(0);
-    if (indent.getType() == Indent.Type.SPACES) return new IndentData(0, indent.getSpaces());
+    if (indent.getType() == Indent.Type.SPACES) return new IndentData(indent.getSpaces(), 0);
     return new IndentData(options.INDENT_SIZE);
   }
 

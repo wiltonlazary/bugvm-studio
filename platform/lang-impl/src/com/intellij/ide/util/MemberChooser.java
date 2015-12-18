@@ -683,8 +683,8 @@ public class MemberChooser<T extends ClassMember> extends DialogWrapper implemen
   @Override
   public void dispose() {
     PropertiesComponent instance = PropertiesComponent.getInstance();
-    instance.setValue(PROP_SORTED, Boolean.toString(isAlphabeticallySorted()));
-    instance.setValue(PROP_SHOWCLASSES, Boolean.toString(myShowClasses));
+    instance.setValue(PROP_SORTED, isAlphabeticallySorted());
+    instance.setValue(PROP_SHOWCLASSES, myShowClasses);
 
     if (myCopyJavadocCheckbox != null) {
       instance.setValue(PROP_COPYJAVADOC, Boolean.toString(myCopyJavadocCheckbox.isSelected()));
@@ -733,6 +733,9 @@ public class MemberChooser<T extends ClassMember> extends DialogWrapper implemen
       mySelectedElements = new LinkedHashSet<T>();
       for (MemberNode selectedNode : mySelectedNodes) {
         mySelectedElements.add((T)selectedNode.getDelegate());
+      }
+      if (!myAllowEmptySelection) {
+        setOKActionEnabled(!mySelectedElements.isEmpty());
       }
     }
   }

@@ -26,7 +26,6 @@ import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.actions.ThreadDumpAction;
 import com.intellij.debugger.engine.ContextUtil;
 import com.intellij.debugger.engine.DebugProcessImpl;
-import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
@@ -56,13 +55,14 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
+import com.intellij.xdebugger.breakpoints.XBreakpointType;
 import com.sun.jdi.*;
 import com.sun.jdi.event.LocatableEvent;
 import com.sun.jdi.request.BreakpointRequest;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.java.debugger.breakpoints.properties.JavaLineBreakpointProperties;
+import org.jetbrains.java.debugger.breakpoints.properties.JavaBreakpointProperties;
 import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 
 import javax.swing.*;
@@ -71,7 +71,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.regex.Pattern;
 
-public class LineBreakpoint extends BreakpointWithHighlighter {
+public class LineBreakpoint<P extends JavaBreakpointProperties> extends BreakpointWithHighlighter<P> {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.breakpoints.LineBreakpoint");
 
   public static final @NonNls Key<LineBreakpoint> CATEGORY = BreakpointCategory.lookup("line_breakpoints");
@@ -201,42 +201,31 @@ public class LineBreakpoint extends BreakpointWithHighlighter {
 
   protected boolean acceptLocation(final DebugProcessImpl debugProcess, ReferenceType classType, final Location loc) {
     Method method = loc.method();
-    if (DebuggerUtils.isSynthetic(method)) {
-      return false;
+    // Some frameworks may create synthetic methods with lines mapped to user code, see IDEA-143852
+    // if (DebuggerUtils.isSynthetic(method)) { return false; }
+    if (isAnonymousClass(classType)) {
+      if ((method.isConstructor() && loc.codeIndex() == 0) || method.isBridge()) return false;
     }
-    boolean res = !(method.isConstructor() && loc.codeIndex() == 0 && isAnonymousClass(classType));
-    if (!res) return false;
     return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
       @Override
       public Boolean compute() {
-        if (getProperties() instanceof JavaLineBreakpointProperties) {
-          Integer ordinal = ((JavaLineBreakpointProperties)getProperties()).getLambdaOrdinal();
-          if (ordinal == null) return true;
-          PsiElement containingMethod = getContainingMethod();
-          if (containingMethod == null) return false;
-          SourcePosition position = debugProcess.getPositionManager().getSourcePosition(loc);
-          if (position == null) return false;
-          return DebuggerUtilsEx.inTheMethod(position, containingMethod);
-        }
-        return true;
+        SourcePosition position = debugProcess.getPositionManager().getSourcePosition(loc);
+        if (position == null) return false;
+        JavaLineBreakpointType type = getXBreakpointType();
+        if (type == null) return true;
+        return type.matchesPosition(LineBreakpoint.this, position);
       }
     });
   }
 
   @Nullable
-  public PsiElement getContainingMethod() {
-    SourcePosition position = getSourcePosition();
-    if (position == null) return null;
-    if (getProperties() instanceof JavaLineBreakpointProperties) {
-      Integer ordinal = ((JavaLineBreakpointProperties)getProperties()).getLambdaOrdinal();
-      if (ordinal > -1) {
-        List<PsiLambdaExpression> lambdas = DebuggerUtilsEx.collectLambdas(position, true);
-        if (ordinal < lambdas.size()) {
-          return lambdas.get(ordinal);
-        }
-      }
+  protected JavaLineBreakpointType getXBreakpointType() {
+    XBreakpointType<?, P> type = myXBreakpoint.getType();
+    // Nashorn breakpoints do not contain JavaLineBreakpointType
+    if (type instanceof JavaLineBreakpointType) {
+      return (JavaLineBreakpointType)type;
     }
-    return DebuggerUtilsEx.getContainingMethod(position);
+    return null;
   }
 
   private boolean isInScopeOf(DebugProcessImpl debugProcess, String className) {

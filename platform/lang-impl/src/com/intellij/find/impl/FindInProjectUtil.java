@@ -119,14 +119,22 @@ public class FindInProjectUtil {
     }
   }
 
+  /**
+   * @deprecated to remove in IDEA 16
+   */
   @Nullable
   public static PsiDirectory getPsiDirectory(@NotNull final FindModel findModel, @NotNull Project project) {
+    VirtualFile directory = getDirectory(findModel);
+    return directory == null ? null : PsiManager.getInstance(project).findDirectory(directory);
+  }
+
+  @Nullable
+  public static VirtualFile getDirectory(@NotNull final FindModel findModel) {
     String directoryName = findModel.getDirectoryName();
     if (findModel.isProjectScope() || StringUtil.isEmpty(directoryName)) {
       return null;
     }
 
-    final PsiManager psiManager = PsiManager.getInstance(project);
     String path = directoryName.replace(File.separatorChar, '/');
     VirtualFile virtualFile = LocalFileSystem.getInstance().findFileByPath(path);
     if (virtualFile == null || !virtualFile.isDirectory()) {
@@ -139,12 +147,13 @@ public class FindInProjectUtil {
             break;
           }
           if(virtualFile == null){
-             virtualFile = file;
+            virtualFile = file;
           }
         }
       }
     }
-    return virtualFile == null ? null : psiManager.findDirectory(virtualFile);
+    return virtualFile;
+
   }
 
 
@@ -170,12 +179,22 @@ public class FindInProjectUtil {
     return Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
   }
 
+  /**
+   * @deprecated to remove in IDEA 16
+   */
   public static void findUsages(@NotNull FindModel findModel,
-                                final PsiDirectory psiDirectory,
+                                @Nullable final PsiDirectory psiDirectory,
                                 @NotNull final Project project,
                                 @NotNull final Processor<UsageInfo> consumer,
                                 @NotNull FindUsagesProcessPresentation processPresentation) {
-    new FindInProjectTask(findModel, project, psiDirectory).findUsages(consumer, processPresentation);
+    findUsages(findModel, project, consumer, processPresentation);
+  }
+
+  public static void findUsages(@NotNull FindModel findModel,
+                                @NotNull final Project project,
+                                @NotNull final Processor<UsageInfo> consumer,
+                                @NotNull FindUsagesProcessPresentation processPresentation) {
+    new FindInProjectTask(findModel, project).findUsages(consumer, processPresentation);
   }
 
   static int processUsagesInFile(@NotNull final PsiFile psiFile,
@@ -451,9 +470,11 @@ public class FindInProjectUtil {
                                                         @NotNull VirtualFile file,
                                                         @NotNull Collection<VirtualFile> outSourceRoots) {
     ProjectFileIndex index = ProjectFileIndex.SERVICE.getInstance(project);
+    // if we already are in the sources, search just in this directory only
+    if (index.isInLibrarySource(file)) return;
     VirtualFile classRoot = index.getClassRootForFile(file);
     if (classRoot == null) return;
-    String relativePath = VfsUtil.getRelativePath(file, classRoot);
+    String relativePath = VfsUtilCore.getRelativePath(file, classRoot);
     if (relativePath == null) return;
     for (OrderEntry orderEntry : index.getOrderEntriesForFile(file)) {
       for (VirtualFile sourceRoot : orderEntry.getFiles(OrderRootType.SOURCES)) {
@@ -468,10 +489,9 @@ public class FindInProjectUtil {
   @NotNull
   static SearchScope getScopeFromModel(@NotNull Project project, @NotNull FindModel findModel) {
     SearchScope customScope = findModel.getCustomScope();
-    PsiDirectory psiDir = getPsiDirectory(findModel, project);
-    VirtualFile directory = psiDir == null ? null : psiDir.getVirtualFile();
+    VirtualFile directory = getDirectory(findModel);
     Module module = findModel.getModuleName() == null ? null : ModuleManager.getInstance(project).findModuleByName(findModel.getModuleName());
-    return findModel.isCustomScope() && customScope != null ? customScope :
+    return findModel.isCustomScope() && customScope != null ? customScope.intersectWith(GlobalSearchScope.allScope(project)) :
            // we don't have to check for myProjectFileIndex.isExcluded(file) here like FindInProjectTask.collectFilesInScope() does
            // because all found usages are guaranteed to be not in excluded dir
            directory != null ? forDirectory(project, findModel.isWithSubdirectories(), directory) :

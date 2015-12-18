@@ -189,6 +189,12 @@ public class MismatchedCollectionQueryUpdate {
   }
 
   List<String> boo() {return null;}
+
+  private List<? extends CharSequence> sequences = null;
+
+  {
+    sequences.stream().map(CharSequence ::length);
+  }
 }
 
 class MethReference<E> {
@@ -284,6 +290,12 @@ class CollectionsUser {
       //  ...
     }
   }
+
+  void merging() {
+    Map<String, String> map = new HashMap<>();
+    map.merge("key", "value", (i,j)->j);
+    map.forEach((k,v) -> System.out.println(k + " : " + v));
+  }
 }
 
 class SimpleAdd {
@@ -316,3 +328,8 @@ class EnumConstant {
     }
   }
 }
+class ToArray {{
+  List list = new ArrayList();
+  list.add("A thing");
+  list.toArray(new Object[1]);
+}}

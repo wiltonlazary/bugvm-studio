@@ -49,7 +49,6 @@ import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.intellij.testFramework.PlatformTestCase;
 import com.intellij.testFramework.TestDataPath;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.testFramework.fixtures.*;
@@ -62,6 +61,8 @@ import com.intellij.util.IncorrectOperationException;
 import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.PythonLanguage;
 import com.jetbrains.python.PythonTestUtil;
+import com.jetbrains.python.documentation.PyDocumentationSettings;
+import com.jetbrains.python.documentation.docstrings.DocStringFormat;
 import com.jetbrains.python.formatter.PyCodeStyleSettings;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyClass;
@@ -121,7 +122,6 @@ public abstract class PyTestCase extends UsefulTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    initPlatformPrefix();
     IdeaTestFixtureFactory factory = IdeaTestFixtureFactory.getFixtureFactory();
     TestFixtureBuilder<IdeaProjectTestFixture> fixtureBuilder = factory.createLightFixtureBuilder(getProjectDescriptor());
     final IdeaProjectTestFixture fixture = fixtureBuilder.getFixture();
@@ -184,6 +184,18 @@ public abstract class PyTestCase extends UsefulTestCase {
     }
     finally {
       setLanguageLevel(null);
+    }
+  }
+
+  protected void runWithDocStringFormat(@NotNull DocStringFormat format, @NotNull Runnable runnable) {
+    final PyDocumentationSettings settings = PyDocumentationSettings.getInstance(myFixture.getModule());
+    final DocStringFormat oldFormat = settings.getFormat();
+    settings.setFormat(format);
+    try {
+      runnable.run();
+    }
+    finally {
+      settings.setFormat(oldFormat);
     }
   }
 
@@ -347,10 +359,6 @@ public abstract class PyTestCase extends UsefulTestCase {
     configurator.configureProject(myFixture.getProject(), newPath, moduleRef);
   }
 
-  public static void initPlatformPrefix() {
-    PlatformTestCase.autodetectPlatformPrefix();
-  }
-
   public static String getHelpersPath() {
     return new File(PythonHelpersLocator.getPythonCommunityPath(), "helpers").getPath();
   }
@@ -417,13 +425,19 @@ public abstract class PyTestCase extends UsefulTestCase {
   }
 
   @NotNull
-  protected PyCodeStyleSettings getPythonCodeStyle() {
+  protected PyCodeStyleSettings getPythonCodeStyleSettings() {
     return getCodeStyleSettings().getCustomSettings(PyCodeStyleSettings.class);
   }
 
   @NotNull
   protected CodeStyleSettings getCodeStyleSettings() {
     return CodeStyleSettingsManager.getSettings(myFixture.getProject());
+  }
+
+  @NotNull
+  protected CommonCodeStyleSettings.IndentOptions getIndentOptions() {
+    //noinspection ConstantConditions
+    return getCommonCodeStyleSettings().getIndentOptions();
   }
 }
 

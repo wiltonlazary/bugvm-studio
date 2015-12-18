@@ -27,6 +27,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.psi.impl.source.PsiClassReferenceType;
+import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NonNls;
@@ -39,7 +40,7 @@ import java.util.Set;
 /**
  * @author peter
  */
-public class PsiTypeLookupItem extends LookupItem {
+public class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
   private static final InsertHandler<PsiTypeLookupItem> DEFAULT_IMPORT_FIXER = new InsertHandler<PsiTypeLookupItem>() {
     @Override
     public void handleInsert(InsertionContext context, PsiTypeLookupItem item) {
@@ -55,19 +56,26 @@ public class PsiTypeLookupItem extends LookupItem {
   private final int myBracketsCount;
   private boolean myIndicateAnonymous;
   private final InsertHandler<PsiTypeLookupItem> myImportFixer;
+  @NotNull private final PsiSubstitutor mySubstitutor;
   private boolean myAddArrayInitializer;
+  private String myLocationString = "";
 
-  private PsiTypeLookupItem(Object o, @NotNull @NonNls String lookupString, boolean diamond, int bracketsCount, InsertHandler<PsiTypeLookupItem> fixer) {
+  private PsiTypeLookupItem(Object o, @NotNull @NonNls String lookupString, boolean diamond, int bracketsCount, InsertHandler<PsiTypeLookupItem> fixer,
+                            @NotNull PsiSubstitutor substitutor) {
     super(o, lookupString);
     myDiamond = diamond;
     myBracketsCount = bracketsCount;
     myImportFixer = fixer;
+    mySubstitutor = substitutor;
   }
 
   @NotNull
-  public PsiType getPsiType() {
+  @Override
+  public PsiType getType() {
     Object object = getObject();
-    PsiType type = object instanceof PsiType ? (PsiType)object : JavaPsiFacade.getElementFactory(((PsiClass) object).getProject()).createType((PsiClass)object);
+    PsiType type = object instanceof PsiType
+                   ? getSubstitutor().substitute((PsiType)object)
+                   : JavaPsiFacade.getElementFactory(((PsiClass) object).getProject()).createType((PsiClass)object, getSubstitutor());
     for (int i = 0; i < getBracketsCount(); i++) {
       type = new PsiArrayType(type);
     }
@@ -130,7 +138,7 @@ public class PsiTypeLookupItem extends LookupItem {
     editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
 
     InsertHandler handler = getInsertHandler();
-    if (handler != null && !(handler instanceof DefaultInsertHandler)) {
+    if (handler != null) {
       //noinspection unchecked
       handler.handleInsert(context, this);
     }
@@ -191,18 +199,14 @@ public class PsiTypeLookupItem extends LookupItem {
   }
 
 
-    public static PsiTypeLookupItem createLookupItem(@NotNull PsiType type, @Nullable PsiElement context, boolean isDiamond, InsertHandler<PsiTypeLookupItem> importFixer) {
-    final PsiType original = type;
+  public static PsiTypeLookupItem createLookupItem(@NotNull PsiType type, @Nullable PsiElement context, boolean isDiamond, InsertHandler<PsiTypeLookupItem> importFixer) {
     int dim = 0;
     while (type instanceof PsiArrayType) {
       type = ((PsiArrayType)type).getComponentType();
       dim++;
     }
 
-    PsiTypeLookupItem item = doCreateItem(type, context, dim, isDiamond, importFixer);
-
-    item.setAttribute(TYPE, original);
-    return item;
+    return doCreateItem(type, context, dim, isDiamond, importFixer);
   }
 
   private static PsiTypeLookupItem doCreateItem(final PsiType type,
@@ -233,15 +237,14 @@ public class PsiTypeLookupItem extends LookupItem {
             }
           }
 
-          PsiTypeLookupItem item = new PsiTypeLookupItem(psiClass, name, diamond, bracketsCount, importFixer);
+          PsiTypeLookupItem item = new PsiTypeLookupItem(psiClass, name, diamond, bracketsCount, importFixer, substitutor);
           item.addLookupStrings(ArrayUtil.toStringArray(allStrings));
-          item.setAttribute(SUBSTITUTOR, substitutor);
           return item;
         }
       }
 
     }
-    return new PsiTypeLookupItem(type, type.getPresentableText(), false, bracketsCount, importFixer);
+    return new PsiTypeLookupItem(type, type.getPresentableText(), false, bracketsCount, importFixer, PsiSubstitutor.EMPTY);
   }
 
   public static boolean isDiamond(PsiType type) {
@@ -258,15 +261,14 @@ public class PsiTypeLookupItem extends LookupItem {
 
   @NotNull
   private PsiSubstitutor getSubstitutor() {
-    PsiSubstitutor attribute = (PsiSubstitutor)getAttribute(SUBSTITUTOR);
-    return attribute != null ? attribute : PsiSubstitutor.EMPTY;
+    return mySubstitutor;
   }
 
   @Override
   public void renderElement(LookupElementPresentation presentation) {
     final Object object = getObject();
     if (object instanceof PsiClass) {
-      JavaPsiClassReferenceElement.renderClassItem(presentation, this, (PsiClass)object, myDiamond);
+      JavaPsiClassReferenceElement.renderClassItem(presentation, this, (PsiClass)object, myDiamond, myLocationString, mySubstitutor);
     } else {
       assert object instanceof PsiType;
 
@@ -275,7 +277,7 @@ public class PsiTypeLookupItem extends LookupItem {
       }
 
       presentation.setItemText(((PsiType)object).getCanonicalText());
-      presentation.setItemTextBold(getAttribute(LookupItem.HIGHLIGHTED_ATTR) != null || object instanceof PsiPrimitiveType);
+      presentation.setItemTextBold(object instanceof PsiPrimitiveType);
       if (isAddArrayInitializer()) {
         presentation.setTailText("{...}");
       }
@@ -284,6 +286,14 @@ public class PsiTypeLookupItem extends LookupItem {
     if (myBracketsCount > 0) {
       presentation.setTailText(StringUtil.repeat("[]", myBracketsCount) + StringUtil.notNullize(presentation.getTailText()), true);
     }
+  }
+
+  public PsiTypeLookupItem setShowPackage() {
+    Object object = getObject();
+    if (object instanceof PsiClass) {
+      myLocationString = " (" + PsiFormatUtil.getPackageDisplayName((PsiClass)object) + ")";
+    }
+    return this;
   }
 
   public static void addImportForItem(InsertionContext context, PsiClass aClass) {

@@ -15,9 +15,7 @@
  */
 package com.intellij.psi.impl.source.codeStyle;
 
-import com.intellij.openapi.components.RoamingType;
-import com.intellij.openapi.components.StoragePathMacros;
-import com.intellij.openapi.options.BaseSchemeProcessor;
+import com.intellij.openapi.options.SchemeProcessor;
 import com.intellij.openapi.options.SchemesManager;
 import com.intellij.openapi.options.SchemesManagerFactory;
 import com.intellij.openapi.util.WriteExternalException;
@@ -35,12 +33,12 @@ public abstract class CodeStyleSchemesImpl extends CodeStyleSchemes {
   protected static final String DEFAULT_SCHEME_NAME = "Default";
 
   @NonNls
-  static final String CODE_STYLES_DIR_PATH = StoragePathMacros.ROOT_CONFIG + "/codestyles";
+  static final String CODE_STYLES_DIR_PATH = "codestyles";
 
   protected final SchemesManager<CodeStyleScheme, CodeStyleSchemeImpl> mySchemesManager;
 
   public CodeStyleSchemesImpl(@NotNull SchemesManagerFactory schemesManagerFactory) {
-    mySchemesManager = schemesManagerFactory.createSchemesManager(CODE_STYLES_DIR_PATH, new BaseSchemeProcessor<CodeStyleSchemeImpl>() {
+    mySchemesManager = schemesManagerFactory.create(CODE_STYLES_DIR_PATH, new SchemeProcessor<CodeStyleSchemeImpl>() {
       @NotNull
       @Override
       public CodeStyleSchemeImpl readScheme(@NotNull Element element) {
@@ -65,7 +63,7 @@ public abstract class CodeStyleSchemesImpl extends CodeStyleSchemes {
       public void initScheme(@NotNull CodeStyleSchemeImpl scheme) {
         scheme.init(CodeStyleSchemesImpl.this);
       }
-    }, RoamingType.PER_USER);
+    });
 
     mySchemesManager.loadSchemes();
     addScheme(new CodeStyleSchemeImpl(DEFAULT_SCHEME_NAME, true, null));

@@ -64,6 +64,10 @@ public final class LocalFileSystemImpl extends LocalFileSystemBase implements Ap
       if (index >= 0) rootPath = rootPath.substring(0, index);
 
       File rootFile = new File(FileUtil.toSystemDependentName(rootPath));
+      if (!rootFile.isAbsolute()) {
+        throw new FileNotFoundException("Invalid path: " + rootPath);
+      }
+
       if (index > 0 || !(FileUtil.isRootPath(rootFile) || rootFile.isDirectory())) {
         File parentFile = rootFile.getParentFile();
         if (parentFile == null) {
@@ -396,8 +400,8 @@ public final class LocalFileSystemImpl extends LocalFileSystemBase implements Ap
       @Override
       public void run() {
         synchronized (myLock) {
-          final boolean update = doAddRootsToWatch(recursiveRoots, flatRoots, result, filesToSync) ||
-                                 doRemoveWatchedRoots(watchRequests);
+          boolean update = doAddRootsToWatch(recursiveRoots, flatRoots, result, filesToSync) |
+                           doRemoveWatchedRoots(watchRequests);
           if (update) {
             myNormalizedTree = null;
             setUpFileWatcher();

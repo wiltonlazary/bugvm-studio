@@ -25,6 +25,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.io.FileFilter;
 import java.io.IOException;
 
 /**
@@ -52,6 +53,10 @@ public abstract class JavaCoverageRunner extends CoverageRunner {
   }
 
   protected static String handleSpacesInPath(String agentPath) {
+    return handleSpacesInPath(agentPath, null);
+  }
+
+  protected static String handleSpacesInPath(String agentPath, FileFilter filter) {
     final String userDefined = System.getProperty(COVERAGE_AGENT_PATH);
     if (userDefined != null && new File(userDefined).exists()) {
       agentPath = userDefined;
@@ -77,7 +82,7 @@ public abstract class JavaCoverageRunner extends CoverageRunner {
 
       try {
         LOG.info("Coverage jars were copied to " + dir.getPath());
-        FileUtil.copyDir(new File(agentPath), dir);
+        FileUtil.copyDir(new File(agentPath), dir, filter);
         return dir.getPath();
       }
       catch (IOException e) {

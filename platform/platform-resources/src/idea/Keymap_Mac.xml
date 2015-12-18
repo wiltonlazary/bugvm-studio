@@ -59,9 +59,6 @@
     <action id="SafeDelete">
       <keyboard-shortcut first-keystroke="meta DELETE"/>
     </action>
-    <action id="RemoveFromFavorites">
-      <keyboard-shortcut first-keystroke="control DELETE"/>
-    </action>
     <action id="EditorDeleteToWordStart">
       <keyboard-shortcut first-keystroke="alt BACK_SPACE"/>
     </action>
@@ -301,6 +298,12 @@
     <action id="Switcher">
       <keyboard-shortcut first-keystroke="ctrl TAB"/>
       <keyboard-shortcut first-keystroke="ctrl shift TAB"/>
+    </action>
+    <action id="Diff.FocusOppositePane">
+      <keyboard-shortcut first-keystroke="control TAB"/>
+    </action>
+    <action id="Diff.FocusOppositePaneAndScroll">
+      <keyboard-shortcut first-keystroke="control shift TAB"/>
     </action>
     <action id="Vcs.QuickListPopupAction">
       <keyboard-shortcut first-keystroke="ctrl V" />
@@ -577,6 +580,9 @@
     <action id="ExpandAllToLevel5">
       <keyboard-shortcut first-keystroke="meta alt MULTIPLY" second-keystroke="5"/>
       <keyboard-shortcut first-keystroke="meta alt MULTIPLY" second-keystroke="NUMPAD5"/>
+    </action>
+    <action id="EditorMatchBrace">
+      <keyboard-shortcut first-keystroke="control M" replace-all="true"/>
     </action>
   </keymap>
 </component>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ package com.intellij.codeInsight.intention.impl;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.ExternalAnnotationsManager;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.LowPriorityAction;
 import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.command.undo.UndoUtil;
@@ -41,7 +42,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-public class DeannotateIntentionAction implements IntentionAction {
+public class DeannotateIntentionAction implements IntentionAction, LowPriorityAction {
   private static final Logger LOG = Logger.getInstance("#" + DeannotateIntentionAction.class.getName());
   private String myAnnotationName = null;
 
@@ -164,7 +165,7 @@ public class DeannotateIntentionAction implements IntentionAction {
                           final PsiModifierListOwner listOwner) {
     new WriteCommandAction(project, getText()) {
       @Override
-      protected void run(final Result result) throws Throwable {
+      protected void run(@NotNull final Result result) throws Throwable {
         final VirtualFile virtualFile = file.getVirtualFile();
         String qualifiedName = annotation.getQualifiedName();
         LOG.assertTrue(qualifiedName != null);

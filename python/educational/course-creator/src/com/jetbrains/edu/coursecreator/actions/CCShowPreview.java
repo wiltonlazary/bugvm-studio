@@ -29,6 +29,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.FrameWrapper;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
@@ -44,15 +45,15 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import java.awt.*;
 import java.text.SimpleDateFormat;
-import java.util.AbstractMap;
 import java.util.Calendar;
 
 public class CCShowPreview extends DumbAwareAction {
   private static final Logger LOG = Logger.getInstance(CCShowPreview.class.getName());
 
   public CCShowPreview() {
-    super("Show Preview","Show preview", null);
+    super("Show Preview", "Show Preview", null);
   }
 
   @Override
@@ -61,12 +62,10 @@ public class CCShowPreview extends DumbAwareAction {
       return;
     }
     Presentation presentation = e.getPresentation();
-    presentation.setEnabled(false);
-    presentation.setVisible(false);
+    presentation.setEnabledAndVisible(false);
     final PsiFile file = CommonDataKeys.PSI_FILE.getData(e.getDataContext());
     if (file != null && file.getName().contains(".answer")) {
-      presentation.setEnabled(true);
-      presentation.setVisible(true);
+      presentation.setEnabledAndVisible(true);
     }
   }
 
@@ -97,14 +96,19 @@ public class CCShowPreview extends DumbAwareAction {
     if (taskFile == null) {
       return;
     }
+    if (taskFile.getAnswerPlaceholders().isEmpty()) {
+      Messages.showInfoMessage("Preview is available for task files with answer placeholders only", "No Preview for This File");
+    }
     final TaskFile taskFileCopy = new TaskFile();
     TaskFile.copy(taskFile, taskFileCopy);
     final String taskFileName = CCProjectService.getRealTaskFileName(file.getVirtualFile().getName());
+    if (taskFileName == null) {
+      return;
+    }
     ApplicationManager.getApplication().runWriteAction(new Runnable() {
-        @Override
-        public void run() {
-        EduUtils.createStudentFileFromAnswer(project, taskDir.getVirtualFile(), taskDir.getVirtualFile(),
-                                             new AbstractMap.SimpleEntry<String, TaskFile>(taskFileName, taskFileCopy));
+      @Override
+      public void run() {
+        EduUtils.createStudentFileFromAnswer(project, taskDir.getVirtualFile(), taskDir.getVirtualFile(), taskFileName, taskFileCopy);
       }
     });
 
@@ -117,7 +121,7 @@ public class CCShowPreview extends DumbAwareAction {
       LOG.info("Generated file " + userFileName + "was not found");
       return;
     }
-    FrameWrapper showPreviewFrame = new FrameWrapper(project);
+    final FrameWrapper showPreviewFrame = new FrameWrapper(project);
     showPreviewFrame.setTitle(userFileName);
     LabeledEditor labeledEditor = new LabeledEditor(null);
     final EditorFactory factory = EditorFactory.getInstance();
@@ -140,10 +144,12 @@ public class CCShowPreview extends DumbAwareAction {
     header.add(new JLabel("Read-only preview."));
     String timeStamp = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(Calendar.getInstance().getTime());
     header.add(new JLabel(String.format("Created %s.", timeStamp)));
-    labeledEditor.setComponent(createdEditor.getComponent(), header);
+    JComponent editorComponent = createdEditor.getComponent();
+    labeledEditor.setComponent(editorComponent, header);
     createdEditor.setCaretVisible(false);
     createdEditor.setCaretEnabled(false);
     showPreviewFrame.setComponent(labeledEditor);
+    showPreviewFrame.setSize(new Dimension(500, 500));
     showPreviewFrame.show();
   }
 }

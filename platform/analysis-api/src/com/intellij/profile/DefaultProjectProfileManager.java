@@ -22,8 +22,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.packageDependencies.DependencyValidationManager;
 import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
 import com.intellij.util.ArrayUtil;
@@ -36,10 +34,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * User: anna
@@ -58,9 +53,10 @@ public abstract class DefaultProjectProfileManager extends ProjectProfileManager
   @NotNull
   protected final Project myProject;
 
-  protected String myProjectProfile;
-  /** This field is used for serialization. Do not rename it or make access weaker */
-  public boolean USE_PROJECT_PROFILE = true;
+  private String myProjectProfile;
+
+  @OptionTag("USE_PROJECT_PROFILE")
+  private boolean useProjectProfile = true;
 
   private final ApplicationProfileManager myApplicationProfileManager;
 
@@ -106,12 +102,7 @@ public abstract class DefaultProjectProfileManager extends ProjectProfileManager
       final Profile projectProfile = myProfiles.get(profile);
       if (projectProfile != null) {
         Element profileElement = new Element(PROFILE);
-        try {
-          projectProfile.writeExternal(profileElement);
-        }
-        catch (WriteExternalException e) {
-          LOG.error(e);
-        }
+        projectProfile.writeExternal(profileElement);
         boolean hasSmthToSave = sortedProfiles.length > 1 || isCustomProfileUsed();
         if (!hasSmthToSave) {
           for (Element child : profileElement.getChildren()) {
@@ -136,19 +127,21 @@ public abstract class DefaultProjectProfileManager extends ProjectProfileManager
 
   @Override
   public synchronized void loadState(Element state) {
+    final Set<String> profileKeys = new HashSet<String>();
+    profileKeys.addAll(myProfiles.keySet());
     myProfiles.clear();
     XmlSerializer.deserializeInto(this, state);
     for (Element o : state.getChildren(PROFILE)) {
       Profile profile = myApplicationProfileManager.createProfile();
       profile.setProfileManager(this);
-      try {
-        profile.readExternal(o);
-      }
-      catch (InvalidDataException e) {
-        LOG.error(e);
-      }
+      profile.readExternal(o);
       profile.setProjectLevel(true);
-      myProfiles.put(profile.getName(), profile);
+      if (profileKeys.contains(profile.getName())) {
+        updateProfile(profile);
+      }
+      else {
+        myProfiles.put(profile.getName(), profile);
+      }
     }
     if (state.getChild("version") == null || !Comparing.strEqual(state.getChild("version").getAttributeValue("value"), VERSION)) {
       boolean toConvert = true;
@@ -209,17 +202,17 @@ public abstract class DefaultProjectProfileManager extends ProjectProfileManager
 
     String oldProfile = myProjectProfile;
     myProjectProfile = newProfile;
-    USE_PROJECT_PROFILE = newProfile != null;
+    useProjectProfile = newProfile != null;
     if (oldProfile != null) {
       for (ProfileChangeAdapter adapter : myProfilesListener) {
-        adapter.profileActivated(getProfile(oldProfile), newProfile != null ?  getProfile(newProfile) : null);
+        adapter.profileActivated(getProfile(oldProfile), newProfile != null ? getProfile(newProfile) : null);
       }
     }
   }
 
   @NotNull
   public synchronized Profile getProjectProfileImpl(){
-    if (!USE_PROJECT_PROFILE) {
+    if (!useProjectProfile) {
       return myApplicationProfileManager.getRootProfile();
     }
     if (myProjectProfile == null || myProfiles.isEmpty()){
@@ -234,7 +227,9 @@ public abstract class DefaultProjectProfileManager extends ProjectProfileManager
       setProjectProfile(myProfiles.keySet().iterator().next());
     }
     final Profile profile = myProfiles.get(myProjectProfile);
-    profile.setProfileManager(this);
+    if (profile.isProjectLevel()) {
+      profile.setProfileManager(this);
+    }
     return profile;
   }
 
@@ -246,10 +241,6 @@ public abstract class DefaultProjectProfileManager extends ProjectProfileManager
         myProfilesListener.remove(profilesListener);
       }
     });
-  }
-
-  public void removeProfilesListener(@NotNull ProfileChangeAdapter profilesListener) {
-    myProfilesListener.remove(profilesListener);
   }
 
   public static class ProfileStateSplitter extends MainConfigurationStateSplitter {

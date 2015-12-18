@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -115,7 +115,7 @@ public abstract class BaseCompleteMacro extends Macro {
           templateState.nextTab();
         }
         else if (caret > range.getEndOffset()) {
-          templateState.cancelTemplate();
+          templateState.gotoEnd(true);
         }
       }
     }
@@ -156,7 +156,7 @@ public abstract class BaseCompleteMacro extends Macro {
         public void run() {
           new WriteCommandAction(project) {
             @Override
-            protected void run(com.intellij.openapi.application.Result result) throws Throwable {
+            protected void run(@NotNull com.intellij.openapi.application.Result result) throws Throwable {
               Editor editor = myContext.getEditor();
               if (editor != null) {
                 considerNextTab(editor);

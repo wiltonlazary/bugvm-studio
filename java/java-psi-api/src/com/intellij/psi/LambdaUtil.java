@@ -132,7 +132,7 @@ public class LambdaUtil {
 
   public static boolean isLambdaFullyInferred(PsiLambdaExpression expression, PsiType functionalInterfaceType) {
     final boolean hasParams = expression.getParameterList().getParametersCount() > 0;
-    if (hasParams || getFunctionalInterfaceReturnType(functionalInterfaceType) != PsiType.VOID) {   //todo check that void lambdas without params check
+    if (hasParams || !PsiType.VOID.equals(getFunctionalInterfaceReturnType(functionalInterfaceType))) {   //todo check that void lambdas without params check
       
       return !dependsOnTypeParams(functionalInterfaceType, functionalInterfaceType, expression);
     }
@@ -468,10 +468,28 @@ public class LambdaUtil {
         return "Static interface method invocations are not supported at this language level";
       }
 
-      if (qualifierExpression == null && 
-          (scope instanceof PsiImportStaticStatement || PsiTreeUtil.isAncestor(containingClass, methodReferenceExpression, true)) || 
-          qualifierExpression instanceof PsiReferenceExpression && ((PsiReferenceExpression)qualifierExpression).resolve() == containingClass) {
+      if (qualifierExpression == null && (scope instanceof PsiImportStaticStatement || PsiTreeUtil.isAncestor(containingClass, methodReferenceExpression, true))) {
         return null;
+      }
+      if (qualifierExpression instanceof PsiReferenceExpression) {
+        final PsiElement resolve = ((PsiReferenceExpression)qualifierExpression).resolve();
+        if (resolve == containingClass) {
+          return null;
+        }
+        
+        if (resolve instanceof PsiTypeParameter) {
+          final Set<PsiClass> classes = new HashSet<PsiClass>();
+          for (PsiClassType type : ((PsiTypeParameter)resolve).getExtendsListTypes()) {
+            final PsiClass aClass = type.resolve();
+            if (aClass != null) {
+              classes.add(aClass);
+            }
+          }
+          
+          if (classes.size() == 1 && classes.contains(containingClass)) {
+            return null;
+          }
+        }
       }
       return "Static method may be invoked on containing interface class only";
     }
@@ -552,7 +570,7 @@ public class LambdaUtil {
   }
 
   public static String checkReturnTypeCompatible(PsiLambdaExpression lambdaExpression, PsiType functionalInterfaceReturnType) {
-    if (functionalInterfaceReturnType == PsiType.VOID) {
+    if (PsiType.VOID.equals(functionalInterfaceReturnType)) {
       final PsiElement body = lambdaExpression.getBody();
       if (body instanceof PsiCodeBlock) {
         if (!getReturnExpressions(lambdaExpression).isEmpty()) return "Unexpected return value";

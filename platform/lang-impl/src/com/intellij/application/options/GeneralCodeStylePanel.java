@@ -36,7 +36,9 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.codeStyle.FileIndentOptionsProvider;
 import com.intellij.ui.IdeBorderFactory;
+import com.intellij.ui.LightColors;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.GradientViewport;
@@ -63,11 +65,13 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
   private static final String MACINTOSH_STRING = ApplicationBundle.message("combobox.crlf.mac");
   private final List<GeneralCodeStyleOptionsProvider> myAdditionalOptions;
 
-  private JSpinner myRightMarginSpinner;
+  private JTextField myRightMarginField;
+  private int myDefaultRightMargin;
+  private Color myInitialRightMarginFieldColor;
+
   private JComboBox myLineSeparatorCombo;
   private JPanel myPanel;
   private JCheckBox myCbWrapWhenTypingReachesRightMargin;
-  private JPanel myDefaultIndentOptionsPanel;
   private JCheckBox myEnableFormatterTags;
   private JTextField myFormatterOnTagField;
   private JTextField myFormatterOffTagField;
@@ -79,23 +83,27 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
   private JPanel myAdditionalSettingsPanel;
   private JCheckBox myAutodetectIndentsBox;
   private JCheckBox myShowDetectedIndentNotification;
-  private final SmartIndentOptionsEditor myIndentOptionsEditor;
+  private JPanel myDefaultOptionsPanel;
+  private JPanel myIndentsDetectionPanel;
   private final JScrollPane myScrollPane;
 
 
   public GeneralCodeStylePanel(CodeStyleSettings settings) {
     super(settings);
 
+    //noinspection unchecked
     myLineSeparatorCombo.addItem(SYSTEM_DEPENDANT_STRING);
+    //noinspection unchecked
     myLineSeparatorCombo.addItem(UNIX_STRING);
+    //noinspection unchecked
     myLineSeparatorCombo.addItem(WINDOWS_STRING);
+    //noinspection unchecked
     myLineSeparatorCombo.addItem(MACINTOSH_STRING);
     addPanelToWatch(myPanel);
 
-    myRightMarginSpinner.setModel(new SpinnerNumberModel(settings.getDefaultRightMargin(), 1, 1000000, 1));
-
-    myIndentOptionsEditor = new SmartIndentOptionsEditor();
-    myDefaultIndentOptionsPanel.add(myIndentOptionsEditor.createPanel(), BorderLayout.CENTER);
+    myDefaultRightMargin = settings.getDefaultRightMargin();
+    myRightMarginField.setHorizontalAlignment(SwingConstants.RIGHT);
+    myInitialRightMarginFieldColor = myRightMarginField.getBackground();
 
     myEnableFormatterTags.addActionListener(new ActionListener() {
       @Override
@@ -113,6 +121,11 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
       }
     });
 
+    myDefaultOptionsPanel
+      .setBorder(IdeBorderFactory.createTitledBorder(ApplicationBundle.message("settings.code.style.general.default.options")));
+    myIndentsDetectionPanel
+      .setBorder(IdeBorderFactory.createTitledBorder(ApplicationBundle.message("settings.code.style.general.indents.detection")));
+
     myMarkersPanel.setBorder(IdeBorderFactory.createTitledBorder(
       ApplicationBundle.message("settings.code.style.general.formatter.marker.title"), true));
     myMarkerOptionsPanel.setBorder(
@@ -126,7 +139,10 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
     myAdditionalSettingsPanel.removeAll();
     myAdditionalOptions = ConfigurableWrapper.createConfigurables(GeneralCodeStyleOptionsProviderEP.EP_NAME);
     for (GeneralCodeStyleOptionsProvider provider : myAdditionalOptions) {
-      myAdditionalSettingsPanel.add(provider.createComponent());
+      JComponent generalSettingsComponent = provider.createComponent();
+      if (generalSettingsComponent != null) {
+        myAdditionalSettingsPanel.add(generalSettingsComponent);
+      }
     }
   }
 
@@ -138,7 +154,21 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
 
   @Override
   protected int getRightMargin() {
-    return ((Number) myRightMarginSpinner.getValue()).intValue();
+    String text = myRightMarginField.getText();
+    int rightMargin;
+    myRightMarginField.setBackground(myInitialRightMarginFieldColor);
+    try {
+      rightMargin = Integer.parseInt(text);
+      if (rightMargin < 1 || rightMargin > CodeStyleSettings.MAX_RIGHT_MARGIN) {
+        rightMargin = myDefaultRightMargin;
+        myRightMarginField.setBackground(LightColors.RED);
+      }
+    }
+    catch (NumberFormatException nfe) {
+      myRightMarginField.setBackground(LightColors.RED);
+      rightMargin = myDefaultRightMargin;
+    }
+    return rightMargin;
   }
 
   @Override
@@ -157,10 +187,8 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
   public void apply(CodeStyleSettings settings) {
     settings.LINE_SEPARATOR = getSelectedLineSeparator();
 
-    settings.setDefaultRightMargin(((Number) myRightMarginSpinner.getValue()).intValue());
+    settings.setDefaultRightMargin(getRightMargin());
     settings.WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN = myCbWrapWhenTypingReachesRightMargin.isSelected();
-    myIndentOptionsEditor.setEnabled(true);
-    myIndentOptionsEditor.apply(settings, settings.OTHER_INDENT_OPTIONS);
 
     settings.FORMATTER_TAGS_ENABLED = myEnableFormatterTags.isSelected();
     settings.FORMATTER_TAGS_ACCEPT_REGEXP = myAcceptRegularExpressionsCheckBox.isSelected();
@@ -173,7 +201,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
 
     settings.AUTODETECT_INDENTS = myAutodetectIndentsBox.isSelected();
     if (myShowDetectedIndentNotification.isEnabled()) {
-      settings.SHOW_DETECTED_INDENT_NOTIFICATION = myShowDetectedIndentNotification.isSelected();
+      FileIndentOptionsProvider.setShowNotification(myShowDetectedIndentNotification.isSelected());
     }
 
     for (GeneralCodeStyleOptionsProvider option : myAdditionalOptions) {
@@ -227,8 +255,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
       return true;
     }
 
-    if (!Comparing.equal(myRightMarginSpinner.getValue(), settings.getDefaultRightMargin())) return true;
-    myIndentOptionsEditor.setEnabled(true);
+    if (getRightMargin() != settings.getDefaultRightMargin()) return true;
 
     if (myEnableFormatterTags.isSelected()) {
       if (
@@ -248,12 +275,12 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
     if (settings.AUTODETECT_INDENTS != myAutodetectIndentsBox.isSelected()) return true;
 
     if (myShowDetectedIndentNotification.isEnabled()
-        && settings.SHOW_DETECTED_INDENT_NOTIFICATION != myShowDetectedIndentNotification.isSelected())
+        && FileIndentOptionsProvider.isShowNotification() != myShowDetectedIndentNotification.isSelected())
     {
       return true;
     }
 
-    return myIndentOptionsEditor.isModified(settings, settings.OTHER_INDENT_OPTIONS);
+    return false;
   }
 
   @Override
@@ -278,10 +305,8 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
       myLineSeparatorCombo.setSelectedItem(SYSTEM_DEPENDANT_STRING);
     }
 
-    myRightMarginSpinner.setValue(settings.getDefaultRightMargin());
+    myRightMarginField.setText(String.valueOf(settings.getDefaultRightMargin()));
     myCbWrapWhenTypingReachesRightMargin.setSelected(settings.WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN);
-    myIndentOptionsEditor.reset(settings, settings.OTHER_INDENT_OPTIONS);
-    myIndentOptionsEditor.setEnabled(true);
 
     myAcceptRegularExpressionsCheckBox.setSelected(settings.FORMATTER_TAGS_ACCEPT_REGEXP);
     myEnableFormatterTags.setSelected(settings.FORMATTER_TAGS_ENABLED);
@@ -293,7 +318,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
 
     myAutodetectIndentsBox.setSelected(settings.AUTODETECT_INDENTS);
     myShowDetectedIndentNotification.setEnabled(myAutodetectIndentsBox.isSelected());
-    myShowDetectedIndentNotification.setSelected(settings.SHOW_DETECTED_INDENT_NOTIFICATION);
+    myShowDetectedIndentNotification.setSelected(FileIndentOptionsProvider.isShowNotification());
 
     for (GeneralCodeStyleOptionsProvider option : myAdditionalOptions) {
       option.reset(settings);

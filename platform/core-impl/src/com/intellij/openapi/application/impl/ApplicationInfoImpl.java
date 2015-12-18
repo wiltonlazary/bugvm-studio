@@ -19,14 +19,15 @@ import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
-import com.intellij.openapi.components.NamedComponent;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.BuildNumber;
+import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.SystemInfoRt;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.JBColor;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
-import com.intellij.util.PlatformUtils;
+import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Document;
 import org.jdom.Element;
@@ -37,13 +38,14 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.net.URL;
 import java.text.MessageFormat;
 import java.util.*;
 import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExternalizable, NamedComponent {
+public class ApplicationInfoImpl extends ApplicationInfoEx {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.application.impl.ApplicationInfoImpl");
 
   private String myCodeName = null;
@@ -63,7 +65,10 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   private String myProgressTailIconName = null;
   private Icon myProgressTailIcon = null;
 
+  private int myProgressHeight = 2;
+  private int myProgressX = 1;
   private int myProgressY = 350;
+  private int myLicenseOffsetY = Registry.is("ide.new.about") ? 85 : 30;
   private String mySplashImageUrl = null;
   private String myAboutImageUrl = null;
   private Color mySplashTextColor = new Color(0, 35, 135);  // idea blue
@@ -86,6 +91,7 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   private String myReleaseFeedbackUrl;
   private String myPluginManagerUrl;
   private String myPluginsListUrl;
+  private String myChannelsListUrl;
   private String myPluginsDownloadUrl;
   private String myBuiltinPluginsUrl;
   private String myWhatsNewUrl;
@@ -104,7 +110,8 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   private String myStatisticsServiceKey;
   private String myThirdPartySoftwareUrl;
   private String myJetbrainsTvUrl;
-  private String myEvalLicenseUrl = "https://www.jetbrains.com/company/useterms.html";
+  private String myEvalLicenseUrl = "https://www.jetbrains.com/store/license.html";
+  private String myKeyConversionUrl = "https://www.jetbrains.com/shop/eform/keys-exchange";
 
   private Rectangle myAboutLogoRect;
 
@@ -130,7 +137,10 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   private static final String ATTRIBUTE_ABOUT_FOREGROUND_COLOR = "foreground";
   private static final String ATTRIBUTE_ABOUT_COPYRIGHT_FOREGROUND_COLOR = "copyrightForeground";
   private static final String ATTRIBUTE_ABOUT_LINK_COLOR = "linkColor";
+  private static final String ATTRIBUTE_PROGRESS_HEIGHT = "progressHeight";
+  private static final String ATTRIBUTE_PROGRESS_X = "progressX";
   private static final String ATTRIBUTE_PROGRESS_Y = "progressY";
+  private static final String ATTRIBUTE_LICENSE_TEXT_OFFSET_Y = "licenseOffsetY";
   private static final String ATTRIBUTE_PROGRESS_TAIL_ICON = "progressTailIcon";
   private static final String ELEMENT_ABOUT = "about";
   private static final String ELEMENT_ICON = "icon";
@@ -160,6 +170,7 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   private static final String ATTRIBUTE_EAP_URL = "eap-url";
   private static final String ELEMENT_PLUGINS = "plugins";
   private static final String ATTRIBUTE_LIST_URL = "list-url";
+  private static final String ATTRIBUTE_CHANNEL_LIST_URL = "channel-list-url";
   private static final String ATTRIBUTE_DOWNLOAD_URL = "download-url";
   private static final String ATTRIBUTE_BUILTIN_URL = "builtin-url";
   private static final String ATTRIBUTE_WEBHELP_URL = "webhelp-url";
@@ -179,9 +190,24 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   private static final String STEPS_PROVIDER = "provider";
   private static final String ELEMENT_EVALUATION = "evaluation";
   private static final String ATTRIBUTE_EVAL_LICENSE_URL = "license-url";
+  private static final String ELEMENT_LICENSING = "licensing";
+  private static final String ATTRIBUTE_KEY_CONVERSION_URL = "key-conversion-url";
   private static final String ESSENTIAL_PLUGIN = "essential-plugin";
 
   private static final String DEFAULT_PLUGINS_HOST = "http://plugins.jetbrains.com";
+
+  ApplicationInfoImpl() {
+    try {
+      Document doc = JDOMUtil.loadDocument(ApplicationInfoImpl.class, IDEA_PATH + ApplicationNamesInfo.getComponentName() + XML_EXTENSION);
+      loadState(doc.getRootElement());
+    }
+    catch (FileNotFoundException e) {
+      LOG.error("Resource is not in classpath or wrong platform prefix: " + System.getProperty(PlatformUtils.PLATFORM_PREFIX_KEY), e);
+    }
+    catch (Exception e) {
+      LOG.error(e);
+    }
+  }
 
   @Override
   public Calendar getBuildDate() {
@@ -312,14 +338,32 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
     return myCopyrightForeground;
   }
 
+  public int getProgressHeight() {
+    return myProgressHeight;
+  }
+
   public int getProgressY() {
     return myProgressY;
+  }
+
+  public int getLicenseOffsetY() {
+    return myLicenseOffsetY;
+  }
+
+  public int getProgressX() {
+    return myProgressX;
   }
 
   @Nullable
   public Icon getProgressTailIcon() {
     if (myProgressTailIcon == null && myProgressTailIconName != null) {
-      myProgressTailIcon = IconLoader.getIcon(myProgressTailIconName);
+      try {
+        final URL url = getClass().getResource(myProgressTailIconName);
+        final Image image = ImageLoader.loadFromUrl(url, false);
+        if (image != null) {
+          myProgressTailIcon = new ImageIcon(image);
+        }
+      } catch (Exception ignore) {}
     }
     return myProgressTailIcon;
   }
@@ -404,6 +448,11 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   @Override
   public String getPluginsListUrl() {
     return myPluginsListUrl;
+  }
+
+  @Override
+  public String getChannelsListUrl() {
+    return myChannelsListUrl;
   }
 
   @Override
@@ -502,6 +551,11 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   }
 
   @Override
+  public String getKeyConversionUrl() {
+    return myKeyConversionUrl;
+  }
+
+  @Override
   public Rectangle getAboutLogoRect() {
     return myAboutLogoRect;
   }
@@ -521,22 +575,11 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   public static ApplicationInfoEx getShadowInstance() {
     if (ourShadowInstance == null) {
       ourShadowInstance = new ApplicationInfoImpl();
-      try {
-        Document doc = JDOMUtil.loadDocument(ApplicationInfoImpl.class, IDEA_PATH + ApplicationNamesInfo.getComponentName() + XML_EXTENSION);
-        ourShadowInstance.readExternal(doc.getRootElement());
-      }
-      catch (FileNotFoundException e) {
-        LOG.error("Resource is not in classpath or wrong platform prefix: " + System.getProperty(PlatformUtils.PLATFORM_PREFIX_KEY), e);
-      }
-      catch (Exception e) {
-        LOG.error(e);
-      }
     }
     return ourShadowInstance;
   }
 
-  @Override
-  public void readExternal(Element parentNode) throws InvalidDataException {
+  private void loadState(Element parentNode) {
     Element versionElement = parentNode.getChild(ELEMENT_VERSION);
     if (versionElement != null) {
       myMajorVersion = versionElement.getAttributeValue(ATTRIBUTE_MAJOR);
@@ -585,7 +628,13 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
     }
 
     Thread currentThread = Thread.currentThread();
-    currentThread.setName(currentThread.getName() + " " + myMajorVersion + "." + myMinorVersion + "#" + myBuildNumber + ", eap:" + myEAP);
+    currentThread.setName(
+      currentThread.getName() + " " +
+      ApplicationNamesInfo.getInstance().getProductName() + " " +
+      myMajorVersion + "." + myMinorVersion + "#" + myBuildNumber +
+      " " + ApplicationNamesInfo.getInstance().getProductName() +
+      ", eap:" + myEAP + ", os:" + SystemInfoRt.OS_NAME + " " + SystemInfoRt.OS_VERSION +
+      ", java-version:" + SystemProperties.getJavaVendor() + " " + SystemInfo.JAVA_RUNTIME_VERSION);
 
     Element logoElement = parentNode.getChild(ELEMENT_LOGO);
     if (logoElement != null) {
@@ -601,9 +650,24 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
         myProgressTailIconName = v;
       }
 
+      v = logoElement.getAttributeValue(ATTRIBUTE_PROGRESS_HEIGHT);
+      if (v != null) {
+        myProgressHeight = Integer.parseInt(v);
+      }
+
+      v = logoElement.getAttributeValue(ATTRIBUTE_PROGRESS_X);
+      if (v != null) {
+        myProgressX = Integer.parseInt(v);
+      }
+
       v = logoElement.getAttributeValue(ATTRIBUTE_PROGRESS_Y);
       if (v != null) {
         myProgressY = Integer.parseInt(v);
+      }
+
+      v = logoElement.getAttributeValue(ATTRIBUTE_LICENSE_TEXT_OFFSET_Y);
+      if (v != null) {
+        myLicenseOffsetY = Integer.parseInt(v);
       }
     }
 
@@ -725,6 +789,9 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
       String listUrl = pluginsElement.getAttributeValue(ATTRIBUTE_LIST_URL);
       myPluginsListUrl = listUrl != null ? listUrl : myPluginManagerUrl + (closed ? "" : "/") + "plugins/list/";
 
+      String channelListUrl = pluginsElement.getAttributeValue(ATTRIBUTE_CHANNEL_LIST_URL);
+      myChannelsListUrl = channelListUrl != null ? channelListUrl  : myPluginManagerUrl + (closed ? "" : "/") + "channels/list/";
+
       String downloadUrl = pluginsElement.getAttributeValue(ATTRIBUTE_DOWNLOAD_URL);
       myPluginsDownloadUrl = downloadUrl != null ? downloadUrl : myPluginManagerUrl + (closed ? "" : "/") + "pluginManager/";
 
@@ -735,12 +802,14 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
     else {
       myPluginManagerUrl = DEFAULT_PLUGINS_HOST;
       myPluginsListUrl = DEFAULT_PLUGINS_HOST + "/plugins/list/";
+      myChannelsListUrl = DEFAULT_PLUGINS_HOST + "/channels/list/";
       myPluginsDownloadUrl = DEFAULT_PLUGINS_HOST + "/pluginManager/";
     }
 
     final String pluginsHost = System.getProperty("idea.plugins.host");
     if (pluginsHost != null) {
       myPluginsListUrl = myPluginsListUrl.replace(DEFAULT_PLUGINS_HOST, pluginsHost);
+      myChannelsListUrl = myChannelsListUrl.replace(DEFAULT_PLUGINS_HOST, pluginsHost);
       myPluginsDownloadUrl = myPluginsDownloadUrl.replace(DEFAULT_PLUGINS_HOST, pluginsHost);
     }
 
@@ -792,7 +861,15 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
     if (evaluationElement != null) {
       final String url = evaluationElement.getAttributeValue(ATTRIBUTE_EVAL_LICENSE_URL);
       if (url != null && !url.isEmpty()) {
-        myEvalLicenseUrl = url;
+        myEvalLicenseUrl = url.trim();
+      }
+    }
+ 
+    Element licensingElement = parentNode.getChild(ELEMENT_LICENSING);
+    if (licensingElement != null) {
+      final String url = licensingElement.getAttributeValue(ATTRIBUTE_KEY_CONVERSION_URL);
+      if (url != null && !url.isEmpty()) {
+        myKeyConversionUrl = url.trim();
       }
     }
 
@@ -826,11 +903,6 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
-    throw new WriteExternalException();
-  }
-
-  @Override
   public List<PluginChooserPage> getPluginChooserPages() {
     return myPluginChooserPages;
   }
@@ -838,12 +910,6 @@ public class ApplicationInfoImpl extends ApplicationInfoEx implements JDOMExtern
   @Override
   public boolean isEssentialPlugin(@NotNull String pluginId) {
     return PluginManagerCore.CORE_PLUGIN_ID.equals(pluginId) || ArrayUtil.contains(pluginId, myEssentialPluginsIds);
-  }
-
-  @Override
-  @NotNull
-  public String getComponentName() {
-    return ApplicationNamesInfo.getComponentName();
   }
 
   private static class UpdateUrlsImpl implements UpdateUrls {

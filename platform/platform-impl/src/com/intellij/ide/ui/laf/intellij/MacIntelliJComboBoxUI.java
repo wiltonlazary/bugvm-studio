@@ -15,42 +15,42 @@
  */
 package com.intellij.ide.ui.laf.intellij;
 
-import com.intellij.ide.ui.laf.darcula.DarculaLaf;
 import com.intellij.ui.Gray;
+import com.intellij.util.ui.EmptyIcon;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.components.BorderLayoutPanel;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.plaf.ComponentUI;
-import javax.swing.plaf.basic.BasicArrowButton;
-import javax.swing.plaf.basic.BasicComboBoxEditor;
-import javax.swing.plaf.basic.BasicComboBoxUI;
+import javax.swing.plaf.basic.*;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
-  private static final Icon COMBOBOX = DarculaLaf.loadIcon("comboboxMac.png");
-  private static final Icon COMBOBOX_LEFT = DarculaLaf.loadIcon("comboboxLeft.png");
-  private static final Icon COMBOBOX_TOP_BOTTOM = DarculaLaf.loadIcon("comboboxTopBottom.png");
-  private static final Icon COMBOBOX_FOCUSED = DarculaLaf.loadIcon("comboboxMacFocused.png");
-  private static final Icon COMBOBOX_LEFT_FOCUSED = DarculaLaf.loadIcon("comboboxLeftFocused.png");
-  private static final Icon COMBOBOX_TOP_BOTTOM_FOCUSED = DarculaLaf.loadIcon("comboboxTopBottomFocused.png");
-  private static final Icon COMBOBOX_TOP_BOTTOM_DISABLED = DarculaLaf.loadIcon("comboboxTopBottomDisabled.png");
-  private static final Icon COMBOBOX_LEFT_DISABLED = DarculaLaf.loadIcon("comboboxLeftDisabled.png");
-  private static final Icon COMBOBOX_DISABLED = DarculaLaf.loadIcon("comboboxMacDisabledRight.png");
+  private static final Icon DEFAULT_ICON = EmptyIcon.create(MacIntelliJIconCache.getIcon("comboRight"));
+  private static final Border ourDefaultEditorBorder = JBUI.Borders.empty(1, 0);
+
   private final JComboBox myComboBox;
+  private PropertyChangeListener myEditorChangeListener;
+  private PropertyChangeListener myEditorBorderChangeListener;
 
   public MacIntelliJComboBoxUI(JComboBox comboBox) {
     myComboBox = comboBox;
+    comboBox.setOpaque(false);
     currentValuePane = new CellRendererPane() {
       @Override
       public void paintComponent(Graphics g, Component c, Container p, int x, int y, int w, int h, boolean shouldValidate) {
-        c.setBackground(myComboBox.isEnabled() ? Gray.xFF : Gray.xF6);
+        c.setBackground(myComboBox.isEnabled() ? Gray.xFF : Gray.xF8);
         super.paintComponent(g, c, p, x, y, w, h, shouldValidate);
       }
     };
@@ -62,19 +62,73 @@ public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
   }
 
   @Override
+  public void installUI(final JComponent c) {
+    super.installUI(c);
+    myEditorBorderChangeListener = new PropertyChangeListener() {
+      @Override
+      public void propertyChange(PropertyChangeEvent evt) {
+        Object value = evt.getNewValue();
+        if (value == ourDefaultEditorBorder) return;
+        ComboBoxEditor editor = ((JComboBox)c).getEditor();
+        if (editor != null) {
+          Component component = editor.getEditorComponent();
+          if (component instanceof JComponent) {
+            ((JComponent)component).setBorder(ourDefaultEditorBorder);
+          }
+        }
+      }
+    };
+    myEditorChangeListener = new PropertyChangeListener() {
+      @Override
+      public void propertyChange(PropertyChangeEvent evt) {
+        Object value = evt.getNewValue();
+        Object oldEditor = evt.getOldValue();
+        if (oldEditor instanceof ComboBoxEditor) {
+          Component component = ((ComboBoxEditor)oldEditor).getEditorComponent();
+          if (component instanceof JComponent) {
+            component.removePropertyChangeListener("border", myEditorBorderChangeListener);
+          }
+        }
+        if (value instanceof ComboBoxEditor) {
+          Component component = ((ComboBoxEditor)value).getEditorComponent();
+          if (component instanceof JComponent) {
+            JComponent comboBoxEditor = (JComponent)component;
+            comboBoxEditor.setBorder(ourDefaultEditorBorder);
+            comboBoxEditor.addPropertyChangeListener("border", myEditorBorderChangeListener);
+          }
+        }
+      }
+    };
+    c.addPropertyChangeListener("editor", myEditorChangeListener);
+  }
+
+  @Override
+  public void uninstallUI(JComponent c) {
+    c.removePropertyChangeListener("editor", myEditorChangeListener);
+    ComboBoxEditor editor = ((JComboBox)c).getEditor();
+    if (editor != null) {
+      Component component = editor.getEditorComponent();
+      if (component instanceof JComponent) {
+        component.removePropertyChangeListener("border", myEditorBorderChangeListener);
+      }
+    }
+    super.uninstallUI(c);
+  }
+
+  @Override
   protected JButton createArrowButton() {
     final Color bg = myComboBox.getBackground();
     final Color fg = myComboBox.getForeground();
     JButton button = new BasicArrowButton(SwingConstants.SOUTH, bg, fg, fg, fg) {
       @Override
       public void paint(Graphics g2) {
-        Icon icon = myComboBox.isEnabled() ? myComboBox.hasFocus() ? COMBOBOX_FOCUSED : COMBOBOX : COMBOBOX_DISABLED;
+        Icon icon = MacIntelliJIconCache.getIcon("comboRight", false, myComboBox.hasFocus(), myComboBox.isEnabled());
         icon.paintIcon(this, g2, 0, 0);
       }
 
       @Override
       public Dimension getPreferredSize() {
-        return JBUI.size(COMBOBOX.getIconWidth(), COMBOBOX.getIconHeight());
+        return JBUI.size(DEFAULT_ICON.getIconWidth(), DEFAULT_ICON.getIconHeight());
       }
     };
     button.setBorder(BorderFactory.createEmptyBorder());
@@ -88,7 +142,7 @@ public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
   }
 
   private static Dimension getSizeWithIcon(Dimension d) {
-    return new Dimension(Math.max(d.width + 7, COMBOBOX.getIconWidth()), Math.max(d.height, COMBOBOX.getIconHeight()));
+    return new Dimension(Math.max(d.width + 7, DEFAULT_ICON.getIconWidth()), Math.max(d.height, DEFAULT_ICON.getIconHeight()));
   }
 
   @Override
@@ -103,9 +157,18 @@ public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
         @Override
         protected JTextField createEditorComponent() {
           return new JTextField() {
+
             {
               setOpaque(false);
-              setBorder(JBUI.Borders.empty(1, 0));
+              setBorder(ourDefaultEditorBorder);
+            }
+
+            @Override
+            public Color getBackground() {
+              if (!isEnabled()) {
+                return Gray.xF8;
+              }
+              return super.getBackground();
             }
 
             public void setText(String s) {
@@ -116,9 +179,18 @@ public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
             }
 
             @Override
+            public void setBorder(Border border) {
+            }
+
+            @Override
+            public Border getBorder() {
+              return ourDefaultEditorBorder;
+            }
+
+            @Override
             public Dimension getPreferredSize() {
               Dimension size = super.getPreferredSize();
-              return new Dimension(size.width, COMBOBOX.getIconHeight() - 6);
+              return new Dimension(size.width, DEFAULT_ICON.getIconHeight() - 6);
             }
           };
         }
@@ -167,7 +239,7 @@ public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
   @Override
   protected Rectangle rectangleForCurrentValue() {
     Rectangle rect = super.rectangleForCurrentValue();
-    rect.height=Math.min(rect.height, COMBOBOX.getIconHeight()-8);
+    rect.height=Math.min(rect.height, DEFAULT_ICON.getIconHeight()-8);
     rect.y+=4;
     rect.x+=8;
     rect.width-=8;
@@ -210,7 +282,7 @@ public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
 
         Insets insets = getInsets();
         int buttonHeight = height - (insets.top + insets.bottom);
-        int buttonWidth = COMBOBOX.getIconWidth();
+        int buttonWidth = DEFAULT_ICON.getIconWidth();
         if (arrowButton != null) {
           Insets arrowInsets = arrowButton.getInsets();
           buttonWidth = arrowButton.getPreferredSize().width + arrowInsets.left + arrowInsets.right;
@@ -231,8 +303,64 @@ public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
   }
 
   @Override
+  protected ComboPopup createPopup() {
+    return new BasicComboPopup(myComboBox) {
+      @Override
+      protected void configurePopup() {
+        super.configurePopup();
+        setBorderPainted(false);
+        setBorder(JBUI.Borders.empty());
+        setBackground(Gray.xFF);
+      }
+
+      @Override
+      protected void configureList() {
+        super.configureList();
+        wrapRenderer();
+      }
+
+      @Override
+      protected PropertyChangeListener createPropertyChangeListener() {
+        final PropertyChangeListener listener = super.createPropertyChangeListener();
+        return new PropertyChangeListener() {
+          @Override
+          public void propertyChange(PropertyChangeEvent evt) {
+            listener.propertyChange(evt);
+            if ("renderer".equals(evt.getPropertyName())) {
+              wrapRenderer();
+            }
+          }
+        };
+      }
+
+      class ComboBoxRendererWrapper implements ListCellRenderer {
+        private final ListCellRenderer myRenderer;
+
+        public ComboBoxRendererWrapper(@NotNull ListCellRenderer renderer) {
+          myRenderer = renderer;
+        }
+
+        @Override
+        public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+          Component c = myRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+          BorderLayoutPanel panel = JBUI.Panels.simplePanel(c).withBorder(JBUI.Borders.empty(0, 8));
+          panel.setBackground(c.getBackground());
+          return panel;
+        }
+      }
+
+      private void wrapRenderer() {
+        ListCellRenderer renderer = list.getCellRenderer();
+        if (!(renderer instanceof ComboBoxRendererWrapper) && renderer != null) {
+          list.setCellRenderer(new ComboBoxRendererWrapper(renderer));
+        }
+      }
+    };
+  }
+
+  @Override
   public void paintCurrentValueBackground(Graphics g, Rectangle bounds, boolean hasFocus) {
-    g.setColor(myComboBox.isEnabled() ? Gray.xFF : Gray.xF6);
+    g.setColor(myComboBox.isEnabled() ? Gray.xFF : Gray.xF8);
     g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
   }
 
@@ -245,19 +373,19 @@ public class MacIntelliJComboBoxUI extends BasicComboBoxUI {
     Rectangle r = arrowButton.getBounds();
     int stop = r.x;
     Insets clip = getInsets();
-    Graphics gg = g.create(clip.left, r.y, stop - clip.left, COMBOBOX.getIconHeight());
+    Graphics gg = g.create(clip.left, r.y, stop - clip.left, DEFAULT_ICON.getIconHeight());
     boolean enabled = c.isEnabled();
     boolean hasFocus = c.hasFocus();
-    Icon icon = enabled ? hasFocus ? COMBOBOX_LEFT_FOCUSED : COMBOBOX_LEFT : COMBOBOX_LEFT_DISABLED;
+    Icon icon = MacIntelliJIconCache.getIcon("comboLeft", false, hasFocus, enabled);
     icon.paintIcon(c,gg,0,0);
     int x = icon.getIconWidth();
-    icon = enabled ? hasFocus ? COMBOBOX_TOP_BOTTOM_FOCUSED : COMBOBOX_TOP_BOTTOM : COMBOBOX_TOP_BOTTOM_DISABLED;
+    icon = MacIntelliJIconCache.getIcon("comboMiddle", false, hasFocus, enabled);
     while (x < stop) {
       icon.paintIcon(c, gg, x, 0);
       x+=icon.getIconWidth();
     }
     gg.dispose();
-    icon = enabled ? hasFocus ? COMBOBOX_FOCUSED : COMBOBOX : COMBOBOX_DISABLED;
+    icon = MacIntelliJIconCache.getIcon("comboRight", false, hasFocus, enabled);
     icon.paintIcon(c, g, r.x, r.y);
 
     if ( !comboBox.isEditable() ) {

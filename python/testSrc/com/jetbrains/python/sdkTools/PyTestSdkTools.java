@@ -11,6 +11,7 @@ import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.UsefulTestCase;
 import com.jetbrains.python.sdk.InvalidSdkException;
@@ -114,7 +115,7 @@ public final class PyTestSdkTools {
     modificator.removeRoots(OrderRootType.CLASSES);
 
     for (final String path : PythonSdkType.getSysPathsFromScript(sdk.getHomePath())) {
-      PythonSdkType.addSdkRoot(modificator, path);
+      addTestSdkRoot(modificator, path);
     }
     if (!addSkeletons) {
       UsefulTestCase.edt(new Runnable() {
@@ -130,7 +131,7 @@ public final class PyTestSdkTools {
     final File skeletonsDir = new File(tempDir, PythonSdkType.SKELETON_DIR_NAME);
     FileUtil.createDirectory(skeletonsDir);
     final String skeletonsPath = skeletonsDir.toString();
-    PythonSdkType.addSdkRoot(modificator, skeletonsPath);
+    addTestSdkRoot(modificator, skeletonsPath);
 
     UsefulTestCase.edt(new Runnable() {
       @Override
@@ -144,5 +145,12 @@ public final class PyTestSdkTools {
     final PySkeletonRefresher refresher = new PySkeletonRefresher(null, null, sdk, skeletonsPath, null, null);
     final List<String> errors = refresher.regenerateSkeletons(checker);
     Assert.assertThat("Errors found", errors, Matchers.empty());
+  }
+
+  public static void addTestSdkRoot(@NotNull SdkModificator sdkModificator, @NotNull String path) {
+    final VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
+    if (file != null) {
+      sdkModificator.addRoot(PythonSdkType.getSdkRootVirtualFile(file), OrderRootType.CLASSES);
+    }
   }
 }

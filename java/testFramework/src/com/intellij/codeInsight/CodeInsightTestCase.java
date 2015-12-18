@@ -162,7 +162,7 @@ public abstract class CodeInsightTestCase extends PsiTestCase {
       final String extension = _extension == null ? fileType.getDefaultExtension():_extension;
 
       File dir = createTempDirectory();
-      final File tempFile = FileUtil.createTempFile(dir, "aaa", "." + extension, true);
+      final File tempFile = FileUtil.createTempFile(dir, "tempFile", "." + extension, true);
       final FileTypeManager fileTypeManager = FileTypeManager.getInstance();
       if (fileTypeManager.getFileTypeByExtension(extension) != fileType) {
         new WriteCommandAction(getProject()) {
@@ -568,10 +568,16 @@ public abstract class CodeInsightTestCase extends PsiTestCase {
     undoManager.undo(textEditor);
   }
 
+  protected void caretLeft() {
+    caretRight(getEditor());
+  }
+  protected void caretLeft(@NotNull Editor editor) {
+    LightPlatformCodeInsightTestCase.executeAction(IdeActions.ACTION_EDITOR_MOVE_CARET_LEFT, editor, getProject());
+  }
   protected void caretRight() {
     caretRight(getEditor());
   }
-  protected void caretRight(Editor editor) {
+  protected void caretRight(@NotNull Editor editor) {
     LightPlatformCodeInsightTestCase.executeAction(IdeActions.ACTION_EDITOR_MOVE_CARET_RIGHT, editor, getProject());
   }
   protected void caretUp() {

@@ -87,7 +87,7 @@ import java.util.List;
 @State(
   name = "LafManager",
   storages = {
-    @Storage(file = StoragePathMacros.APP_CONFIG + "/laf.xml", roamingType = RoamingType.PER_PLATFORM),
+    @Storage(file = StoragePathMacros.APP_CONFIG + "/laf.xml", roamingType = RoamingType.PER_OS),
     @Storage(file = StoragePathMacros.APP_CONFIG + "/options.xml", deprecated = true)
   }
 )
@@ -102,8 +102,8 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
     "CheckBox.font", "ColorChooser.font", "ComboBox.font", "Label.font", "List.font", "MenuBar.font", "MenuItem.font",
     "MenuItem.acceleratorFont", "RadioButtonMenuItem.font", "CheckBoxMenuItem.font", "Menu.font", "PopupMenu.font", "OptionPane.font",
     "Panel.font", "ProgressBar.font", "ScrollPane.font", "Viewport.font", "TabbedPane.font", "Table.font", "TableHeader.font",
-    "TextField.font", "PasswordField.font", "TextArea.font", "TextPane.font", "EditorPane.font", "TitledBorder.font", "ToolBar.font",
-    "ToolTip.font", "Tree.font"};
+    "TextField.font", "FormattedTextField.font", "Spinner.font", "PasswordField.font", "TextArea.font", "TextPane.font", "EditorPane.font",
+    "TitledBorder.font", "ToolBar.font", "ToolTip.font", "Tree.font"};
 
   @NonNls private static final String[] ourFileChooserTextKeys = {"FileChooser.viewMenuLabelText", "FileChooser.newFolderActionLabelText",
     "FileChooser.listViewActionLabelText", "FileChooser.detailsViewActionLabelText", "FileChooser.refreshActionLabelText"};
@@ -124,6 +124,9 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
     ourLafClassesAliases.put("idea.dark.laf.classname", DarculaLookAndFeelInfo.CLASS_NAME);
   }
 
+  public static boolean useIntelliJInsteadOfAqua() {
+    return Registry.is("ide.mac.yosemite.laf") && isIntelliJLafEnabled() && SystemInfo.isJavaVersionAtLeast("1.8") && SystemInfo.isMacOSYosemite;
+  }
   /**
    * Invoked via reflection.
    */
@@ -133,9 +136,10 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
     List<UIManager.LookAndFeelInfo> lafList = ContainerUtil.newArrayList();
 
     if (SystemInfo.isMac) {
-      lafList.add(new UIManager.LookAndFeelInfo("Default", UIManager.getSystemLookAndFeelClassName()));
-      if (Registry.is("ide.mac.yosemite.laf") && isIntelliJLafEnabled()) {
-        lafList.add(new IntelliJLookAndFeelInfo());
+      if (useIntelliJInsteadOfAqua()) {
+        lafList.add(new UIManager.LookAndFeelInfo("Default", IntelliJLaf.class.getName()));
+      } else {
+        lafList.add(new UIManager.LookAndFeelInfo("Default", UIManager.getSystemLookAndFeelClassName()));
       }
     }
     else {
@@ -157,9 +161,7 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
       }
     }
 
-    if (Registry.is("dark.laf.available")) {
-      lafList.add(new DarculaLookAndFeelInfo());
-    }
+    lafList.add(new DarculaLookAndFeelInfo());
 
     myLaFs = lafList.toArray(new UIManager.LookAndFeelInfo[lafList.size()]);
 
@@ -321,8 +323,9 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
     }
     final String systemLafClassName = UIManager.getSystemLookAndFeelClassName();
     if (SystemInfo.isMac) {
-      UIManager.LookAndFeelInfo laf = findLaf(systemLafClassName);
-      LOG.assertTrue(laf != null);
+      String className = useIntelliJInsteadOfAqua() ? IntelliJLaf.class.getName() : systemLafClassName;
+      UIManager.LookAndFeelInfo laf = findLaf(className);
+      LOG.assertTrue(laf != null, "Could not find look and feel: " + className);
       return laf;
     }
     if (PlatformUtils.isRubyMine() || PlatformUtils.isPyCharm()) {
@@ -446,23 +449,25 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
 
   @Nullable
   private static Icon getAquaMenuInvertedIcon() {
-    if (!UIUtil.isUnderAquaLookAndFeel()) return null;
-    final Icon arrow = (Icon)UIManager.get("Menu.arrowIcon");
-    if (arrow == null) return null;
+    if (UIUtil.isUnderAquaLookAndFeel() || (SystemInfo.isMac && UIUtil.isUnderIntelliJLaF())) {
+      final Icon arrow = (Icon)UIManager.get("Menu.arrowIcon");
+      if (arrow == null) return null;
 
-    try {
-      final Method method = ReflectionUtil.getMethod(arrow.getClass(), "getInvertedIcon");
-      if (method != null) {
-        return (Icon)method.invoke(arrow);
+      try {
+        final Method method = ReflectionUtil.getMethod(arrow.getClass(), "getInvertedIcon");
+        if (method != null) {
+          return (Icon)method.invoke(arrow);
+        }
+        return null;
       }
-      return null;
+      catch (InvocationTargetException e1) {
+        return null;
+      }
+      catch (IllegalAccessException e1) {
+        return null;
+      }
     }
-    catch (InvocationTargetException e1) {
-      return null;
-    }
-    catch (IllegalAccessException e1) {
-      return null;
-    }
+    return null;
   }
 
   @Override
@@ -600,7 +605,7 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
   }
 
   private static void fixMenuIssues(UIDefaults uiDefaults) {
-    if (UIUtil.isUnderAquaLookAndFeel()) {
+    if (UIUtil.isUnderAquaLookAndFeel() || (SystemInfo.isMac && UIUtil.isUnderIntelliJLaF())) {
       // update ui for popup menu to get round corners
       uiDefaults.put("PopupMenuUI", MacPopupMenuUI.class.getCanonicalName());
       uiDefaults.put("Menu.invertedArrowIcon", getAquaMenuInvertedIcon());
@@ -748,6 +753,7 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
     UISettings uiSettings = UISettings.getInstance();
     if (uiSettings.OVERRIDE_NONIDEA_LAF_FONTS) {
       storeOriginalFontDefaults(uiDefaults);
+      JBUI.setScaleFactor(uiSettings.FONT_SIZE/12f);
       initFontDefaults(uiDefaults, uiSettings.FONT_FACE, uiSettings.FONT_SIZE);
     }
     else {
@@ -763,6 +769,7 @@ public final class LafManagerImpl extends LafManager implements ApplicationCompo
         defaults.put(resource, lfDefaults.get(resource));
       }
     }
+    JBUI.setScaleFactor(JBUI.Fonts.label().getSize()/12f);
   }
 
   private void storeOriginalFontDefaults(UIDefaults defaults) {

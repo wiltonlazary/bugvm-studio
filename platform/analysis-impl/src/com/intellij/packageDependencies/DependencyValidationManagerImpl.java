@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ import java.util.*;
   name = "DependencyValidationManager",
   storages = {
     @Storage(file = StoragePathMacros.PROJECT_FILE),
-    @Storage(file = StoragePathMacros.PROJECT_CONFIG_DIR + "/scopes/", scheme = StorageScheme.DIRECTORY_BASED,
+    @Storage(file = StoragePathMacros.PROJECT_CONFIG_DIR + "/scopes", scheme = StorageScheme.DIRECTORY_BASED,
       stateSplitter = DependencyValidationManagerImpl.ScopesStateSplitter.class)}
 )
 public class DependencyValidationManagerImpl extends DependencyValidationManager {
@@ -344,7 +344,7 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
     }
   }
 
-  private final List<Pair<NamedScope, NamedScopesHolder>> myScopes = ContainerUtil.createLockFreeCopyOnWriteList();
+  private final List<Pair<NamedScope, NamedScopesHolder>> myScopePairs = ContainerUtil.createLockFreeCopyOnWriteList();
 
   private void reloadScopes() {
     UIUtil.invokeLaterIfNeeded(new Runnable() {
@@ -354,8 +354,8 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
         List<Pair<NamedScope, NamedScopesHolder>> scopeList = new ArrayList<Pair<NamedScope, NamedScopesHolder>>();
         addScopesToList(scopeList, DependencyValidationManagerImpl.this);
         addScopesToList(scopeList, myNamedScopeManager);
-        myScopes.clear();
-        myScopes.addAll(scopeList);
+        myScopePairs.clear();
+        myScopePairs.addAll(scopeList);
         reloadRules();
       }
     });
@@ -370,7 +370,7 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
 
   @NotNull
   public List<Pair<NamedScope, NamedScopesHolder>> getScopeBasedHighlightingCachedScopes() {
-    return myScopes;
+    return myScopePairs;
   }
 
   @Override

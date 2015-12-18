@@ -17,18 +17,13 @@ package com.intellij.diff.tools.simple;
 
 import com.intellij.diff.fragments.DiffFragment;
 import com.intellij.diff.fragments.LineFragment;
-import com.intellij.diff.util.DiffDrawUtil;
-import com.intellij.diff.util.DiffUtil;
-import com.intellij.diff.util.Side;
-import com.intellij.diff.util.TextDiffType;
+import com.intellij.diff.util.*;
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.markup.*;
-import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -115,17 +110,17 @@ public class SimpleDiffChange {
     int end = side.getEndOffset(myFragment);
     TextDiffType type = DiffUtil.getLineDiffType(myFragment);
 
-    myHighlighters.add(DiffDrawUtil.createHighlighter(editor, start, end, type, ignored));
+    myHighlighters.addAll(DiffDrawUtil.createHighlighter(editor, start, end, type, ignored));
 
     int startLine = side.getStartLine(myFragment);
     int endLine = side.getEndLine(myFragment);
 
     if (startLine == endLine) {
-      if (startLine != 0) myHighlighters.add(DiffDrawUtil.createLineMarker(editor, endLine - 1, type, SeparatorPlacement.BOTTOM, true));
+      if (startLine != 0) myHighlighters.addAll(DiffDrawUtil.createLineMarker(editor, endLine - 1, type, SeparatorPlacement.BOTTOM, true));
     }
     else {
-      myHighlighters.add(DiffDrawUtil.createLineMarker(editor, startLine, type, SeparatorPlacement.TOP));
-      myHighlighters.add(DiffDrawUtil.createLineMarker(editor, endLine - 1, type, SeparatorPlacement.BOTTOM));
+      myHighlighters.addAll(DiffDrawUtil.createLineMarker(editor, startLine, type, SeparatorPlacement.TOP));
+      myHighlighters.addAll(DiffDrawUtil.createLineMarker(editor, endLine - 1, type, SeparatorPlacement.BOTTOM));
     }
   }
 
@@ -139,8 +134,7 @@ public class SimpleDiffChange {
     end += startOffset;
 
     Editor editor = myViewer.getEditor(side);
-    RangeHighlighter highlighter = DiffDrawUtil.createInlineHighlighter(editor, start, end, type);
-    myHighlighters.add(highlighter);
+    myHighlighters.addAll(DiffDrawUtil.createInlineHighlighter(editor, start, end, type));
   }
 
   public void updateGutterActions(boolean force) {
@@ -273,7 +267,7 @@ public class SimpleDiffChange {
 
   @Nullable
   private GutterIconRenderer createApplyRenderer(@NotNull final Side side) {
-    return createIconRenderer(side, "Replace", AllIcons.Diff.Arrow, new Runnable() {
+    return createIconRenderer(side, "Replace", DiffUtil.getArrowIcon(side), new Runnable() {
       @Override
       public void run() {
         myViewer.replaceChange(SimpleDiffChange.this, side);
@@ -283,7 +277,7 @@ public class SimpleDiffChange {
 
   @Nullable
   private GutterIconRenderer createAppendRenderer(@NotNull final Side side) {
-    return createIconRenderer(side, "Insert", AllIcons.Diff.ArrowLeftDown, new Runnable() {
+    return createIconRenderer(side, "Insert", DiffUtil.getArrowDownIcon(side), new Runnable() {
       @Override
       public void run() {
         myViewer.appendChange(SimpleDiffChange.this, side);
@@ -307,50 +301,18 @@ public class SimpleDiffChange {
                                                 @NotNull final Icon icon,
                                                 @NotNull final Runnable perform) {
     if (!DiffUtil.isEditable(myViewer.getEditor(sourceSide.other()))) return null;
-    return new GutterIconRenderer() {
-      @NotNull
+    return new DiffGutterRenderer(icon, tooltipText) {
       @Override
-      public Icon getIcon() {
-        return icon;
-      }
-
-      public boolean isNavigateAction() {
-        return true;
-      }
-
-      @Nullable
-      @Override
-      public AnAction getClickAction() {
-        return new DumbAwareAction() {
+      protected void performAction(AnActionEvent e) {
+        if (!myIsValid) return;
+        final Project project = e.getProject();
+        final Document document = myViewer.getEditor(sourceSide.other()).getDocument();
+        DiffUtil.executeWriteCommand(document, project, "Replace change", new Runnable() {
           @Override
-          public void actionPerformed(AnActionEvent e) {
-            if (!myIsValid) return;
-            final Project project = e.getProject();
-            final Document document = myViewer.getEditor(sourceSide.other()).getDocument();
-            DiffUtil.executeWriteCommand(document, project, "Replace change", new Runnable() {
-              @Override
-              public void run() {
-                perform.run();
-              }
-            });
+          public void run() {
+            perform.run();
           }
-        };
-      }
-
-      @Override
-      public boolean equals(Object obj) {
-        return obj == this;
-      }
-
-      @Override
-      public int hashCode() {
-        return System.identityHashCode(this);
-      }
-
-      @Nullable
-      @Override
-      public String getTooltipText() {
-        return tooltipText;
+        });
       }
     };
   }

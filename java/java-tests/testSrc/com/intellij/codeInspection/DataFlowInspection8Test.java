@@ -98,4 +98,12 @@ public class DataFlowInspection8Test extends LightCodeInsightFixtureTestCase {
 
   public void testOptionalOfNullable() { doTest(); }
 
+  public void testLambdaParametersWithDefaultNullability() {
+    DataFlowInspectionTest.addJavaxNullabilityAnnotations(myFixture);
+    DataFlowInspectionTest.addJavaxDefaultNullabilityAnnotations(myFixture);
+
+    doTest();
+  }
+
+  public void testPrimitiveInVoidLambda() { doTest(); }
 }

@@ -137,6 +137,8 @@
     <vcsChangesViewRefresher implementation="git4idea.changes.GitChangesViewRefresher" />
     <pushSupport implementation="git4idea.push.GitPushSupport"/>
     <cherryPicker implementation="git4idea.cherrypick.GitCherryPicker"/>
+    <vcsAnnotationGutterActionProvider implementation="git4idea.actions.GitShowCommitInLogAnnotationGutterActionProvider" />
+    <statistics.usagesCollector implementation="git4idea.GitStatisticsCollector" />
 
     <projectService serviceImplementation="git4idea.repo.GitRepositoryManager"/>
     <projectService
@@ -165,9 +167,6 @@
     <projectService
         serviceInterface="git4idea.config.GitExecutableValidator"
         serviceImplementation="git4idea.config.GitExecutableValidator"/>
-    <projectService
-        serviceInterface="git4idea.MessageManager"
-        serviceImplementation="git4idea.MessageManager"/>
     <projectService serviceInterface="git4idea.branch.GitBrancher"
                     serviceImplementation="git4idea.branch.GitBrancherImpl"/>
     <projectService serviceImplementation="git4idea.GitUserRegistry" />

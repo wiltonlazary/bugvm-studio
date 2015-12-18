@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,8 @@ import com.intellij.openapi.options.ConfigurableGroup;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.options.ex.ConfigurableVisitor;
+import com.intellij.openapi.project.DumbModePermission;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.ActionCallback;
@@ -138,19 +140,19 @@ public class IdeSettingsDialog extends DialogWrapper implements DataProvider {
       @Override
       public ActionCallback onModifiedAdded(final Configurable configurable) {
         updateStatus();
-        return new ActionCallback.Done();
+        return ActionCallback.DONE;
       }
 
       @Override
       public ActionCallback onModifiedRemoved(final Configurable configurable) {
         updateStatus();
-        return new ActionCallback.Done();
+        return ActionCallback.DONE;
       }
 
       @Override
       public ActionCallback onErrorsChanged() {
         updateStatus();
-        return new ActionCallback.Done();
+        return ActionCallback.DONE;
       }
     });
     Disposer.register(myDisposable, myEditor);
@@ -197,16 +199,20 @@ public class IdeSettingsDialog extends DialogWrapper implements DataProvider {
   public void doOKAction() {
     myEditor.flushModifications();
 
-    if (myEditor.canApply()) {
-      myEditor.apply();
-      if (!updateStatus()) return;
-    }
+    DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND, new Runnable() {
+      public void run() {
+        if (myEditor.canApply()) {
+          myEditor.apply();
+          if (!updateStatus()) return;
+        }
 
-    saveCurrentConfigurable();
+        saveCurrentConfigurable();
 
-    ApplicationManager.getApplication().saveAll();
+        ApplicationManager.getApplication().saveAll();
 
-    super.doOKAction();
+        IdeSettingsDialog.super.doOKAction();
+      }
+    });
   }
 
 
@@ -284,7 +290,12 @@ public class IdeSettingsDialog extends DialogWrapper implements DataProvider {
     }
 
     public void actionPerformed(final ActionEvent e) {
-      myEditor.apply();
+      DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND, new Runnable() {
+        @Override
+        public void run() {
+          myEditor.apply();
+        }
+      });
       myEditor.revalidate();
       myEditor.repaint();
       updateStatus();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryKind;
 import com.intellij.openapi.roots.ui.configuration.ClasspathEditor;
 import com.intellij.openapi.roots.ui.configuration.ProjectSettingsService;
+import com.intellij.openapi.roots.ui.configuration.libraries.AddCustomLibraryDialog;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.ModificationTracker;
@@ -90,9 +91,33 @@ public abstract class MvcFramework {
     return new GroovyLibraryDescription(getSdkHomePropertyName(), getLibraryKind(), getDisplayName());
   }
 
+  public boolean hasFrameworkStructure(@NotNull Module module) {
+    VirtualFile appDir = findAppDirectory(module);
+    if (appDir == null) return false;
+
+    return appDir.findChild("controllers") != null && appDir.findChild("conf") != null;
+  }
+
   public boolean hasFrameworkJar(@NotNull Module module) {
     GlobalSearchScope scope = GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module, false);
     return JavaPsiFacade.getInstance(module.getProject()).findClass(getSomeFrameworkClass(), scope) != null;
+  }
+
+  @NotNull
+  public Map<String, Runnable> createConfigureActions(final @NotNull Module module) {
+    return Collections.<String, Runnable>singletonMap("Configure " + getFrameworkName() + " SDK", new Runnable() {
+      @Override
+      public void run() {
+        configureAsLibraryDependency(module);
+      }
+    });
+  }
+
+  protected void configureAsLibraryDependency(@NotNull Module module) {
+    final GroovyLibraryDescription description = createLibraryDescription();
+    final AddCustomLibraryDialog dialog = AddCustomLibraryDialog.createDialog(description, module, null);
+    dialog.setTitle("Change " + getDisplayName() + " SDK version");
+    if (dialog.showAndGet()) module.putUserData(UPGRADE, Boolean.TRUE);
   }
 
   public boolean isCommonPluginsModule(@NotNull Module module) {
@@ -103,6 +128,8 @@ public abstract class MvcFramework {
     return modules;
   }
 
+  @NonNls
+  @NotNull
   public abstract String getApplicationDirectoryName();
 
   public void syncSdkAndLibrariesInPluginsModule(@NotNull Module module) {
@@ -155,16 +182,7 @@ public abstract class MvcFramework {
   }
 
   @Nullable
-  protected GeneralCommandLine getCreationCommandLine(Module module) {
-    String message = "Create default " + getDisplayName() + " directory structure in module '" + module.getName() + "'?";
-    final int result = Messages.showDialog(module.getProject(), message, "Create " + getDisplayName() + " application",
-                                           new String[]{"Run 'create-&app'", "Run 'create-&plugin'", "&Cancel"}, 0, getIcon());
-    if (result < 0 || result > 1) {
-      return null;
-    }
-
-    return createCommandAndShowErrors(null, module, true, new MvcCommand(result == 0 ? "create-app" : "create-plugin"));
-  }
+  protected abstract GeneralCommandLine getCreationCommandLine(Module module);
 
   public abstract void updateProjectStructure(@NotNull final Module module);
 
@@ -319,7 +337,6 @@ public abstract class MvcFramework {
                                                       boolean forCreation,
                                                       boolean forTests,
                                                       boolean classpathFromDependencies,
-                                                      @Nullable String jvmParams,
                                                       @NotNull MvcCommand command) throws ExecutionException;
 
   protected static void ensureRunConfigurationExists(Module module, ConfigurationType configurationType, String name) {
@@ -341,10 +358,14 @@ public abstract class MvcFramework {
     RunManagerEx.disableTasks(module.getProject(), configuration, CompileStepBeforeRun.ID, CompileStepBeforeRunNoErrorCheck.ID);
   }
 
+  @NonNls
+  @NotNull
   public abstract String getFrameworkName();
+
   public String getDisplayName() {
     return getFrameworkName();
   }
+
   public abstract Icon getIcon(); // 16*16
 
   public abstract Icon getToolWindowIcon(); // 13*13
@@ -353,23 +374,18 @@ public abstract class MvcFramework {
 
   @Nullable
   public GeneralCommandLine createCommandAndShowErrors(@NotNull Module module, @NotNull String command, String... args) {
-    return createCommandAndShowErrors(null, module, new MvcCommand(command, args));
+    return createCommandAndShowErrors(module, new MvcCommand(command, args));
   }
 
   @Nullable
   public GeneralCommandLine createCommandAndShowErrors(@NotNull Module module, @NotNull MvcCommand command) {
-    return createCommandAndShowErrors(null, module, command);
+    return createCommandAndShowErrors(module, false, command);
   }
 
   @Nullable
-  public GeneralCommandLine createCommandAndShowErrors(@Nullable String vmOptions, @NotNull Module module, @NotNull MvcCommand command) {
-    return createCommandAndShowErrors(vmOptions, module, false, command);
-  }
-
-  @Nullable
-  public GeneralCommandLine createCommandAndShowErrors(@Nullable String vmOptions, @NotNull Module module, final boolean forCreation, @NotNull MvcCommand command) {
+  public GeneralCommandLine createCommandAndShowErrors(@NotNull Module module, final boolean forCreation, @NotNull MvcCommand command) {
     try {
-      return createCommand(module, vmOptions, forCreation, command);
+      return createCommand(module, forCreation, command);
     }
     catch (ExecutionException e) {
       Messages.showErrorDialog(e.getMessage(), "Failed to run grails command: " + command);
@@ -379,10 +395,9 @@ public abstract class MvcFramework {
 
   @NotNull
   public GeneralCommandLine createCommand(@NotNull Module module,
-                                          @Nullable String jvmParams,
                                           boolean forCreation,
                                           @NotNull MvcCommand command) throws ExecutionException {
-    final JavaParameters params = createJavaParameters(module, forCreation, false, true, jvmParams, command);
+    final JavaParameters params = createJavaParameters(module, forCreation, false, true, command);
     addJavaHome(params, module);
 
     final GeneralCommandLine commandLine = createCommandLine(params);
@@ -612,6 +627,10 @@ public abstract class MvcFramework {
     return res;
   }
 
+  public boolean isUpgradeActionSupported(Module module) {
+    return true;
+  }
+
   @Nullable
   public static MvcFramework getInstance(@Nullable final Module module) {
     if (module == null) {
@@ -644,5 +663,4 @@ public abstract class MvcFramework {
     }
     return null;
   }
-
 }

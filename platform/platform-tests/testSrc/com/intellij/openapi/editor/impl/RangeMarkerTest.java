@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.editor.impl;
 
+import com.intellij.lang.FileASTNode;
 import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.command.impl.UndoManagerImpl;
@@ -59,6 +60,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
   private PsiToDocumentSynchronizer synchronizer;
   private Document document;
   private PsiFile psiFile;
+  private FileASTNode fileNode;
 
   @Override
   protected void runTest() throws Throwable {
@@ -94,6 +96,16 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     super.setUp();
     documentManager = (PsiDocumentManagerImpl)PsiDocumentManager.getInstance(getProject());
     synchronizer = documentManager.getSynchronizer();
+  }
+
+  @Override
+  protected void tearDown() throws Exception {
+    documentManager = null;
+    synchronizer = null;
+    psiFile = null;
+    fileNode = null;
+    document = null;
+    super.tearDown();
   }
 
   public void testCreation() throws Exception {
@@ -408,6 +420,25 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     assertValidMarker(marker, 3, 6);
   }
 
+  public void testPsi2DocTwoReplacements() {
+    RangeMarker marker = createMarker("fooFooFoo fooFooFoo", 10, 19);
+    synchronizer.startTransaction(getProject(), document, psiFile);
+    synchronizer.replaceString(document, 0, 9, "xxx");
+    synchronizer.replaceString(document, 4, 13, "xxx");
+    synchronizer.commitTransaction(document);
+    assertValidMarker(marker, 4, 7);
+  }
+
+  public void testPsi2DocThreeOverlappingReplacements() {
+    createMarker("abc", 0, 0);
+    synchronizer.startTransaction(getProject(), document, psiFile);
+    synchronizer.replaceString(document, 0, 1, "xy");
+    synchronizer.replaceString(document, 3, 4, "yz");
+    synchronizer.replaceString(document, 0, 5, "xxx");
+    synchronizer.commitTransaction(document);
+    assertEquals("xxx", document.getText());
+  }
+
   public void testPsi2DocMergeReplaceAfterAdd() throws Exception {
     StringBuilder buffer = new StringBuilder("0123456789");
     RangeMarker marker = createMarker(buffer.toString(), 2, 5);
@@ -422,8 +453,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     synchronizer.replaceString(document, 3, 5, "bb");
     buffer.replace(3, 5, "bb");
     final PsiToDocumentSynchronizer.DocumentChangeTransaction transaction = synchronizer.getTransaction(document);
-    final Set<Pair<PsiToDocumentSynchronizer.MutableTextRange, StringBuffer>> affectedFragments = transaction.getAffectedFragments();
-    assertEquals(affectedFragments.size(), 2);
+    assertSize(2, transaction.getAffectedFragments().keySet());
 
     synchronizer.commitTransaction(document);
 
@@ -445,8 +475,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
       buffer.insert(i, "" + i);
     }
     final PsiToDocumentSynchronizer.DocumentChangeTransaction transaction = synchronizer.getTransaction(document);
-    final Set<Pair<PsiToDocumentSynchronizer.MutableTextRange, StringBuffer>> affectedFragments = transaction.getAffectedFragments();
-    assertEquals(1, affectedFragments.size());
+    assertSize(1, transaction.getAffectedFragments().keySet());
 
     synchronizer.commitTransaction(document);
 
@@ -461,19 +490,18 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     RangeMarker marker = createMarker(buffer.toString(), 2, 5);
     synchronizer.startTransaction(getProject(), document, psiFile);
     final PsiToDocumentSynchronizer.DocumentChangeTransaction transaction = synchronizer.getTransaction(document);
-    final Set<Pair<PsiToDocumentSynchronizer.MutableTextRange, StringBuffer>> affectedFragments = transaction.getAffectedFragments();
-
+    assertNotNull(transaction);
 
     for (int i = 0; i < 10; i++) {
       synchronizer.insertString(document, i, "" + i);
       buffer.insert(i, "" + i);
     }
 
-    assertEquals(1, affectedFragments.size());
+    assertSize(1, transaction.getAffectedFragments().keySet());
     synchronizer.replaceString(document, 0, 20, "0123456789");
     buffer.replace(0, 20, "0123456789");
 
-    assertEquals(1, affectedFragments.size());
+    assertSize(1, transaction.getAffectedFragments().keySet());
 
     synchronizer.commitTransaction(document);
 
@@ -497,8 +525,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     buffer.insert(7, "d");
 
     final PsiToDocumentSynchronizer.DocumentChangeTransaction transaction = synchronizer.getTransaction(document);
-    final Set<Pair<PsiToDocumentSynchronizer.MutableTextRange, StringBuffer>> affectedFragments = transaction.getAffectedFragments();
-    assertEquals(3, affectedFragments.size());
+    assertSize(3, transaction.getAffectedFragments().keySet());
 
     synchronizer.commitTransaction(document);
 
@@ -875,7 +902,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
       final DocumentEx finalDocument = document;
       new WriteCommandAction(getProject()) {
         @Override
-        protected void run(Result result) throws Exception {
+        protected void run(@NotNull Result result) throws Exception {
           List<Pair<RangeMarker, TextRange>> adds = new ArrayList<Pair<RangeMarker, TextRange>>();
           List<Pair<RangeMarker, TextRange>> dels = new ArrayList<Pair<RangeMarker, TextRange>>();
           List<Trinity<Integer, Integer, Integer>> edits = new ArrayList<Trinity<Integer, Integer, Integer>>();
@@ -940,6 +967,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
 
   private RangeMarkerEx createMarker(String text, final int start, final int end) {
     psiFile = createFile("x.txt", text);
+    fileNode = psiFile.getNode(); // the node should be loaded, otherwise PsiToDocumentSynchronizer will ignore our commands
     return createMarker(psiFile, start, end);
   }
 
@@ -1158,4 +1186,18 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     marker.dispose();
     assertEmpty(LazyRangeMarkerFactoryImpl.getMarkers(virtualFile));
   }
+
+  public void testNonGreedyMarkersGrowOnAppendingReplace() {
+    Document doc = new DocumentImpl("foo");
+    RangeMarker marker = doc.createRangeMarker(0, 3);
+    assertFalse(marker.isGreedyToLeft());
+    assertFalse(marker.isGreedyToRight());
+
+    doc.replaceString(0, 3, "foobar");
+    assertValidMarker(marker, 0, 6);
+
+    doc.replaceString(0, 3, "goofoo");
+    assertValidMarker(marker, 0, 9);
+  }
+
 }

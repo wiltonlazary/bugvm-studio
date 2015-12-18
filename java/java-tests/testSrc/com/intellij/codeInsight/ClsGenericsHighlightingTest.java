@@ -29,6 +29,7 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.testFramework.IdeaTestCase;
+import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.intellij.testFramework.fixtures.*;
@@ -36,13 +37,8 @@ import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NotNull;
 
 public abstract class ClsGenericsHighlightingTest extends UsefulTestCase {
-  private CodeInsightTestFixture myFixture;
+  protected CodeInsightTestFixture myFixture;
   private Module myModule;
-
-  @SuppressWarnings("JUnitTestCaseWithNonTrivialConstructors")
-  public ClsGenericsHighlightingTest() {
-    IdeaTestCase.initPlatformPrefix();
-  }
 
   @Override
   public void setUp() throws Exception {
@@ -52,6 +48,7 @@ public abstract class ClsGenericsHighlightingTest extends UsefulTestCase {
     myFixture.setTestDataPath(PathManagerEx.getTestDataPath() + "/codeInsight/clsHighlighting");
     JavaModuleFixtureBuilder builder = projectBuilder.addModule(JavaModuleFixtureBuilder.class);
     builder.setLanguageLevel(getLanguageLevel());
+    builder.addJdk(IdeaTestUtil.getMockJdk18Path().getPath());
     myFixture.setUp();
     myModule = builder.getFixture().getModule();
   }
@@ -77,7 +74,7 @@ public abstract class ClsGenericsHighlightingTest extends UsefulTestCase {
     myFixture.checkHighlighting();
   }
 
-  private void addLibrary(@NotNull final String... libraryPath) {
+  protected void addLibrary(@NotNull final String... libraryPath) {
     ModuleRootModificationUtil.updateModel(myModule, new Consumer<ModifiableRootModel>() {
       @Override
       public void consume(ModifiableRootModel model) {
@@ -100,7 +97,8 @@ public abstract class ClsGenericsHighlightingTest extends UsefulTestCase {
       assertNotNull(libJarLocal);
       VirtualFile jarRoot = JarFileSystem.getInstance().getJarRootForLocalFile(libJarLocal);
       assertNotNull(jarRoot);
-      libraryModel.addRoot(jarRoot, OrderRootType.CLASSES);
+      libraryModel.addRoot(jarRoot, jarRoot.getName().contains("-sources") ? OrderRootType.SOURCES 
+                                                                           : OrderRootType.CLASSES);
     }
     libraryModel.commit();
   }

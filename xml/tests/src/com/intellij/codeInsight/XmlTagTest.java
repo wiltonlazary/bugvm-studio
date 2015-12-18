@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight;
 
+import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.CommandProcessor;
@@ -35,6 +36,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.LocalTimeCounter;
 import com.intellij.xml.util.XmlTagUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -305,7 +307,7 @@ public class XmlTagTest extends LightCodeInsightTestCase {
 
     new WriteCommandAction(getProject(), file) {
       @Override
-      protected void run(final Result result) throws Throwable {
+      protected void run(@NotNull final Result result) throws Throwable {
         CodeStyleManager.getInstance(getProject()).adjustLineIndent(file, y.getTextOffset());
       }
     }.execute();
@@ -355,7 +357,7 @@ public class XmlTagTest extends LightCodeInsightTestCase {
     final XmlTag div = tag.getSubTags()[0];
     new WriteCommandAction(getProject(), tag.getContainingFile()) {
       @Override
-      protected void run(final Result result) throws Throwable {
+      protected void run(@NotNull final Result result) throws Throwable {
         div.delete();
       }
     }.execute();
@@ -1002,6 +1004,20 @@ public class XmlTagTest extends LightCodeInsightTestCase {
         final XmlTag tag2 = XmlElementFactory.getInstance(getProject()).createTagFromText("<foo><boo/></foo>");
         tag2.collapseIfEmpty();
         assertEquals("<foo><boo/></foo>", tag2.getText());
+      }
+    });
+  }
+
+  public void testSetName() {
+    XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText("dummy.xml", XmlFileType.INSTANCE, "<fooBarGoo>1</fooBarGoo>", 0, true);
+    final XmlTag tag = file.getDocument().getRootTag();
+    final Document document = file.getViewProvider().getDocument();
+    ApplicationManager.getApplication().runWriteAction(new Runnable() {
+      @Override
+      public void run() {
+        tag.setName("xxx");
+        assertEquals("<xxx>1</xxx>", tag.getText());
+        assertEquals("<xxx>1</xxx>", document.getText());
       }
     });
   }

@@ -69,6 +69,10 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
     return !PlatformUtils.isCidr();
   }
 
+  protected boolean shouldShowSourcesRoot() {
+    return true;
+  }
+
   @Override
   protected void updateImpl(PresentationData data) {
     Project project = getProject();
@@ -104,7 +108,7 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
           final String location = FileUtil.getLocationRelativeToUserHome(directoryFile.getPresentableUrl());
           data.addText(" (" + location + ")", SimpleTextAttributes.GRAYED_ATTRIBUTES);
         }
-        else {
+        else if (shouldShowSourcesRoot()) {
           SourceFolder sourceRoot = ProjectRootsUtil.getModuleSourceRoot(directoryFile, project);
           if (sourceRoot != null) {
             ModuleSourceRootEditHandler<?> handler = ModuleSourceRootEditHandler.getEditHandler(sourceRoot.getRootType());
@@ -130,12 +134,7 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
     }
 
     data.setPresentableText(name);
-    if (ProjectRootsUtil.isLibraryRoot(directoryFile, project)) {
-      data.setLocationString("library home");
-    }
-    else {
-      data.setLocationString(ProjectViewDirectoryHelper.getInstance(project).getLocationString(psiDirectory));
-    }
+    data.setLocationString(ProjectViewDirectoryHelper.getInstance(project).getLocationString(psiDirectory));
 
     setupIcon(data, psiDirectory);
   }

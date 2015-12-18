@@ -363,15 +363,19 @@ public class EditorActionUtil {
     else {
       LogicalPosition logLineEndLog = editor.offsetToLogicalPosition(document.getLineEndOffset(logLineToUse));
       VisualPosition logLineEndVis = editor.logicalToVisualPosition(logLineEndLog);
-      if (logLineEndLog.softWrapLinesOnCurrentLogicalLine > 0) {
-        moveCaretToStartOfSoftWrappedLine(editor, logLineEndVis, logLineEndLog.softWrapLinesOnCurrentLogicalLine);
+      int softWrapCount = EditorUtil.getSoftWrapCountAfterLineStart(editor, logLineEndLog);
+      if (softWrapCount > 0) {
+        moveCaretToStartOfSoftWrappedLine(editor, logLineEndVis, softWrapCount);
       }
       else {
         int line = logLineEndVis.line;
-        if (currentVisCaret.column == 0 && editorSettings.isSmartHome()) {
-          findSmartIndentColumn(editor, line);
-        }
         int column = 0;
+        if (currentVisCaret.column > 0) {
+          int firstNonSpaceColumnOnTheLine = findFirstNonSpaceColumnOnTheLine(editor, currentVisCaret.line);
+          if (firstNonSpaceColumnOnTheLine < currentVisCaret.column) {
+            column = firstNonSpaceColumnOnTheLine;
+          }
+        }
         caretModel.moveToVisualPosition(new VisualPosition(line, column));
       }
     }
@@ -854,6 +858,7 @@ public class EditorActionUtil {
   }
 
   public static boolean isHumpBound(@NotNull CharSequence editorText, int offset, boolean start) {
+    if (offset <= 0 || offset >= editorText.length()) return false;
     final char prevChar = editorText.charAt(offset - 1);
     final char curChar = editorText.charAt(offset);
     final char nextChar = offset + 1 < editorText.length() ? editorText.charAt(offset + 1) : 0; // 0x00 is not lowercase.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,9 @@
 package com.intellij.javadoc;
 
 import com.intellij.openapi.options.Configurable;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.roots.JavadocOrderRootType;
 import com.intellij.psi.PsiKeyword;
 
 import javax.swing.*;
@@ -24,13 +27,21 @@ import java.io.File;
 public final class JavadocConfigurable implements Configurable {
   private JavadocGenerationPanel myPanel;
   private final JavadocConfiguration myConfiguration;
+  private final Project myProject;
 
-  public JavadocConfigurable(JavadocConfiguration configuration) {
+  public JavadocConfigurable(JavadocConfiguration configuration, Project project) {
     myConfiguration = configuration;
+    myProject = project;
+  }
+
+  public static boolean sdkHasJavadocUrls(Project project) {
+    Sdk sdk = JavadocGeneratorRunProfile.getSdk(project);
+    return sdk != null && sdk.getRootProvider().getFiles(JavadocOrderRootType.getInstance()).length > 0;
   }
 
   public JComponent createComponent() {
     myPanel = new JavadocGenerationPanel();
+    myPanel.myLinkToJdkDocs.setEnabled(sdkHasJavadocUrls(myProject));
     return myPanel.myPanel;
   }
 
@@ -51,6 +62,7 @@ public final class JavadocConfigurable implements Configurable {
     configuration.OPTION_DOCUMENT_TAG_DEPRECATED = myPanel.myTagDeprecated.isSelected();
     configuration.OPTION_DEPRECATED_LIST = myPanel.myDeprecatedList.isSelected();
     configuration.OPTION_INCLUDE_LIBS = myPanel.myIncludeLibraryCb.isSelected();
+    configuration.OPTION_LINK_TO_JDK_DOCS = myPanel.myLinkToJdkDocs.isSelected();
   }
 
   public void loadFrom(JavadocConfiguration configuration) {
@@ -74,6 +86,7 @@ public final class JavadocConfigurable implements Configurable {
     myPanel.myDeprecatedList.setEnabled(myPanel.myTagDeprecated.isSelected());
 
     myPanel.myIncludeLibraryCb.setSelected(configuration.OPTION_INCLUDE_LIBS);
+    myPanel.myLinkToJdkDocs.setSelected(configuration.OPTION_LINK_TO_JDK_DOCS);
   }
 
   public boolean isModified() {
@@ -95,6 +108,7 @@ public final class JavadocConfigurable implements Configurable {
     isModified |= myPanel.myTagDeprecated.isSelected() != configuration.OPTION_DOCUMENT_TAG_DEPRECATED;
     isModified |= myPanel.myDeprecatedList.isSelected() != configuration.OPTION_DEPRECATED_LIST;
     isModified |= myPanel.myIncludeLibraryCb.isSelected() != configuration.OPTION_INCLUDE_LIBS;
+    isModified |= myPanel.myLinkToJdkDocs.isSelected() != configuration.OPTION_LINK_TO_JDK_DOCS;
 
     return isModified;
   }

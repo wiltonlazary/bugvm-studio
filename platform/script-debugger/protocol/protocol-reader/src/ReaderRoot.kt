@@ -5,13 +5,11 @@ import org.jetbrains.io.JsonReaderEx
 import org.jetbrains.jsonProtocol.JsonParseMethod
 import java.lang.reflect.Method
 import java.lang.reflect.ParameterizedType
-import java.util.Arrays
-import java.util.Comparator
-import java.util.LinkedHashMap
+import java.util.*
 
-class ReaderRoot<R>(public val type: Class<R>, private val typeToTypeHandler: LinkedHashMap<Class<*>, TypeWriter<*>>) {
+internal class ReaderRoot<R>(val type: Class<R>, private val typeToTypeHandler: LinkedHashMap<Class<*>, TypeWriter<*>?>) {
   private val visitedInterfaces = THashSet<Class<*>>(1)
-  val methodMap = LinkedHashMap<Method, ReadDelegate>();
+  val methodMap = LinkedHashMap<Method, ReadDelegate>()
 
   init {
     readInterfaceRecursive(type)
@@ -24,67 +22,84 @@ class ReaderRoot<R>(public val type: Class<R>, private val typeToTypeHandler: Li
     visitedInterfaces.add(clazz)
 
     // todo sort by source location
-    val methods = clazz.getMethods()
-    Arrays.sort<Method>(methods, object : Comparator<Method> {
-      override fun compare(o1: Method, o2: Method): Int {
-        return o1.getName().compareTo(o2.getName())
-      }
-    })
+    val methods = clazz.methods
+    Arrays.sort<Method>(methods, { o1, o2 -> o1.name.compareTo(o2.name) })
 
     for (m in methods) {
-      val jsonParseMethod = m.getAnnotation<JsonParseMethod>(javaClass<JsonParseMethod>())
-      if (jsonParseMethod == null) {
-        continue
+      m.getAnnotation<JsonParseMethod>(JsonParseMethod::class.java) ?: continue
+
+      val exceptionTypes = m.exceptionTypes
+      if (exceptionTypes.size > 1) {
+        throw JsonProtocolModelParseException("Too many exception declared in $m")
       }
 
-      val exceptionTypes = m.getExceptionTypes()
-      if (exceptionTypes.size() > 1) {
-        throw JsonProtocolModelParseException("Too many exception declared in " + m)
-      }
-
-      var returnType = m.getGenericReturnType()
+      var returnType = m.genericReturnType
       var isList = false
       if (returnType is ParameterizedType) {
         val parameterizedType = returnType
-        if (parameterizedType.getRawType() == javaClass<List<Any>>()) {
+        if (parameterizedType.rawType == List::class.java) {
           isList = true
-          returnType = parameterizedType.getActualTypeArguments()[0]
+          returnType = parameterizedType.actualTypeArguments[0]
         }
       }
 
       //noinspection SuspiciousMethodCalls
-      var typeWriter: TypeWriter<*>? = typeToTypeHandler.get(returnType)
+      var typeWriter: TypeWriter<*>? = typeToTypeHandler.getRaw(returnType)
       if (typeWriter == null) {
-        typeWriter = createHandler(typeToTypeHandler, m.getReturnType())
+        typeWriter = createHandler(typeToTypeHandler, m.returnType)
       }
 
-      val arguments = m.getGenericParameterTypes()
-      if (arguments.size() > 2) {
-        throw JsonProtocolModelParseException("Exactly one argument is expected in " + m)
+      val arguments = m.genericParameterTypes
+      if (arguments.size > 2) {
+        throw JsonProtocolModelParseException("Exactly one argument is expected in $m")
       }
       val argument = arguments[0]
-      if (argument == javaClass<JsonReaderEx>() || argument == javaClass<Any>()) {
-        methodMap.put(m, ReadDelegate(typeWriter, isList, arguments.size() != 1))
+      if (argument == JsonReaderEx::class.java || argument == Any::class.java) {
+        methodMap.put(m, ReadDelegate(typeWriter, isList, arguments.size != 1))
       }
       else {
-        throw JsonProtocolModelParseException("Unrecognized argument type in " + m)
+        throw JsonProtocolModelParseException("Unrecognized argument type in $m")
       }
     }
 
-    for (baseType in clazz.getGenericInterfaces()) {
+    for (baseType in clazz.genericInterfaces) {
       if (baseType !is Class<*>) {
-        throw JsonProtocolModelParseException("Base interface must be class in " + clazz)
+        throw JsonProtocolModelParseException("Base interface must be class in $clazz")
       }
       readInterfaceRecursive(baseType)
     }
   }
 
-  public fun writeStaticMethodJava(scope: ClassScope) {
+  fun write(scope: ClassScope) {
     val out = scope.output
-    for (entry in methodMap.entrySet()) {
+    for (entry in methodMap.entries) {
       out.newLine()
-      entry.getValue().write(scope, entry.getKey(), out)
+      entry.value.write(scope, entry.key, out)
       out.newLine()
+    }
+  }
+}
+
+private val STATIC_METHOD_PARAM_NAME_LIST = listOf(READER_NAME)
+private val STATIC_METHOD_PARAM_NAME_LIST2 = Arrays.asList(READER_NAME, "nextName")
+
+internal class ReadDelegate(private val typeHandler: TypeWriter<*>, private val isList: Boolean, hasNextNameParam: Boolean) {
+  private val paramNames = if (hasNextNameParam) STATIC_METHOD_PARAM_NAME_LIST2 else STATIC_METHOD_PARAM_NAME_LIST
+
+  fun write(scope: ClassScope, method: Method, out: TextOutput) {
+    writeMethodDeclarationJava(out, method, paramNames)
+    out.append(": ")
+    writeJavaTypeName(method.genericReturnType, out)
+    out.append(" = ")
+    if (isList) {
+      out.append("readObjectArray(").append(READER_NAME).append(", ").append(TYPE_FACTORY_NAME_PREFIX).append(scope.requireFactoryGenerationAndGetName(typeHandler)).append("()").append(")")
+    }
+    else {
+      typeHandler.writeInstantiateCode(scope, out)
+      out.append('(').append(READER_NAME)
+      out.comma().space()
+      out.append(if (paramNames.size == 1) "null" else "nextName")
+      out.append(')')
     }
   }
 }

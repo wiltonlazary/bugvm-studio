@@ -35,9 +35,10 @@ import com.intellij.testIntegration.TestFinderHelper;
 import com.intellij.testIntegration.TestFramework;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.List;
+import java.util.Collection;
 
 public class GenerateMissedTestsAction extends PsiElementBaseIntentionAction {
 
@@ -71,7 +72,7 @@ public class GenerateMissedTestsAction extends PsiElementBaseIntentionAction {
 
     if (srcClass == null) return;
 
-    final List<PsiElement> testClasses = TestFinderHelper.findTestsForClass(srcClass);
+    final Collection<PsiElement> testClasses = TestFinderHelper.findTestsForClass(srcClass);
     
     if (testClasses.isEmpty()) {
       HintManager.getInstance().showErrorHint(editor, "No tests found.");
@@ -79,7 +80,7 @@ public class GenerateMissedTestsAction extends PsiElementBaseIntentionAction {
     }
     
     if (testClasses.size() == 1) {
-      generateMissedTests((PsiClass)testClasses.get(0), srcClass, editor);
+      generateMissedTests((PsiClass)ContainerUtil.getFirstItem(testClasses), srcClass, editor);
       return;
     }
 
@@ -101,7 +102,7 @@ public class GenerateMissedTestsAction extends PsiElementBaseIntentionAction {
       final TestFramework framework = TestFrameworks.detectFramework(testClass);
       if (framework != null) {
         final Project project = testClass.getProject();
-        final Editor editor = CodeInsightUtil.positionCursor(project, testClass.getContainingFile(), testClass.getLBrace());
+        final Editor editor = CodeInsightUtil.positionCursorAtLBrace(project, testClass.getContainingFile(), testClass);
         if (!FileModificationService.getInstance().preparePsiElementsForWrite(testClass)) return;
         final MissedTestsDialog dialog = new MissedTestsDialog(project, srcClass, testClass, framework);
         if (dialog.showAndGet()) {

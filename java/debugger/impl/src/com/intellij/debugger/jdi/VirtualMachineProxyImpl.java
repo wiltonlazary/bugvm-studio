@@ -26,11 +26,14 @@ import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.jdi.VirtualMachineProxy;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.ThreeState;
 import com.intellij.util.containers.HashMap;
 import com.sun.jdi.*;
 import com.sun.jdi.event.EventQueue;
 import com.sun.jdi.request.EventRequestManager;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -87,6 +90,7 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     }
   }
 
+  @NotNull
   public VirtualMachine getVirtualMachine() {
     return myVirtualMachine;
   }
@@ -277,7 +281,15 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     return myVirtualMachine.eventRequestManager();
   }
 
+  /**
+   * @deprecated use {@link #mirrorOfVoid()} instead
+   */
+  @Deprecated
   public VoidValue mirrorOf() throws EvaluateException {
+    return mirrorOfVoid();
+  }
+
+  public VoidValue mirrorOfVoid() {
     return myVirtualMachine.mirrorOfVoid();
   }
 
@@ -460,6 +472,15 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     return myPopFrames.isAvailable();
   }
 
+  private final Capability myForceEarlyReturn = new Capability() {
+    protected boolean calcValue() {
+      return myVirtualMachine.canForceEarlyReturn();
+    }
+  };
+  public boolean canForceEarlyReturn() {
+    return myForceEarlyReturn.isAvailable();
+  }
+
   private final Capability myCanGetInstanceInfo = new Capability() {
     protected boolean calcValue() {
       if (!myVersionHigher_15) {
@@ -550,14 +571,16 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     myVirtualMachine.setDebugTraceMode(i);
   }
 
-  public ThreadReferenceProxyImpl getThreadReferenceProxy(ThreadReference thread) {
+  @Nullable
+  @Contract("null -> null; !null -> !null")
+  public ThreadReferenceProxyImpl getThreadReferenceProxy(@Nullable ThreadReference thread) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
-    if(thread == null) {
+    if (thread == null) {
       return null;
     }
 
     ThreadReferenceProxyImpl proxy = myAllThreads.get(thread);
-    if(proxy == null) {
+    if (proxy == null) {
       proxy = new ThreadReferenceProxyImpl(this, thread);
       myAllThreads.put(thread, proxy);
     }
@@ -676,19 +699,19 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
 
 
   private abstract static class Capability {
-    private Boolean myValue = null;
+    private ThreeState myValue = ThreeState.UNSURE;
 
     public final boolean isAvailable() {
-      if (myValue == null) {
+      if (myValue == ThreeState.UNSURE) {
         try {
-          myValue = Boolean.valueOf(calcValue());
+          myValue = ThreeState.fromBoolean(calcValue());
         }
         catch (VMDisconnectedException e) {
           LOG.info(e);
-          myValue = Boolean.FALSE;
+          myValue = ThreeState.NO;
         }
       }
-      return myValue.booleanValue();
+      return myValue.toBoolean();
     }
 
     protected abstract boolean calcValue();

@@ -20,10 +20,12 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
+import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
 import org.jetbrains.annotations.NonNls;
@@ -60,18 +62,18 @@ public class AddCallSuperQuickFix implements LocalQuickFix {
     final StringBuilder superCall = new StringBuilder();
     final PyClass klass = problemFunction.getContainingClass();
     if (klass == null) return;
-    final PyClass[] superClasses = klass.getSuperClasses();
+    final PyClass[] superClasses = klass.getSuperClasses(null);
     if (superClasses.length == 0) return;
 
     final PyClass superClass = superClasses[0];
-    final PyFunction superInit = superClass.findMethodByName(PyNames.INIT, true);
+    final PyFunction superInit = superClass.findMethodByName(PyNames.INIT, true, null);
     if (superInit == null) return;
 
     final ParametersInfo origInfo = new ParametersInfo(problemFunction.getParameterList());
     final ParametersInfo superInfo = new ParametersInfo(superInit.getParameterList());
     final boolean addSelfToCall;
 
-    if (klass.isNewStyleClass()) {
+    if (klass.isNewStyleClass(null)) {
       addSelfToCall = false;
       if (LanguageLevel.forElement(klass).isPy3K()) {
         superCall.append("super().__init__(");
@@ -84,16 +86,11 @@ public class AddCallSuperQuickFix implements LocalQuickFix {
       addSelfToCall = true;
       superCall.append(superClass.getName()).append(".__init__(");
     }
-    final StringBuilder newFunction = new StringBuilder("def __init__(");
 
     final Couple<List<String>> couple = buildNewFunctionParamsAndSuperInitCallArgs(origInfo, superInfo, addSelfToCall);
-    StringUtil.join(couple.getFirst(), ", ", newFunction);
-    newFunction.append(")");
-
-    if (problemFunction.getAnnotation() != null) {
-      newFunction.append(problemFunction.getAnnotation().getText());
-    }
-    newFunction.append(": pass");
+    final StringBuilder newParameters = new StringBuilder("(");
+    StringUtil.join(couple.getFirst(), ", ", newParameters);
+    newParameters.append(")");
 
     StringUtil.join(couple.getSecond(), ", ", superCall);
     superCall.append(")");
@@ -101,10 +98,7 @@ public class AddCallSuperQuickFix implements LocalQuickFix {
     final PyElementGenerator generator = PyElementGenerator.getInstance(project);
     final LanguageLevel languageLevel = LanguageLevel.forElement(problemFunction);
     final PyStatement callSuperStatement = generator.createFromText(languageLevel, PyStatement.class, superCall.toString());
-    final PyParameterList newParameterList = generator.createFromText(languageLevel,
-                                                                      PyParameterList.class,
-                                                                      newFunction.toString(),
-                                                                      new int[]{0, 3});
+    final PyParameterList newParameterList = generator.createParameterList(languageLevel, newParameters.toString());
     problemFunction.getParameterList().replace(newParameterList);
     final PyStatementList statementList = problemFunction.getStatementList();
     PyUtil.addElementToStatementList(callSuperStatement, statementList, true);
@@ -173,6 +167,25 @@ public class AddCallSuperQuickFix implements LocalQuickFix {
       newFunctionParams.add(param.getText());
     }
 
+    // Pass parameters with default values to super class constructor, only if both functions contain them  
+    for (PyParameter param : superInfo.getOptionalParameters()) {
+      final PyTupleParameter tupleParam = param.getAsTuple();
+      if (tupleParam != null) {
+        if (origInfo.getAllParameterNames().containsAll(collectParameterNames(tupleParam))) {
+          final String paramText = tupleParam.getText();
+          final PsiElement equalSign = PyPsiUtils.getFirstChildOfType(param, PyTokenTypes.EQ);
+          if (equalSign != null) {
+            superCallArgs.add(paramText.substring(0, equalSign.getStartOffsetInParent()).trim());
+          }
+        }
+      }
+      else {
+        if (origInfo.getAllParameterNames().contains(param.getName())) {
+          superCallArgs.add(param.getName());
+        }
+      }
+    }
+
     // Positional vararg
     PyParameter starredParam = null;
     if (origInfo.getPositionalContainerParameter() != null) {
@@ -195,25 +208,34 @@ public class AddCallSuperQuickFix implements LocalQuickFix {
     }
 
     // Required keyword-only parameters
-    boolean hasKeywordOnlyParams = false;
+    boolean newSignatureContainsKeywordParams = false;
     for (PyParameter param : origInfo.getRequiredKeywordOnlyParameters()) {
       newFunctionParams.add(param.getText());
-      hasKeywordOnlyParams = true;
+      newSignatureContainsKeywordParams = true;
     }
     for (PyParameter param : superInfo.getRequiredKeywordOnlyParameters()) {
       if (!origInfo.getAllParameterNames().contains(param.getName())) {
         newFunctionParams.add(param.getText());
-        hasKeywordOnlyParams = true;
+        newSignatureContainsKeywordParams = true;
       }
       superCallArgs.add(param.getName() + "=" + param.getName());
-    }
-    if (starredParam instanceof PySingleStarParameter && !hasKeywordOnlyParams) {
-      newFunctionParams.remove(newFunctionParams.size() - 1);
     }
 
     // Optional keyword-only parameters
     for (PyParameter param : origInfo.getOptionalKeywordOnlyParameters()) {
       newFunctionParams.add(param.getText());
+      newSignatureContainsKeywordParams = true;
+    }
+    
+    // If '*' param is followed by nothing in result signature, remove it altogether 
+    if (starredParam instanceof PySingleStarParameter && !newSignatureContainsKeywordParams) {
+      newFunctionParams.remove(newFunctionParams.size() - 1);
+    }
+
+    for (PyParameter param : superInfo.getOptionalKeywordOnlyParameters()) {
+      if (origInfo.getAllParameterNames().contains(param.getName())) {
+        superCallArgs.add(param.getName() + "=" + param.getName());
+      }
     }
 
     // Keyword vararg

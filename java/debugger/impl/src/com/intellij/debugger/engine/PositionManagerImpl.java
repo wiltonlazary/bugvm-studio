@@ -28,7 +28,10 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.NullableComputable;
+import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -112,7 +115,10 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
               }
             };
           }
-          res.add(myDebugProcess.getRequestsManager().createClassPrepareRequest(prepareRequestor, classPattern));
+          ClassPrepareRequest request = myDebugProcess.getRequestsManager().createClassPrepareRequest(prepareRequestor, classPattern);
+          if (request != null) {
+            res.add(request);
+          }
         }
         return res;
       }
@@ -213,8 +219,8 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     }
 
     private PsiElement remapElement(PsiElement element) {
-      PsiClass aClass = getEnclosingClass(element);
-      if (!Comparing.equal(myExpectedClassName, JVMNameUtil.getClassVMName(aClass))) {
+      String name = JVMNameUtil.getClassVMName(getEnclosingClass(element));
+      if (name != null && !name.equals(myExpectedClassName)) {
         return null;
       }
       PsiElement method = DebuggerUtilsEx.getContainingMethod(element);
@@ -280,7 +286,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
   private static Iterable<PsiElement> getLineElements(final PsiFile file, int lineNumber) {
     ApplicationManager.getApplication().assertReadAccessAllowed();
     Document document = PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
-    if (document == null || lineNumber >= document.getLineCount()) {
+    if (document == null || lineNumber < 0 || lineNumber >= document.getLineCount()) {
       return EmptyIterable.getInstance();
     }
     final TextRange lineRange = DocumentUtil.getLineTextRange(document, lineNumber);
@@ -328,7 +334,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
   }
 
   @Nullable
-  private PsiFile getPsiFileByLocation(final Project project, final Location location) {
+  protected PsiFile getPsiFileByLocation(final Project project, final Location location) {
     if (location == null) {
       return null;
     }
@@ -585,7 +591,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     }
 
     @Override public void visitClass(PsiClass aClass) {
-      final List<ReferenceType> allClasses = myDebugProcess.getPositionManager().getAllClasses(SourcePosition.createFromElement(aClass));
+      final List<ReferenceType> allClasses = getClassReferences(aClass, SourcePosition.createFromElement(aClass));
       for (ReferenceType referenceType : allClasses) {
         if (referenceType.name().equals(myClassName)) {
           myCompiledClass = aClass;
@@ -597,8 +603,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
 
     @Override public void visitMethod(PsiMethod method) {
       try {
-        //noinspection HardCodedStringLiteral
-        String methodName = method.isConstructor() ? "<init>" : method.getName();
+        String methodName = JVMNameUtil.getJVMMethodName(method);
         PsiClass containingClass = method.getContainingClass();
 
         if(containingClass != null &&

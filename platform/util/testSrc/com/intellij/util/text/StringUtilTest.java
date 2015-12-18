@@ -87,6 +87,10 @@ public class StringUtilTest {
   public void testPluralize() {
     assertEquals("values", StringUtil.pluralize("value"));
     assertEquals("values", StringUtil.pluralize("values"));
+    assertEquals("indices", StringUtil.pluralize("index"));
+    assertEquals("matrices", StringUtil.pluralize("matrix"));
+    assertEquals("men", StringUtil.pluralize("man"));
+    assertEquals("media", StringUtil.pluralize("medium"));
   }
 
   @Test
@@ -294,7 +298,7 @@ public class StringUtilTest {
 
   @Test
   public void testReplace() {
-    assertEquals(StringUtil.replace("$PROJECT_FILE$/filename", "$PROJECT_FILE$", "/tmp"), "/tmp/filename");
+    assertEquals("/tmp/filename", StringUtil.replace("$PROJECT_FILE$/filename", "$PROJECT_FILE$", "/tmp"));
   }
 
   @Test
@@ -423,5 +427,47 @@ public class StringUtilTest {
     assertEquals("java.util.Map", StringUtil.getPackageName("java.util.Map.Entry"));
     assertEquals("Map", StringUtil.getPackageName("Map.Entry"));
     assertEquals("", StringUtil.getPackageName("Number"));
+  }
+
+  @SuppressWarnings("SpellCheckingInspection")
+  @Test
+  public void testIndexOf_1() {
+    char[] chars = new char[]{'a','b','c','d','a','b','c','d','A','B','C','D'};
+    assertEquals(2, StringUtil.indexOf(chars, 'c', 0, 12, false));
+    assertEquals(2, StringUtil.indexOf(chars, 'C', 0, 12, false));
+    assertEquals(10, StringUtil.indexOf(chars, 'C', 0, 12, true));
+    assertEquals(2, StringUtil.indexOf(chars, 'c', -42, 99, false));
+  }
+
+  @SuppressWarnings("SpellCheckingInspection")
+  @Test
+  public void testIndexOf_2() {
+    assertEquals(1, StringUtil.indexOf("axaxa", 'x', 0, 5));
+    assertEquals(2, StringUtil.indexOf("abcd", 'c', -42, 99));
+  }
+
+  @SuppressWarnings("SpellCheckingInspection")
+  @Test
+  public void testIndexOf_3() {
+    assertEquals(1, StringUtil.indexOf("axaXa", 'x', 0, 5, false));
+    assertEquals(3, StringUtil.indexOf("axaXa", 'X', 0, 5, true));
+    assertEquals(2, StringUtil.indexOf("abcd", 'c', -42, 99, false));
+  }
+
+  @SuppressWarnings("SpellCheckingInspection")
+  @Test
+  public void testIndexOfAny() {
+    assertEquals(1, StringUtil.indexOfAny("axa", "x", 0, 5));
+    assertEquals(1, StringUtil.indexOfAny("axa", "zx", 0, 5));
+    assertEquals(2, StringUtil.indexOfAny("abcd", "c", -42, 99));
+  }
+
+  @SuppressWarnings("SpellCheckingInspection")
+  @Test
+  public void testLastIndexOf() {
+    assertEquals(1, StringUtil.lastIndexOf("axaxa", 'x', 0, 2));
+    assertEquals(1, StringUtil.lastIndexOf("axaxa", 'x', 0, 3));
+    assertEquals(3, StringUtil.lastIndexOf("axaxa", 'x', 0, 5));
+    assertEquals(2, StringUtil.lastIndexOf("abcd", 'c', -42, 99));  // #IDEA-144968
   }
 }

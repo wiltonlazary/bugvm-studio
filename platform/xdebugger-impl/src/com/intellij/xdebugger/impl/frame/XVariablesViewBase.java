@@ -112,6 +112,11 @@ public abstract class XVariablesViewBase extends XDebugView {
     }
   }
 
+  @Override
+  protected void clear() {
+    removeSelectionListener();
+  }
+
   private void disposeTreeRestorer() {
     if (myTreeRestorer != null) {
       myTreeRestorer.dispose();
@@ -151,7 +156,7 @@ public abstract class XVariablesViewBase extends XDebugView {
 
     @Override
     public void selectionChanged(final SelectionEvent e) {
-      if (!Registry.is("debugger.valueTooltipAutoShowOnSelection")) {
+      if (!Registry.is("debugger.valueTooltipAutoShowOnSelection") || myEditor.getCaretModel().getCaretCount() > 1) {
         return;
       }
       final String text = myEditor.getDocument().getText(e.getNewRange());

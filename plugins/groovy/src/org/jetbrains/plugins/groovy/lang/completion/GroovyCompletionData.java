@@ -21,7 +21,7 @@ import com.intellij.codeInsight.TailType;
 import com.intellij.codeInsight.TailTypes;
 import com.intellij.codeInsight.completion.CompletionParameters;
 import com.intellij.codeInsight.completion.CompletionResultSet;
-import com.intellij.codeInsight.completion.JavaCompletionData;
+import com.intellij.codeInsight.completion.JavaKeywordCompletion;
 import com.intellij.codeInsight.completion.ModifierChooser;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
@@ -274,7 +274,7 @@ public class GroovyCompletionData {
 
   private static LookupElement keyword(final String keyword, @NotNull TailType tail) {
     LookupElementBuilder element = LookupElementBuilder.create(keyword).bold();
-    return tail != TailType.NONE ? new JavaCompletionData.OverrideableSpace(element, tail) : element;
+    return tail != TailType.NONE ? new JavaKeywordCompletion.OverrideableSpace(element, tail) : element;
   }
 
   private static void registerControlCompletion(PsiElement context, CompletionResultSet result) {
@@ -323,7 +323,7 @@ public class GroovyCompletionData {
 
     PsiElement parent = flowOwner.getParent();
     if (parent instanceof GrMethod) {
-      return ((GrMethod)parent).getReturnType() != PsiType.VOID;
+      return !PsiType.VOID.equals(((GrMethod)parent).getReturnType());
     }
     else if (parent instanceof GrClassInitializer) {
       return false;

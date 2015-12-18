@@ -418,6 +418,46 @@ public class NewMethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
     doTest();
   }
 
+  public void testIncompleteCodeWithMethodReferenceOverLambdaParameter() throws Exception {
+    doTest();
+  }
+
+  public void testIncompleteMethodReferenceWithUncheckedWarningInspection() throws Exception {
+    doTest();
+  }
+
+  public void testCapturedReturnTypeOfMethodReference() throws Exception {
+    doTest();
+  }
+
+  public void testEnumConstantsAsContext() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA138752() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA136708() throws Exception {
+    doTest();
+  }
+
+  public void testContainingClassTypeParametersShouldNotBeInferredDuringMethodReferenceProcessing() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA147511() throws Exception {
+    doTest();
+  }
+
+  public void testRawInferredTypeCheck() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA147873() throws Exception {
+    doTest();
+  }
+
   private void doTest() {
     doTest(false);
   }

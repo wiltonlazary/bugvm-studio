@@ -15,237 +15,173 @@
  */
 package org.jetbrains.settingsRepository.test
 
-import com.intellij.mock.MockVirtualFileSystem
+import com.intellij.configurationStore.ApplicationStoreImpl
+import com.intellij.configurationStore.write
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.impl.ApplicationImpl
-import com.intellij.openapi.components.RoamingType
-import com.intellij.openapi.components.impl.stores.StreamProvider
-import com.intellij.openapi.progress.EmptyProgressIndicator
-import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.util.io.FileUtilRt
-import com.intellij.openapi.vfs.CharsetToolkit
-import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vcs.merge.MergeSession
+import com.intellij.testFramework.file
+import com.intellij.testFramework.writeChild
 import com.intellij.util.PathUtilRt
-import org.eclipse.jgit.api.Git
-import org.eclipse.jgit.lib.Repository
-import org.hamcrest.CoreMatchers
-import org.hamcrest.CoreMatchers.equalTo
-import org.hamcrest.Matchers
-import org.hamcrest.Matchers.contains
-import org.hamcrest.Matchers.empty
-import org.jetbrains.jgit.dirCache.AddFile
+import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.jgit.dirCache.deletePath
-import org.jetbrains.jgit.dirCache.edit
 import org.jetbrains.jgit.dirCache.writePath
-import org.jetbrains.settingsRepository.AM
-import org.jetbrains.settingsRepository.IcsManager
+import org.jetbrains.settingsRepository.CannotResolveConflictInTestMode
 import org.jetbrains.settingsRepository.SyncType
-import org.jetbrains.settingsRepository.git.GitRepositoryManager
+import org.jetbrains.settingsRepository.conflictResolver
+import org.jetbrains.settingsRepository.copyLocalConfig
 import org.jetbrains.settingsRepository.git.commit
 import org.jetbrains.settingsRepository.git.computeIndexDiff
-import org.jetbrains.settingsRepository.git.resetHard
-import org.junit.After
-import org.junit.Assert.assertThat
-import org.junit.Before
 import org.junit.Test
-import java.io.File
-import javax.swing.SwingUtilities
+import java.nio.charset.StandardCharsets
+import java.util.*
 
-class GitTest : TestCase() {
-  companion object {
-    private var ICS_DIR: File? = null
+// kotlin bug, cannot be val (.NoSuchMethodError: org.jetbrains.settingsRepository.SettingsRepositoryPackage.getMARKER_ACCEPT_MY()[B)
+internal object AM {
+  val MARKER_ACCEPT_MY: ByteArray = "__accept my__".toByteArray()
+  val MARKER_ACCEPT_THEIRS: ByteArray = "__accept theirs__".toByteArray()
+}
 
-    // BeforeClass doesn't work in Kotlin
-    public fun setIcsDir() {
-      val icsDirPath = System.getProperty("ics.settingsRepository")
-      if (icsDirPath == null) {
-        // we must not create file (i.e. this file doesn't exist)
-        ICS_DIR = FileUtilRt.generateRandomTemporaryPath()
-        System.setProperty("ics.settingsRepository", ICS_DIR!!.getAbsolutePath())
+internal class GitTest : GitTestCase() {
+  init {
+    conflictResolver = { files, mergeProvider ->
+      val mergeSession = mergeProvider.createMergeSession(files)
+      for (file in files) {
+        val mergeData = mergeProvider.loadRevisions(file)
+        if (Arrays.equals(mergeData.CURRENT, AM.MARKER_ACCEPT_MY) || Arrays.equals(mergeData.LAST, AM.MARKER_ACCEPT_THEIRS)) {
+          mergeSession.conflictResolvedForFile(file, MergeSession.Resolution.AcceptedYours)
+        }
+        else if (Arrays.equals(mergeData.CURRENT, AM.MARKER_ACCEPT_THEIRS) || Arrays.equals(mergeData.LAST, AM.MARKER_ACCEPT_MY)) {
+          mergeSession.conflictResolvedForFile(file, MergeSession.Resolution.AcceptedTheirs)
+        }
+        else if (Arrays.equals(mergeData.LAST, AM.MARKER_ACCEPT_MY)) {
+          file.setBinaryContent(mergeData.LAST!!)
+          mergeProvider.conflictResolvedForFile(file)
+        }
+        else {
+          throw CannotResolveConflictInTestMode()
+        }
       }
-      else {
-        ICS_DIR = File(FileUtil.expandUserHome(icsDirPath))
-        FileUtil.delete(ICS_DIR!!)
-      }
     }
   }
 
-  override val icsManager: IcsManager
-    get() = org.jetbrains.settingsRepository.icsManager
+  @Test fun add() {
+    provider.write(SAMPLE_FILE_NAME, SAMPLE_FILE_CONTENT)
 
-  private val repositoryManager: GitRepositoryManager
-    get() = icsManager.repositoryManager as GitRepositoryManager
+    val diff = repository.computeIndexDiff()
+    assertThat(diff.diff()).isTrue()
+    assertThat(diff.added).containsOnly(SAMPLE_FILE_NAME)
+    assertThat(diff.changed).isEmpty()
+    assertThat(diff.removed).isEmpty()
+    assertThat(diff.modified).isEmpty()
+    assertThat(diff.untracked).isEmpty()
+    assertThat(diff.untrackedFolders).isEmpty()
+  }
 
-  private val repository: Repository
-    get() = repositoryManager.repository
+  @Test fun addSeveral() {
+    val addedFile = "foo.xml"
+    val addedFile2 = "bar.xml"
+    provider.write(addedFile, "foo")
+    provider.write(addedFile2, "bar")
 
-  private val provider: StreamProvider
-    get() {
-      val provider = (ApplicationManager.getApplication() as ApplicationImpl).getStateStore().getStateStorageManager().getStreamProvider()
-      assertThat(provider, CoreMatchers.notNullValue())
-      return provider!!
+    val diff = repository.computeIndexDiff()
+    assertThat(diff.diff()).isTrue()
+    assertThat(diff.added).containsOnly(addedFile, addedFile2)
+    assertThat(diff.changed).isEmpty()
+    assertThat(diff.removed).isEmpty()
+    assertThat(diff.modified).isEmpty()
+    assertThat(diff.untracked).isEmpty()
+    assertThat(diff.untrackedFolders).isEmpty()
+  }
+
+  @Test fun delete() {
+    fun delete(directory: Boolean) {
+      val dir = "dir"
+      val fullFileSpec = "$dir/file.xml"
+      provider.write(fullFileSpec, SAMPLE_FILE_CONTENT)
+      provider.delete(if (directory) dir else fullFileSpec)
+
+      val diff = repository.computeIndexDiff()
+      assertThat(diff.diff()).isFalse()
+      assertThat(diff.added).isEmpty()
+      assertThat(diff.changed).isEmpty()
+      assertThat(diff.removed).isEmpty()
+      assertThat(diff.modified).isEmpty()
+      assertThat(diff.untracked).isEmpty()
+      assertThat(diff.untrackedFolders).isEmpty()
     }
 
-  private fun delete(data: ByteArray, directory: Boolean) {
-    val addedFile = "\$APP_CONFIG$/remote.xml"
-    provider.save(addedFile, data)
-    provider.delete(if (directory) "\$APP_CONFIG$" else addedFile, RoamingType.PER_USER)
-
-    val diff = repository.computeIndexDiff()
-    assertThat(diff.diff(), CoreMatchers.equalTo(false))
-    assertThat(diff.getAdded(), Matchers.empty())
-    assertThat(diff.getChanged(), Matchers.empty())
-    assertThat(diff.getRemoved(), Matchers.empty())
-    assertThat(diff.getModified(), Matchers.empty())
-    assertThat(diff.getUntracked(), Matchers.empty())
-    assertThat(diff.getUntrackedFolders(), Matchers.empty())
+    delete(false)
+    delete(true)
   }
 
-  private fun addAndCommit(path: String): FileInfo {
-    val data = FileUtil.loadFileBytes(File(testDataPath, PathUtilRt.getFileName(path)))
-    provider.save(path, data)
-    repositoryManager.commit(EmptyProgressIndicator())
-    return FileInfo(path, data)
-  }
-
-  Before
-  public fun setUp() {
-    if (ICS_DIR == null) {
-      setIcsDir()
-    }
-
-    (icsManager.repositoryManager as GitRepositoryManager).createRepositoryIfNeed()
-    icsManager.repositoryActive = true
-  }
-
-  After
-  public fun tearDown() {
-    icsManager.repositoryActive = false
-    repositoryManager.deleteRepository()
-  }
-
-  public Test fun add() {
-    val data = FileUtil.loadFileBytes(File(testDataPath, "remote.xml"))
-    val addedFile = "\$APP_CONFIG$/remote.xml"
-    provider.save(addedFile, data)
-
-    val diff = repository.computeIndexDiff()
-    assertThat(diff.diff(), equalTo(true))
-    assertThat(diff.getAdded(), contains(equalTo(addedFile)))
-    assertThat(diff.getChanged(), empty())
-    assertThat(diff.getRemoved(), empty())
-    assertThat(diff.getModified(), empty())
-    assertThat(diff.getUntracked(), empty())
-    assertThat(diff.getUntrackedFolders(), empty())
-  }
-
-  public Test fun addSeveral() {
-    val data = FileUtil.loadFileBytes(File(testDataPath, "remote.xml"))
-    val data2 = FileUtil.loadFileBytes(File(testDataPath, "local.xml"))
-    val addedFile = "\$APP_CONFIG$/remote.xml"
-    val addedFile2 = "\$APP_CONFIG$/local.xml"
-    provider.save(addedFile, data)
-    provider.save(addedFile2, data2)
-
-    val diff = repository.computeIndexDiff()
-    assertThat(diff.diff(), equalTo(true))
-    assertThat(diff.getAdded(), contains(equalTo(addedFile), equalTo(addedFile2)))
-    assertThat(diff.getChanged(), empty())
-    assertThat(diff.getRemoved(), empty())
-    assertThat(diff.getModified(), empty())
-    assertThat(diff.getUntracked(), empty())
-    assertThat(diff.getUntrackedFolders(), empty())
-  }
-
-  public Test fun delete() {
-    val data = FileUtil.loadFileBytes(File(testDataPath, "remote.xml"))
-    delete(data, false)
-    delete(data, true)
-  }
-
-  public Test fun setUpstream() {
+  @Test fun `set upstream`() {
     val url = "https://github.com/user/repo.git"
-    repositoryManager.setUpstream(url, null)
-    assertThat(repositoryManager.getUpstream(), equalTo(url))
+    repositoryManager.setUpstream(url)
+    assertThat(repositoryManager.getUpstream()).isEqualTo(url)
   }
 
-  Test
+  @Test
   public fun pullToRepositoryWithoutCommits() {
     doPullToRepositoryWithoutCommits(null)
   }
 
-  public Test fun pullToRepositoryWithoutCommitsAndCustomRemoteBranchName() {
+  @Test fun pullToRepositoryWithoutCommitsAndCustomRemoteBranchName() {
     doPullToRepositoryWithoutCommits("customRemoteBranchName")
   }
 
   private fun doPullToRepositoryWithoutCommits(remoteBranchName: String?) {
-    createLocalRepository(remoteBranchName)
-    repositoryManager.pull(EmptyProgressIndicator())
-    compareFiles(repository.getWorkTree(), remoteRepository.getWorkTree())
+    createLocalAndRemoteRepositories(remoteBranchName)
+    repositoryManager.pull()
+    compareFiles(repository.workTree, remoteRepository.workTree)
   }
 
-  public Test fun pullToRepositoryWithCommits() {
+  @Test fun pullToRepositoryWithCommits() {
     doPullToRepositoryWithCommits(null)
   }
 
-  public Test fun pullToRepositoryWithCommitsAndCustomRemoteBranchName() {
+  @Test fun pullToRepositoryWithCommitsAndCustomRemoteBranchName() {
     doPullToRepositoryWithCommits("customRemoteBranchName")
   }
 
   private fun doPullToRepositoryWithCommits(remoteBranchName: String?) {
-    val file = createLocalRepositoryAndCommit(remoteBranchName)
+    createLocalAndRemoteRepositories(remoteBranchName)
+    val file = addAndCommit("local.xml")
 
-    val progressIndicator = EmptyProgressIndicator()
-    repositoryManager.commit(progressIndicator)
-    repositoryManager.pull(progressIndicator)
-    assertThat(FileUtil.loadFile(File(repository.getWorkTree(), file.name)), equalTo(String(file.data, CharsetToolkit.UTF8_CHARSET)))
-    compareFiles(repository.getWorkTree(), remoteRepository.getWorkTree(), null, PathUtilRt.getFileName(file.name))
-  }
-  
-  private fun createLocalRepository(remoteBranchName: String?) {
-    createFileRemote(remoteBranchName)
-    repositoryManager.setUpstream(remoteRepository.getWorkTree().getAbsolutePath(), remoteBranchName)
-  }
-
-  private fun createLocalRepositoryAndCommit(remoteBranchName: String?): FileInfo {
-    createLocalRepository(remoteBranchName)
-    return addAndCommit("\$APP_CONFIG$/local.xml")
-  }
-
-  private fun compareFiles(fs: MockVirtualFileSystem) {
-    compareFiles(fs.getRoot())
-  }
-
-  private fun compareFiles(expected: VirtualFile?) {
-    compareFiles(repository.getWorkTree(), remoteRepository.getWorkTree(), expected)
+    repositoryManager.commit()
+    repositoryManager.pull()
+    assertThat(repository.workTree.resolve(file.name)).hasBinaryContent(file.data)
+    compareFiles(repository.workTree, remoteRepository.workTree, PathUtilRt.getFileName(file.name))
   }
 
   // never was merged. we reset using "merge with strategy "theirs", so, we must test - what's happen if it is not first merge? - see next test
-  public Test fun resetToTheirsIfFirstMerge() {
-    createLocalRepositoryAndCommit(null)
+  @Test fun resetToTheirsIfFirstMerge() {
+    createLocalAndRemoteRepositories(initialCommit = true)
+
     sync(SyncType.OVERWRITE_LOCAL)
-    compareFiles(fs("\$APP_CONFIG$/remote.xml"))
+    fs
+      .file(SAMPLE_FILE_NAME, SAMPLE_FILE_CONTENT)
+      .compare()
   }
 
-  public Test fun resetToTheirsISecondMergeIsNull() {
-    createLocalRepositoryAndCommit(null)
+  @Test fun `overwrite local - second merge is null`() {
+    createLocalAndRemoteRepositories(initialCommit = true)
+
     sync(SyncType.MERGE)
 
     restoreRemoteAfterPush()
 
-    val fs = MockVirtualFileSystem()
-
     fun testRemote() {
-      fs.findFileByPath("\$APP_CONFIG$/local.xml")
-      fs.findFileByPath("\$APP_CONFIG$/remote.xml")
-      compareFiles(fs.getRoot())
+      fs
+        .file("local.xml", """<file path="local.xml" />""")
+        .file(SAMPLE_FILE_NAME, SAMPLE_FILE_CONTENT)
+        .compare()
     }
     testRemote()
 
     addAndCommit("_mac/local2.xml")
     sync(SyncType.OVERWRITE_LOCAL)
 
-    compareFiles(fs.getRoot())
+    fs.compare()
 
     // test: merge and push to remote after such reset
     sync(SyncType.MERGE)
@@ -255,155 +191,180 @@ class GitTest : TestCase() {
     testRemote()
   }
 
-  public Test fun resetToMyIfFirstMerge() {
-    createLocalRepositoryAndCommit(null)
-    sync(SyncType.OVERWRITE_REMOTE)
-    restoreRemoteAfterPush()
-    compareFiles(fs("\$APP_CONFIG$/local.xml"))
-  }
-
-  public Test fun `reset to my, second merge is null`() {
-    createLocalRepositoryAndCommit(null)
-    sync(SyncType.MERGE)
-
-    restoreRemoteAfterPush()
-
-    val fs = fs("\$APP_CONFIG$/local.xml", "\$APP_CONFIG$/remote.xml")
-    compareFiles(fs)
-
-    val local2FilePath = "_mac/local2.xml"
-    addAndCommit(local2FilePath)
-    sync(SyncType.OVERWRITE_REMOTE)
-    restoreRemoteAfterPush()
-
-    fs.findFileByPath(local2FilePath)
-    compareFiles(fs)
-
-    // test: merge to remote after such reset
-    sync(SyncType.MERGE)
-
-    restoreRemoteAfterPush()
-
-    compareFiles(fs)
-  }
-
-  public Test fun `merge - resolve conflicts to my`() {
-    createLocalRepository(null)
+  @Test fun `merge - resolve conflicts to my`() {
+    createLocalAndRemoteRepositories()
 
     val data = AM.MARKER_ACCEPT_MY
-    provider.save("\$APP_CONFIG$/remote.xml", data)
+    provider.write(SAMPLE_FILE_NAME, data)
 
     sync(SyncType.MERGE)
 
     restoreRemoteAfterPush()
-    compareFiles(fs("\$APP_CONFIG$/remote.xml"))
+    fs.file(SAMPLE_FILE_NAME, data.toString(StandardCharsets.UTF_8)).compare()
   }
 
-  public Test fun `merge - theirs file deleted, my modified, accept theirs`() {
-    createLocalRepository(null)
+  @Test fun `merge - theirs file deleted, my modified, accept theirs`() {
+    createLocalAndRemoteRepositories()
 
     sync(SyncType.MERGE)
 
     val data = AM.MARKER_ACCEPT_THEIRS
-    provider.save("\$APP_CONFIG$/remote.xml", data)
-    repositoryManager.commit(EmptyProgressIndicator())
+    provider.write(SAMPLE_FILE_NAME, data)
+    repositoryManager.commit()
 
-    val remoteRepository = testHelper.repository!!
-    remoteRepository.deletePath("\$APP_CONFIG$/remote.xml")
-    remoteRepository.commit("delete remote.xml")
+    remoteRepository.deletePath(SAMPLE_FILE_NAME)
+    remoteRepository.commit("delete $SAMPLE_FILE_NAME")
 
     sync(SyncType.MERGE)
 
-    compareFiles(fs())
+    fs.compare()
   }
 
-  public Test fun `merge - my file deleted, theirs modified, accept my`() {
-    createLocalRepository(null)
+  @Test fun `merge - my file deleted, theirs modified, accept my`() {
+    createLocalAndRemoteRepositories()
 
     sync(SyncType.MERGE)
 
-    provider.delete("\$APP_CONFIG$/remote.xml", RoamingType.PER_USER)
-    repositoryManager.commit(EmptyProgressIndicator())
+    provider.delete(SAMPLE_FILE_NAME)
+    repositoryManager.commit()
 
-    val remoteRepository = testHelper.repository!!
-    remoteRepository.writePath("\$APP_CONFIG$/remote.xml", AM.MARKER_ACCEPT_THEIRS)
+    remoteRepository.writePath(SAMPLE_FILE_NAME, AM.MARKER_ACCEPT_THEIRS)
     remoteRepository.commit("")
 
     sync(SyncType.MERGE)
     restoreRemoteAfterPush()
 
-    compareFiles(fs())
+    fs.compare()
+  }
+
+  @Test fun `commit if unmerged`() {
+    createLocalAndRemoteRepositories()
+
+    val data = "<foo />"
+    provider.write(SAMPLE_FILE_NAME, data)
+
+    try {
+      sync(SyncType.MERGE)
+    }
+    catch (e: CannotResolveConflictInTestMode) {
+    }
+
+    // repository in unmerged state
+    conflictResolver = {files, mergeProvider ->
+      assertThat(files).hasSize(1)
+      assertThat(files.first().path).isEqualTo(SAMPLE_FILE_NAME)
+      val mergeSession = mergeProvider.createMergeSession(files)
+      mergeSession.conflictResolvedForFile(files.first(), MergeSession.Resolution.AcceptedTheirs)
+    }
+    sync(SyncType.MERGE)
+
+    fs.file(SAMPLE_FILE_NAME, SAMPLE_FILE_CONTENT).compare()
   }
 
   // remote is uninitialized (empty - initial commit is not done)
-  public Test fun `merge with uninitialized upstream`() {
+  @Test fun `merge with uninitialized upstream`() {
     doSyncWithUninitializedUpstream(SyncType.MERGE)
   }
 
-  public Test fun `reset to my, uninitialized upstream`() {
+  @Test fun `overwrite remote - uninitialized upstream`() {
     doSyncWithUninitializedUpstream(SyncType.OVERWRITE_REMOTE)
   }
 
-  public Test fun `reset to theirs, uninitialized upstream`() {
+  @Test fun `overwrite local - uninitialized upstream`() {
     doSyncWithUninitializedUpstream(SyncType.OVERWRITE_LOCAL)
   }
 
-  fun createFileRemote(branchName: String? = null, initialCommit: Boolean = true): File {
-    val repository = getRemoteRepository(branchName)
+  @Test fun gitignore() {
+    createLocalAndRemoteRepositories()
 
-    val workTree: File = repository.getWorkTree()
-    if (initialCommit) {
-      val addedFile = "\$APP_CONFIG$/remote.xml"
-      FileUtil.copy(File(testDataPath, "remote.xml"), File(workTree, addedFile))
-      repository.edit(AddFile(addedFile))
-      repository.commit("")
+    provider.write(".gitignore", "*.html")
+    sync(SyncType.MERGE)
+
+    val filePaths = listOf("bar.html", "i/am/a/long/path/to/file/foo.html")
+    for (path in filePaths) {
+      provider.write(path, path)
     }
-    return workTree
+
+    val diff = repository.computeIndexDiff()
+    assertThat(diff.diff()).isFalse()
+    assertThat(diff.added).isEmpty()
+    assertThat(diff.changed).isEmpty()
+    assertThat(diff.removed).isEmpty()
+    assertThat(diff.modified).isEmpty()
+    assertThat(diff.untracked).isEmpty()
+    assertThat(diff.untrackedFolders).isEmpty()
+
+    for (path in filePaths) {
+      assertThat(provider.read(path)).isNull()
+    }
   }
 
-  fun getRemoteRepository(branchName: String? = null): Repository {
-    val repository = testHelper.getRepository(ICS_DIR!!)
-    if (branchName != null) {
-      // jgit cannot checkout&create branch if no HEAD (no commits in our empty repository), so we create initial empty commit
-      repository.commit("")
-      Git(repository).checkout().setCreateBranch(true).setName(branchName).call()
+  @Test fun `initial copy to repository - no local files`() {
+    createRemoteRepository(initialCommit = false)
+    // check error during findRemoteRefUpdatesFor (no master ref)
+    testInitialCopy(false)
+  }
+
+  @Test fun `initial copy to repository - some local files`() {
+    createRemoteRepository(initialCommit = false)
+    // check error during findRemoteRefUpdatesFor (no master ref)
+    testInitialCopy(true)
+  }
+
+  @Test fun `initial copy to repository - remote files removed`() {
+    createRemoteRepository(initialCommit = true)
+
+    // check error during findRemoteRefUpdatesFor (no master ref)
+    testInitialCopy(true, SyncType.OVERWRITE_REMOTE)
+  }
+
+  private fun testInitialCopy(addLocalFiles: Boolean, syncType: SyncType = SyncType.MERGE) {
+    repositoryManager.createRepositoryIfNeed()
+    repositoryManager.setUpstream(remoteRepository.getWorkTree().absolutePath)
+
+    val store = ApplicationStoreImpl(ApplicationManager.getApplication()!!)
+    val localConfigPath = tempDirManager.newPath("local_config")
+
+    val lafData = """<application>
+      <component name="UISettings">
+        <option name="HIDE_TOOL_STRIPES" value="false" />
+      </component>
+    </application>"""
+    if (addLocalFiles) {
+      localConfigPath.writeChild("options/ui.lnf.xml", lafData)
     }
-    return repository
+
+    store.setPath(localConfigPath.toString())
+    store.storageManager.streamProvider = provider
+
+    icsManager.sync(syncType, GitTestCase.projectRule.project, { copyLocalConfig(store.storageManager) })
+
+    if (addLocalFiles) {
+      assertThat(localConfigPath).isDirectory()
+      fs
+        .file("ui.lnf.xml", lafData)
+      restoreRemoteAfterPush()
+    }
+    else {
+      assertThat(localConfigPath).doesNotExist()
+    }
+    fs.compare()
   }
 
   private fun doSyncWithUninitializedUpstream(syncType: SyncType) {
-    createFileRemote(null, false)
-    repositoryManager.setUpstream(remoteRepository.getWorkTree().getAbsolutePath(), null)
+    createRemoteRepository(initialCommit = false)
+    repositoryManager.setUpstream(remoteRepository.getWorkTree().absolutePath)
 
-    val path = "\$APP_CONFIG$/local.xml"
-    val data = FileUtil.loadFileBytes(File(testDataPath, PathUtilRt.getFileName(path)))
-    provider.save(path, data)
+    val path = "local.xml"
+    val data = "<application />"
+    provider.write(path, data)
 
     sync(syncType)
 
-    val fs = MockVirtualFileSystem()
     if (syncType != SyncType.OVERWRITE_LOCAL) {
-      fs.findFileByPath(path)
+      fs.file(path, data)
     }
     restoreRemoteAfterPush();
-    compareFiles(fs)
-  }
-
-  private fun restoreRemoteAfterPush() {
-    /** we must not push to non-bare repository - but we do it in test (our sync merge equals to "pull&push"),
-    "
-    By default, updating the current branch in a non-bare repository
-    is denied, because it will make the index and work tree inconsistent
-    with what you pushed, and will require 'git reset --hard' to match the work tree to HEAD.
-    "
-    so, we do "git reset --hard"
-     */
-    testHelper.repository!!.resetHard()
-  }
-
-  private fun sync(syncType: SyncType) {
-    SwingUtilities.invokeAndWait {
-      icsManager.sync(syncType, fixtureManager.projectFixture.getProject())
-    }
+    fs.compare()
   }
 }

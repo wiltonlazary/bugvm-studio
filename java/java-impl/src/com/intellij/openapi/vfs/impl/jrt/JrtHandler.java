@@ -37,16 +37,18 @@ import java.util.Map;
 
 class JrtHandler extends ArchiveHandler {
   static {
+    //noinspection ConstantConditions
     assert Patches.USE_REFLECTION_TO_ACCESS_JDK8;
   }
+
   private static final URI ROOT_URI = URI.create("jrt:/");
   private static final Map<String, Object> EMPTY_ENV = Collections.emptyMap();
 
   private static class JrtEntryInfo extends EntryInfo {
     private final String myModule;
 
-    public JrtEntryInfo(EntryInfo parent, @NotNull String shortName, @NotNull String module, long length, long timestamp) {
-      super(parent, shortName, false, length, timestamp);
+    public JrtEntryInfo(@NotNull String shortName, @NotNull String module, long length, long timestamp, EntryInfo parent) {
+      super(shortName, false, length, timestamp, parent);
       myModule = module;
     }
   }
@@ -76,10 +78,16 @@ class JrtHandler extends ArchiveHandler {
     map.put("", createRootEntry());
 
     //FileSystem fs = (FileSystem)getFileSystem();
-    //Path root = fs.getPath("/");
-    //Files.walk(root).forEachOrdered((p) -> {
+    //Path root = fs.getPath("/modules"); // b74+
+    //if (!Files.exists(root)) root = fs.getPath("/");
     Object fs = getFileSystem();
-    Object root = call(getPath, fs, "/", ArrayUtil.EMPTY_STRING_ARRAY);
+    Object root = call(getPath, fs, "/modules", ArrayUtil.EMPTY_STRING_ARRAY);
+    if (Boolean.FALSE.equals(call(exists, root, linkOptions))) {
+      root = call(getPath, fs, "/", ArrayUtil.EMPTY_STRING_ARRAY);
+    }
+
+    final int start = root.toString().length() + 1;
+    //Files.walk(root).forEachOrdered((p) -> {
     Object stream = call(walk, root, Array.newInstance(cls("java.nio.file.FileVisitOption"), 0));
     call(forEachOrdered, stream, Proxy.newProxyInstance(
       getClass().getClassLoader(), new Class[]{cls("java.util.function.Consumer")}, new InvocationHandler() {
@@ -88,7 +96,7 @@ class JrtHandler extends ArchiveHandler {
           //String path = p.toString();
           String path = args[0].toString();
 
-          int p = path.indexOf('/', 1);
+          int p = path.indexOf('/', start);
           if (p < 0) return null;
           String module = path.substring(1, p);
           path = path.substring(p + 1);
@@ -116,8 +124,8 @@ class JrtHandler extends ArchiveHandler {
           boolean dir = (Boolean)call(isDirectory, attributes);
           long length = (Long)call(size, attributes);
           long modified = (Long)call(toMillis, call(lastModifiedTime, attributes));
-          EntryInfo entry = dir ? new EntryInfo(parent, shortName, true, length, modified)
-                                : new JrtEntryInfo(parent, shortName, module, length, modified);
+          EntryInfo entry = dir ? new EntryInfo(shortName, true, length, modified, parent)
+                                : new JrtEntryInfo(shortName, module, length, modified, parent);
           map.put(path, entry);
 
           return null;
@@ -149,6 +157,7 @@ class JrtHandler extends ArchiveHandler {
 
   private static final Method newFileSystem = method("java.nio.file.FileSystems#newFileSystem", URI.class, Map.class, ClassLoader.class);
   private static final Method getPath = method("java.nio.file.FileSystem#getPath", String.class, String[].class);
+  private static final Method exists = method("java.nio.file.Files#exists", cls("java.nio.file.Path"), cls("java.nio.file.LinkOption", true));
   private static final Method walk = method("java.nio.file.Files#walk", cls("java.nio.file.Path"), cls("java.nio.file.FileVisitOption", true));
   private static final Method forEachOrdered = method("java.util.stream.Stream#forEachOrdered", cls("java.util.function.Consumer"));
   private static final Method readAttributes =
@@ -165,13 +174,8 @@ class JrtHandler extends ArchiveHandler {
   }
 
   private static Class<?> cls(String name, boolean array) {
-    try {
-      if (array) name = "[L" + name + ";";
-      return Class.forName(name);
-    }
-    catch (Exception e) {
-      throw new RuntimeException(e);
-    }
+    if (array) name = "[L" + name + ";";
+    return ReflectionUtil.forName(name);
   }
 
   private static Method method(String name, Class<?>... parameterTypes) {

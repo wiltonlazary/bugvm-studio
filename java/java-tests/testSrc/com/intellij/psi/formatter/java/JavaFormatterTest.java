@@ -3204,4 +3204,35 @@ public void testSCR260() throws Exception {
       "}"
     );
   }
+
+  public void testReformatCodeWithErrorElementsWithoutAssertions() {
+    doTextTest("class  RedTest   {   \n\n\n\n\n\n\n\n   " +
+               "String  [  ]  [  ]   test    =    {       { \n\n\n\n\n {    \"\"}  \n\n\n\n\n };   " +
+               "String  [  ]  [  ]   test    =    {       { \n\n\n\n\n {    \"\"}  \n\n\n\n\n };   " +
+               "                      \n\n\n\n\n\n\n\n  }  ",
+               "class RedTest {\n\n\n" +
+               "    String[][] test = {{\n\n\n" +
+               "            {\"\"}\n\n\n" +
+               "    };\n" +
+               "    String[][] test = {{\n\n\n" +
+               "            {\"\"}\n\n\n" +
+               "    };\n\n\n" +
+               "}  ");
+  }
+  
+  public void testReformatPackageAnnotation() {
+    doTextTest(
+      "@ParametersAreNonnullByDefault package com.example;",
+      "@ParametersAreNonnullByDefault\n" +
+      "package com.example;"
+    );
+    
+    doTextTest(
+      "        @ParametersAreNonnullByDefault\n" +
+      "package com.example;",
+      "@ParametersAreNonnullByDefault\n" +
+      "package com.example;"
+    );
+  }
+  
 }

@@ -23,6 +23,7 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileAttributes;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.InvalidVirtualFileAccessException;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.impl.win32.Win32LocalFileSystem;
@@ -139,6 +140,9 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     if (name.isEmpty()) {
       return null;
     }
+    if (!isValid()) {
+      throw new InvalidVirtualFileAccessException(this);
+    }
 
     VirtualFileSystemEntry found = doFindChildInArray(name, ignoreCase);
     if (found != null) return found;
@@ -201,7 +205,7 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
 
   private VirtualFileSystemEntry[] getArraySafely() {
     synchronized (myData) {
-      return myData.getFileChildren(Math.abs(getId()), this);
+      return myData.getFileChildren(myId, this);
     }
   }
 
@@ -216,8 +220,13 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
   private VirtualFileSystemEntry createChild(int nameId, int id, @NotNull NewVirtualFileSystem delegate) {
     final int attributes = ourPersistence.getFileAttributes(id);
     VfsData.Segment segment = VfsData.getSegment(id, true);
-    VfsData.initFile(id, segment, nameId,
-                     PersistentFS.isDirectory(attributes) ? new VfsData.DirectoryData() : KeyFMap.EMPTY_MAP);
+    try {
+      VfsData.initFile(id, segment, nameId,
+                       PersistentFS.isDirectory(attributes) ? new VfsData.DirectoryData() : KeyFMap.EMPTY_MAP);
+    }
+    catch (VfsData.FileAlreadyCreatedException e) {
+      throw new RuntimeException("dir=" + myId + "; dir.children=" + Arrays.toString(FSRecords.listAll(myId)), e);
+    }
     LOG.assertTrue(!(getFileSystem() instanceof Win32LocalFileSystem));
 
     VirtualFileSystemEntry child = VfsData.getFileById(id, this);
@@ -281,6 +290,9 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
   @Override
   @NotNull
   public VirtualFile[] getChildren() {
+    if (!isValid()) {
+      throw new InvalidVirtualFileAccessException(this);
+    }
     NewVirtualFileSystem delegate = getFileSystem();
     final boolean ignoreCase = !delegate.isCaseSensitive();
     synchronized (myData) {

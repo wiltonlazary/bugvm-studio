@@ -50,7 +50,7 @@ import com.intellij.xdebugger.breakpoints.XBreakpointAdapter;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointManagerImpl;
-import com.intellij.xdebugger.impl.settings.XDebuggerSettingsManager;
+import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl;
 import com.intellij.xdebugger.impl.ui.ExecutionPointHighlighter;
 import com.intellij.xdebugger.impl.ui.XDebugSessionData;
 import com.intellij.xdebugger.impl.ui.XDebugSessionTab;
@@ -116,6 +116,14 @@ public class XDebuggerManagerImpl extends XDebuggerManager
           }
         }
       }
+
+      @Override
+      public void breakpointRemoved(@NotNull XBreakpoint<?> breakpoint) {
+        XDebugSessionImpl session = getCurrentSession();
+        if (session != null && breakpoint == session.getActiveNonLineBreakpoint()) {
+          myExecutionPointHighlighter.updateGutterIcon(null);
+        }
+      }
     });
 
     messageBusConnection.subscribe(RunContentManager.TOPIC, new RunContentWithExecutorListener() {
@@ -127,7 +135,7 @@ public class XDebuggerManagerImpl extends XDebuggerManager
             session.activateSession();
           }
           else {
-            setActiveSession(null, null, false, null);
+            setCurrentSession(null);
           }
         }
       }
@@ -251,7 +259,7 @@ public class XDebuggerManagerImpl extends XDebuggerManager
         });
       }
 
-      if (!myProject.isDisposed() && !ApplicationManager.getApplication().isUnitTestMode() && XDebuggerSettingsManager.getInstanceImpl().getGeneralSettings().isHideDebuggerOnProcessTermination()) {
+      if (!myProject.isDisposed() && !ApplicationManager.getApplication().isUnitTestMode() && XDebuggerSettingManagerImpl.getInstanceImpl().getGeneralSettings().isHideDebuggerOnProcessTermination()) {
         ExecutionManager.getInstance(myProject).getContentManager().hideRunContent(DefaultDebugExecutor.getDebugExecutorInstance(), descriptor);
       }
     }
@@ -260,16 +268,7 @@ public class XDebuggerManagerImpl extends XDebuggerManager
     }
   }
 
-  public void setActiveSession(@Nullable XDebugSessionImpl session, @Nullable XSourcePosition position, boolean useSelection,
-                               final @Nullable GutterIconRenderer gutterIconRenderer) {
-    boolean sessionChanged = myActiveSession.getAndSet(session) != session;
-    updateExecutionPoint(position, useSelection, gutterIconRenderer);
-    if (sessionChanged) {
-      onActiveSessionChanged();
-    }
-  }
-
-  public void updateExecutionPoint(@Nullable XSourcePosition position, boolean useSelection, @Nullable GutterIconRenderer gutterIconRenderer) {
+  void updateExecutionPoint(@Nullable XSourcePosition position, boolean useSelection, @Nullable GutterIconRenderer gutterIconRenderer) {
     if (position != null) {
       myExecutionPointHighlighter.show(position, useSelection, gutterIconRenderer);
     }
@@ -326,9 +325,29 @@ public class XDebuggerManagerImpl extends XDebuggerManager
     return myActiveSession.get();
   }
 
+  void setCurrentSession(@Nullable XDebugSessionImpl session) {
+    boolean sessionChanged = myActiveSession.getAndSet(session) != session;
+    if (sessionChanged) {
+      if (session != null) {
+        XDebugSessionTab tab = session.getSessionTab();
+        if (tab != null) {
+          tab.select();
+        }
+      }
+      else {
+        myExecutionPointHighlighter.hide();
+      }
+      onActiveSessionChanged();
+    }
+  }
+
   @Override
   public XDebuggerState getState() {
     return new XDebuggerState(myBreakpointManager.getState(), myWatchesManager.getState());
+  }
+
+  public boolean isFullLineHighlighter() {
+    return myExecutionPointHighlighter.isFullLineHighlighter();
   }
 
   @Override

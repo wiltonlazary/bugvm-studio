@@ -59,10 +59,16 @@ public class AnalyzeStacktraceUtil {
   private AnalyzeStacktraceUtil() {
   }
 
-  public static void printStacktrace(final ConsoleView consoleView, final String unscrambledTrace) {
-    consoleView.clear();
-    consoleView.print(unscrambledTrace+"\n", ConsoleViewContentType.ERROR_OUTPUT);
-    consoleView.scrollTo(0);
+  public static void printStacktrace(@NotNull ConsoleView consoleView, @NotNull String unscrambledTrace) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    String text = unscrambledTrace + "\n";
+    String consoleText = ((ConsoleViewImpl)consoleView).getText();
+    if (!text.equals(consoleText)) {
+      consoleView.clear();
+      consoleView.print(text, ConsoleViewContentType.ERROR_OUTPUT);
+
+      consoleView.scrollTo(0);
+    }
   }
 
   @Nullable
@@ -119,7 +125,9 @@ public class AnalyzeStacktraceUtil {
     public MyConsolePanel(ExecutionConsole consoleView, ActionGroup toolbarActions) {
       super(new BorderLayout());
       JPanel toolbarPanel = new JPanel(new BorderLayout());
-      toolbarPanel.add(ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, toolbarActions,false).getComponent());
+      toolbarPanel.add(ActionManager.getInstance()
+                         .createActionToolbar(ActionPlaces.ANALYZE_STACKTRACE_PANEL_TOOLBAR, toolbarActions, false)
+                         .getComponent());
       add(toolbarPanel, BorderLayout.WEST);
       add(consoleView.getComponent(), BorderLayout.CENTER);
     }

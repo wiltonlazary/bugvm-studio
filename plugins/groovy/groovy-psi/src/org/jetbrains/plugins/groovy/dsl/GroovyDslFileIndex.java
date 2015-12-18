@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,9 +43,9 @@ import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiModificationTracker;
-import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.Function;
 import com.intellij.util.PathUtil;
+import com.intellij.util.concurrency.BoundedTaskExecutor;
 import com.intellij.util.containers.ConcurrentMultiMap;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
@@ -56,6 +56,7 @@ import com.intellij.util.io.URLUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.ide.PooledThreadExecutor;
 import org.jetbrains.plugins.groovy.GroovyFileType;
 import org.jetbrains.plugins.groovy.annotator.GroovyFrameworkConfigNotification;
 import org.jetbrains.plugins.groovy.dsl.DslActivationStatus.Status;
@@ -68,7 +69,6 @@ import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
 import java.io.File;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
@@ -86,13 +86,7 @@ public class GroovyDslFileIndex extends ScalarIndexExtension<String> {
   private static final MultiMap<String, LinkedBlockingQueue<Pair<VirtualFile, GroovyDslExecutor>>> filesInProcessing =
     new ConcurrentMultiMap<String, LinkedBlockingQueue<Pair<VirtualFile, GroovyDslExecutor>>>();
 
-  private static final ThreadPoolExecutor ourPool = new ThreadPoolExecutor(
-    4, 4, 1, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(), ConcurrencyUtil.newNamedThreadFactory("Groovy DSL File Index Executor")
-  );
-
-  static {
-    ourPool.allowCoreThreadTimeOut(true);
-  }
+  private static final BoundedTaskExecutor ourPool = new BoundedTaskExecutor(PooledThreadExecutor.INSTANCE, 4);
 
   private final MyDataIndexer myDataIndexer = new MyDataIndexer();
   private final EnumeratorStringDescriptor myKeyDescriptor = new EnumeratorStringDescriptor();
@@ -144,11 +138,12 @@ public class GroovyDslFileIndex extends ScalarIndexExtension<String> {
 
   @Nullable
   public static String getError(VirtualFile file) {
-    return DslActivationStatus.getInstance().getGdslFileInfo(file).error;
+    DslActivationStatus.Entry info = DslActivationStatus.getInstance().getGdslFileInfo(file);
+    return info == null ? null : info.error;
   }
 
-  public static boolean isActivated(VirtualFile file) {
-    return DslActivationStatus.getInstance().getGdslFileInfo(file).status == Status.ACTIVE;
+  public static boolean isActivated(@NotNull VirtualFile file) {
+    return getStatus(file) == Status.ACTIVE;
   }
 
   public static void activate(final VirtualFile vfile) {
@@ -156,8 +151,9 @@ public class GroovyDslFileIndex extends ScalarIndexExtension<String> {
     clearScriptCache();
   }
 
-  public static Status getStatus(final VirtualFile file) {
-    return DslActivationStatus.getInstance().getGdslFileInfo(file).status;
+  public static Status getStatus(@NotNull VirtualFile file) {
+    DslActivationStatus.Entry info = DslActivationStatus.getInstance().getGdslFileInfo(file);
+    return info == null ? Status.ACTIVE : info.status;
   }
 
   private static void clearScriptCache() {
@@ -181,7 +177,7 @@ public class GroovyDslFileIndex extends ScalarIndexExtension<String> {
   }
 
   private static void setStatusAndError(@NotNull VirtualFile vfile, @NotNull Status status, @Nullable String error) {
-    final DslActivationStatus.Entry entry = DslActivationStatus.getInstance().getGdslFileInfo(vfile);
+    DslActivationStatus.Entry entry = DslActivationStatus.getInstance().getGdslFileInfoOrCreate(vfile);
     entry.status = status;
     entry.error = error;
   }

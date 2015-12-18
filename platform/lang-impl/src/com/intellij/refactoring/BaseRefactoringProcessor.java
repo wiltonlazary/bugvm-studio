@@ -216,6 +216,9 @@ public abstract class BaseRefactoringProcessor implements Runnable {
       }
     }
     if (isPreview) {
+      for (UsageInfo usage : usages) {
+        LOG.assertTrue(usage != null, getClass());
+      }
       previewRefactoring(usages);
     }
     else {
@@ -387,7 +390,10 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     final UsageViewPresentation presentation = createPresentation(viewDescriptor, usages);
 
     final UsageView usageView = viewManager.showUsages(targets, usages, presentation, factory);
+    customizeUsagesView(viewDescriptor, usageView);
+  }
 
+  protected void customizeUsagesView(@NotNull final UsageViewDescriptor viewDescriptor, @NotNull final UsageView usageView) {
     final Runnable refactoringRunnable = new Runnable() {
       @Override
       public void run() {
@@ -457,16 +463,7 @@ public abstract class BaseRefactoringProcessor implements Runnable {
 
           try {
             if (refactoringId != null) {
-              UndoableAction action = new BasicUndoableAction() {
-                @Override
-                public void undo() {
-                  myProject.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC).undoRefactoring(refactoringId);
-                }
-  
-                @Override
-                public void redo() {
-                }
-              };
+              UndoableAction action = new UndoRefactoringAction(myProject, refactoringId);
               UndoManager.getInstance(myProject).undoableActionPerformed(action);
             }
 
@@ -599,7 +596,8 @@ public abstract class BaseRefactoringProcessor implements Runnable {
 
   protected boolean showConflicts(@NotNull MultiMap<PsiElement, String> conflicts, @Nullable final UsageInfo[] usages) {
     if (!conflicts.isEmpty() && ApplicationManager.getApplication().isUnitTestMode()) {
-      throw new ConflictsInTestsException(conflicts.values());
+      if (!ConflictsInTestsException.isTestIgnore()) throw new ConflictsInTestsException(conflicts.values());
+      return true;
     }
 
     if (myPrepareSuccessfulSwingThreadCallback != null && !conflicts.isEmpty()) {
@@ -668,6 +666,25 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     @NotNull
     public Language getElementLanguage() {
       return myElementLanguage;
+    }
+  }
+
+  private static class UndoRefactoringAction extends BasicUndoableAction {
+    private final Project myProject;
+    private final String myRefactoringId;
+
+    public UndoRefactoringAction(Project project, String refactoringId) {
+      myProject = project;
+      myRefactoringId = refactoringId;
+    }
+
+    @Override
+    public void undo() {
+      myProject.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC).undoRefactoring(myRefactoringId);
+    }
+
+    @Override
+    public void redo() {
     }
   }
 }

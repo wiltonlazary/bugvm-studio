@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,9 @@ import java.util.Set;
 
 /**
  * @author peter
+ *
+ * @see LookupElementDecorator
+ * @see com.intellij.codeInsight.completion.PrioritizedLookupElement
  */
 public final class LookupElementBuilder extends LookupElement {
   @NotNull private final String myLookupString;
@@ -63,10 +66,15 @@ public final class LookupElementBuilder extends LookupElement {
     this(lookupString, object, null, null, null, Collections.singleton(lookupString), true);
   }
 
+  @NotNull
   public static LookupElementBuilder create(@NotNull String lookupString) {
     return new LookupElementBuilder(lookupString, lookupString);
   }
   
+  public static LookupElementBuilder create(@NotNull Object object) {
+    return new LookupElementBuilder(object.toString(), object);
+  }
+
   public static LookupElementBuilder createWithSmartPointer(@NotNull String lookupString, @NotNull PsiElement element) {
     PsiUtilCore.ensureValid(element);
     return new LookupElementBuilder(lookupString, 

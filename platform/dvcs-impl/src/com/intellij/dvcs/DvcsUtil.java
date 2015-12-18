@@ -15,6 +15,8 @@
  */
 package com.intellij.dvcs;
 
+import com.intellij.dvcs.push.PushSupport;
+import com.intellij.dvcs.repo.AbstractRepositoryManager;
 import com.intellij.dvcs.repo.RepoStateException;
 import com.intellij.dvcs.repo.Repository;
 import com.intellij.dvcs.repo.RepositoryManager;
@@ -24,6 +26,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -35,14 +38,13 @@ import com.intellij.openapi.roots.OrderEntry;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.StatusBar;
-import com.intellij.openapi.wm.StatusBarWidget;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.openapi.wm.impl.status.StatusBarUtil;
 import com.intellij.util.Consumer;
@@ -53,6 +55,7 @@ import com.intellij.util.io.storage.HeavyProcessLatch;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.vcs.log.TimedVcsCommit;
 import com.intellij.vcs.log.VcsFullCommitDetails;
+import com.intellij.vcsUtil.VcsImplUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import org.intellij.images.editor.ImageFileEditor;
 import org.jetbrains.annotations.Contract;
@@ -73,33 +76,13 @@ public class DvcsUtil {
   private static final int SHORT_HASH_LENGTH = 8;
   private static final int LONG_HASH_LENGTH = 40;
 
-  public static void installStatusBarWidget(@NotNull Project project, @NotNull StatusBarWidget widget) {
-    StatusBar statusBar = WindowManager.getInstance().getStatusBar(project);
-    if (statusBar != null) {
-      statusBar.addWidget(widget, "after " + (SystemInfo.isMac ? "Encoding" : "InsertOverwrite"), project);
-    }
-  }
-
-  public static void removeStatusBarWidget(@NotNull Project project, @NotNull StatusBarWidget widget) {
-    StatusBar statusBar = WindowManager.getInstance().getStatusBar(project);
-    if (statusBar != null) {
-      statusBar.removeWidget(widget.ID());
-    }
-  }
-
+  /**
+   * @deprecated use {@link VcsImplUtil#getShortVcsRootName}
+   */
   @NotNull
+  @Deprecated
   public static String getShortRepositoryName(@NotNull Project project, @NotNull VirtualFile root) {
-    VirtualFile projectDir = project.getBaseDir();
-
-    String repositoryPath = root.getPresentableUrl();
-    if (projectDir != null) {
-      String relativePath = VfsUtilCore.getRelativePath(root, projectDir, File.separatorChar);
-      if (relativePath != null) {
-        repositoryPath = relativePath;
-      }
-    }
-
-    return repositoryPath.isEmpty() ? root.getName() : repositoryPath;
+    return VcsImplUtil.getShortVcsRootName(project, root);
   }
 
   @NotNull
@@ -278,6 +261,76 @@ public class DvcsUtil {
     }
   }
 
+  @Nullable
+  public static <T extends Repository> T guessRepositoryForFile(@NotNull Project project,
+                                                                @NotNull RepositoryManager<T> manager,
+                                                                @Nullable AbstractVcs vcs,
+                                                                @Nullable VirtualFile file,
+                                                                @Nullable String defaultRootPathValue) {
+    T repository = manager.getRepositoryForRoot(guessVcsRoot(project, file));
+    return repository != null ? repository : manager.getRepositoryForRoot(guessRootForVcs(project, vcs, defaultRootPathValue));
+  }
+
+  @Nullable
+  public static <T extends Repository> T guessCurrentRepositoryQuick(@NotNull Project project,
+                                                                     @NotNull AbstractRepositoryManager<T> manager,
+                                                                     @Nullable String defaultRootPathValue) {
+    T repository = manager.getRepositoryForRootQuick(guessVcsRoot(project, getSelectedFile(project)));
+    return repository != null
+           ? repository
+           : manager.getRepositoryForRootQuick(guessRootForVcs(project, manager.getVcs(), defaultRootPathValue));
+  }
+
+  @Nullable
+  private static VirtualFile guessRootForVcs(@NotNull Project project, @Nullable AbstractVcs vcs, @Nullable String defaultRootPathValue) {
+    if (project.isDisposed()) return null;
+    LOG.debug("Guessing vcs root...");
+    ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(project);
+    if (vcs == null) {
+      LOG.debug("Vcs not found.");
+      return null;
+    }
+    String vcsName = vcs.getDisplayName();
+    VirtualFile[] vcsRoots = vcsManager.getRootsUnderVcs(vcs);
+    if (vcsRoots.length == 0) {
+      LOG.debug("No " + vcsName + " roots in the project.");
+      return null;
+    }
+
+    if (vcsRoots.length == 1) {
+      VirtualFile onlyRoot = vcsRoots[0];
+      LOG.debug("Only one " + vcsName + " root in the project, returning: " + onlyRoot);
+      return onlyRoot;
+    }
+
+    // get remembered last visited repository root
+    if (defaultRootPathValue != null) {
+      VirtualFile recentRoot = VcsUtil.getVirtualFile(defaultRootPathValue);
+      if (recentRoot != null) {
+        LOG.debug("Returning the recent root: " + recentRoot);
+        return recentRoot;
+      }
+    }
+
+    // otherwise return the root of the project dir or the root containing the project dir, if there is such
+    VirtualFile projectBaseDir = project.getBaseDir();
+    if (projectBaseDir == null) {
+      VirtualFile firstRoot = vcsRoots[0];
+      LOG.debug("Project base dir is null, returning the first root: " + firstRoot);
+      return firstRoot;
+    }
+    VirtualFile rootCandidate;
+    for (VirtualFile root : vcsRoots) {
+      if (root.equals(projectBaseDir) || VfsUtilCore.isAncestor(root, projectBaseDir, true)) {
+        LOG.debug("The best candidate: " + root);
+        return root;
+      }
+    }
+    rootCandidate = vcsRoots[0];
+    LOG.debug("Returning the best candidate: " + rootCandidate);
+    return rootCandidate;
+  }
+
   public static class Updater implements Consumer<Object> {
     private final Repository myRepository;
 
@@ -346,7 +399,7 @@ public class DvcsUtil {
   }
 
   @Nullable
-  public static VirtualFile getVcsRoot(@NotNull Project project, @Nullable VirtualFile file) {
+  private static VirtualFile guessVcsRoot(@NotNull Project project, @Nullable VirtualFile file) {
     VirtualFile root = null;
     if (file != null) {
       root = ProjectLevelVcsManager.getInstance(project).getVcsRootFor(file);
@@ -376,5 +429,15 @@ public class DvcsUtil {
       commitsInRoot.add(commit);
     }
     return groupedCommits;
+  }
+
+  @Nullable
+  public static PushSupport getPushSupport(@NotNull final AbstractVcs vcs) {
+    return ContainerUtil.find(Extensions.getExtensions(PushSupport.PUSH_SUPPORT_EP, vcs.getProject()), new Condition<PushSupport>() {
+      @Override
+      public boolean value(final PushSupport support) {
+        return support.getVcs().equals(vcs);
+      }
+    });
   }
 }

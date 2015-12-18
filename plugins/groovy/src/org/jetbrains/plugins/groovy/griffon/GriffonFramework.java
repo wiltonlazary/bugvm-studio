@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,6 +80,7 @@ public class GriffonFramework extends MvcFramework {
     return findAppRoot(module) != null && !isAuxModule(module) && getSdkRoot(module) != null;
   }
 
+  @NotNull
   @Override
   public String getApplicationDirectoryName() {
     return "griffon-app";
@@ -102,7 +103,7 @@ public class GriffonFramework extends MvcFramework {
       return null;
     }
 
-    return createCommandAndShowErrors(null, module, true, dialog.getCommand());
+    return createCommandAndShowErrors(module, true, dialog.getCommand());
   }
 
   @Override
@@ -232,7 +233,6 @@ public class GriffonFramework extends MvcFramework {
   @Override
   public JavaParameters createJavaParameters(@NotNull Module module, boolean forCreation, boolean forTests,
                                              boolean classpathFromDependencies,
-                                             @Nullable String jvmParams,
                                              @NotNull MvcCommand command) throws ExecutionException {
     JavaParameters params = new JavaParameters();
 
@@ -293,9 +293,7 @@ public class GriffonFramework extends MvcFramework {
 
     String workDir = VfsUtilCore.virtualToIoFile(rootFile).getAbsolutePath();
 
-    if (jvmParams != null) {
-      params.getVMParametersList().addParametersString(jvmParams);
-    }
+    params.getVMParametersList().addParametersString(command.getVmOptions());
 
     if (!params.getVMParametersList().getParametersString().contains(XMX_JVM_PARAMETER)) {
       params.getVMParametersList().add("-Xmx256M");
@@ -337,6 +335,7 @@ public class GriffonFramework extends MvcFramework {
     return params;
   }
 
+  @NotNull
   @Override
   public String getFrameworkName() {
     return "Griffon";

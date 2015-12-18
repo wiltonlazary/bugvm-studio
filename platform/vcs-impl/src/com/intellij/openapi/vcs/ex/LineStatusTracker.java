@@ -57,7 +57,7 @@ import static com.intellij.diff.util.DiffUtil.getLineCount;
  *         author: lesya
  */
 public class LineStatusTracker {
-  public enum Mode {DEFAULT, SMART}
+  public enum Mode {DEFAULT, SMART, SILENT}
 
   public static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.ex.LineStatusTracker");
   private static final Key<CanNotCalculateDiffPanel> PANEL_KEY =
@@ -187,11 +187,13 @@ public class LineStatusTracker {
     }
   }
 
-  @NotNull
+  @Nullable
   private RangeHighlighter createHighlighter(@NotNull Range range) {
     myApplication.assertIsDispatchThread();
 
     LOG.assertTrue(!myReleased, "Already released");
+
+    if (myMode == Mode.SILENT) return null;
 
     int first =
       range.getLine1() >= getLineCount(myDocument) ? myDocument.getTextLength() : myDocument.getLineStartOffset(range.getLine1());
@@ -271,6 +273,15 @@ public class LineStatusTracker {
   @NotNull
   public VirtualFile getVirtualFile() {
     return myVirtualFile;
+  }
+
+  @NotNull
+  public Mode getMode() {
+    return myMode;
+  }
+
+  public boolean isSilentMode() {
+    return myMode == Mode.SILENT;
   }
 
   @NotNull
@@ -735,24 +746,36 @@ public class LineStatusTracker {
 
   private void doRollbackRange(@NotNull Range range) {
     DiffUtil.applyModification(myDocument, range.getLine1(), range.getLine2(), myVcsDocument, range.getVcsLine1(), range.getVcsLine2());
+
+    markLinesUnchanged(range.getLine1(), range.getLine1() + range.getVcsLine2() - range.getVcsLine1());
+  }
+
+  private void markLinesUnchanged(int startLine, int endLine) {
+    if (myDocument.getTextLength() == 0) return; // empty document has no lines
+    if (startLine == endLine) return;
+    ((DocumentImpl)myDocument).clearLineModificationFlags(startLine, endLine);
   }
 
   public void rollbackChanges(@NotNull Range range) {
-    myApplication.assertWriteAccessAllowed();
-
-    synchronized (myLock) {
-      if (myBulkUpdate) return;
-
-      if (!range.isValid()) {
-        LOG.warn("Rollback of invalid range");
-        return;
-      }
-
-      doRollbackRange(range);
-    }
+    rollbackChanges(Collections.singletonList(range));
   }
 
   public void rollbackChanges(@NotNull final BitSet lines) {
+    List<Range> toRollback = new ArrayList<Range>();
+    for (Range range : myRanges) {
+      boolean check = DiffUtil.isSelectedByLine(lines, range.getLine1(), range.getLine2());
+      if (check) {
+        toRollback.add(range);
+      }
+    }
+
+    rollbackChanges(toRollback);
+  }
+
+  /**
+   * @param ranges - sorted list of ranges to rollback
+   */
+  private void rollbackChanges(@NotNull final List<Range> ranges) {
     runBulkRollback(new Runnable() {
       @Override
       public void run() {
@@ -760,27 +783,23 @@ public class LineStatusTracker {
         Range last = null;
 
         int shift = 0;
-        for (Range range : myRanges) {
+        for (Range range : ranges) {
           if (!range.isValid()) {
             LOG.warn("Rollback of invalid range");
             break;
           }
 
-          boolean check = DiffUtil.isSelectedByLine(lines, range.getLine1(), range.getLine2());
-
-          if (check) {
-            if (first == null) {
-              first = range;
-            }
-            last = range;
-
-            Range shiftedRange = new Range(range);
-            shiftedRange.shift(shift);
-
-            doRollbackRange(shiftedRange);
-
-            shift += (range.getVcsLine2() - range.getVcsLine1()) - (range.getLine2() - range.getLine1());
+          if (first == null) {
+            first = range;
           }
+          last = range;
+
+          Range shiftedRange = new Range(range);
+          shiftedRange.shift(shift);
+
+          doRollbackRange(shiftedRange);
+
+          shift += (range.getVcsLine2() - range.getVcsLine1()) - (range.getLine2() - range.getLine1());
         }
 
         if (first != null) {

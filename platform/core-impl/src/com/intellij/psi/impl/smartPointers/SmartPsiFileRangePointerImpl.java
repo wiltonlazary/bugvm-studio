@@ -26,12 +26,12 @@ import org.jetbrains.annotations.NotNull;
  * User: cdr
  */
 class SmartPsiFileRangePointerImpl extends SmartPsiElementPointerImpl<PsiFile> implements SmartPsiFileRange {
-  SmartPsiFileRangePointerImpl(@NotNull PsiFile containingFile, @NotNull ProperTextRange range) {
-    super(containingFile, createElementInfo(containingFile, range), PsiFile.class);
+  SmartPsiFileRangePointerImpl(@NotNull PsiFile containingFile, @NotNull ProperTextRange range, boolean forInjected) {
+    super(containingFile, createElementInfo(containingFile, range, forInjected), PsiFile.class);
   }
 
   @NotNull
-  private static SmartPointerElementInfo createElementInfo(@NotNull PsiFile containingFile, @NotNull ProperTextRange range) {
+  private static SmartPointerElementInfo createElementInfo(@NotNull PsiFile containingFile, @NotNull ProperTextRange range, boolean forInjected) {
     Project project = containingFile.getProject();
     if (containingFile.getViewProvider() instanceof FreeThreadedFileViewProvider) {
       PsiLanguageInjectionHost host = InjectedLanguageManager.getInstance(project).getInjectionHost(containingFile);
@@ -41,12 +41,17 @@ class SmartPsiFileRangePointerImpl extends SmartPsiElementPointerImpl<PsiFile> i
       }
     }
     if (range.equals(containingFile.getTextRange())) return new FileElementInfo(containingFile);
-    return new SelfElementInfo(project, range, PsiElement.class, containingFile, containingFile.getLanguage());
+    return new SelfElementInfo(project, range, PsiElement.class, containingFile, containingFile.getLanguage(), forInjected);
   }
 
   @Override
   public PsiFile getElement() {
     if (getRange() == null) return null; // range is invalid
     return getContainingFile();
+  }
+
+  @Override
+  public String toString() {
+    return "SmartPsiFileRangePointerImpl{" + getElementInfo() + "}";
   }
 }

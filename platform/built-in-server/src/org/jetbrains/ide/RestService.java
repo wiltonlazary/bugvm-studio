@@ -41,6 +41,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.io.Responses;
 
+import java.awt.*;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -102,6 +103,10 @@ public abstract class RestService extends HttpRequestHandler {
     return false;
   }
 
+  protected boolean activateToolBeforeExecution() {
+    return true;
+  }
+
   @NotNull
   /**
    * Use human-readable name or UUID if it is an internal service.
@@ -113,6 +118,13 @@ public abstract class RestService extends HttpRequestHandler {
   @Override
   public final boolean process(@NotNull QueryStringDecoder urlDecoder, @NotNull FullHttpRequest request, @NotNull ChannelHandlerContext context) throws IOException {
     try {
+      if (activateToolBeforeExecution()) {
+        IdeFrame frame = IdeFocusManager.getGlobalInstance().getLastFocusedFrame();
+        if (frame instanceof Window) {
+          ((Window)frame).toFront();
+        }
+      }
+
       String error = execute(urlDecoder, request, context);
       if (error != null) {
         Responses.sendStatus(HttpResponseStatus.BAD_REQUEST, context.channel(), error, request);
@@ -167,16 +179,16 @@ public abstract class RestService extends HttpRequestHandler {
   }
 
   protected static void sendOk(@NotNull FullHttpRequest request, @NotNull ChannelHandlerContext context) {
-    sendStatus(HttpResponseStatus.OK, HttpHeaderUtil.isKeepAlive(request), context.channel());
+    sendStatus(HttpResponseStatus.OK, HttpUtil.isKeepAlive(request), context.channel());
   }
 
   protected static void sendStatus(@NotNull HttpResponseStatus status, boolean keepAlive, @NotNull Channel channel) {
     DefaultFullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status);
-    HttpHeaderUtil.setContentLength(response, 0);
+    HttpUtil.setContentLength(response, 0);
     Responses.addCommonHeaders(response);
     Responses.addNoCache(response);
     if (keepAlive) {
-      HttpHeaderUtil.setKeepAlive(response, true);
+      HttpUtil.setKeepAlive(response, true);
     }
     Responses.send(response, channel, !keepAlive);
   }

@@ -84,9 +84,8 @@ public class JavaResolveCache {
     PsiType type = isOverloadCheck ? null : myCalculatedTypes.get(expr);
     if (type == null) {
       final RecursionGuard.StackStamp dStackStamp = PsiDiamondType.ourDiamondGuard.markStack();
-      final RecursionGuard.StackStamp gStackStamp = PsiResolveHelper.ourGraphGuard.markStack();
       type = f.fun(expr);
-      if (!dStackStamp.mayCacheNow() || !gStackStamp.mayCacheNow() || isOverloadCheck) {
+      if (!dStackStamp.mayCacheNow() || isOverloadCheck) {
         return type;
       }
       if (type == null) type = TypeConversionUtil.NULL_TYPE;
@@ -99,7 +98,7 @@ public class JavaResolveCache {
         type = psiClass == null
                ? type // for type with unresolved reference, leave it in the cache
                       // for clients still might be able to retrieve its getCanonicalText() from the reference text
-               : new PsiImmediateClassType(psiClass, result.getSubstitutor(), ((PsiClassReferenceType)type).getLanguageLevel(), type.getAnnotations());
+               : new PsiImmediateClassType(psiClass, result.getSubstitutor(), ((PsiClassReferenceType)type).getLanguageLevel(), type.getAnnotationProvider());
       }
     }
 

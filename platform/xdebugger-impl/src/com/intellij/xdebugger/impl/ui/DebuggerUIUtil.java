@@ -21,11 +21,9 @@ import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.EditorGutter;
 import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.EditorColorsUtil;
-import com.intellij.openapi.editor.ex.EditorGutterComponentEx;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.*;
@@ -38,6 +36,7 @@ import com.intellij.ui.ScreenUtil;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.popup.list.ListPopupImpl;
 import com.intellij.xdebugger.XDebuggerManager;
+import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XBreakpointAdapter;
 import com.intellij.xdebugger.breakpoints.XBreakpointListener;
@@ -96,6 +95,7 @@ public class DebuggerUIUtil {
     ApplicationManager.getApplication().invokeLater(runnable);
   }
 
+  @Deprecated
   public static RelativePoint calcPopupLocation(@NotNull Editor editor, final int line) {
     Point p = editor.logicalPositionToXY(new LogicalPosition(line + 1, 0));
 
@@ -104,6 +104,28 @@ public class DebuggerUIUtil {
       p = new Point((visibleArea.x + visibleArea.width) / 2, (visibleArea.y + visibleArea.height) / 2);
     }
     return new RelativePoint(editor.getContentComponent(), p);
+  }
+
+  @Nullable
+  public static RelativePoint getPositionForPopup(@NotNull Editor editor, int line) {
+    Point p = editor.logicalPositionToXY(new LogicalPosition(line + 1, 0));
+    return editor.getScrollingModel().getVisibleArea().contains(p) ? new RelativePoint(editor.getContentComponent(), p) : null;
+  }
+
+  public static void showPopupForEditorLine(@NotNull JBPopup popup, @NotNull Editor editor, int line) {
+    RelativePoint point = getPositionForPopup(editor, line);
+    if (point != null) {
+      popup.show(point);
+    }
+    else {
+      Project project = editor.getProject();
+      if (project != null) {
+        popup.showCenteredInCurrentWindow(project);
+      }
+      else {
+        popup.showInFocusCenter();
+      }
+    }
   }
 
   public static void showValuePopup(@NotNull XFullValueEvaluator evaluator, @NotNull MouseEvent event, @NotNull Project project, @Nullable Editor editor) {
@@ -370,7 +392,7 @@ public class DebuggerUIUtil {
    * Checks if value has evaluation expression ready, or calculation is pending
    */
   public static boolean hasEvaluationExpression(@NotNull XValue value) {
-    Promise<String> promise = value.calculateEvaluationExpression();
+    Promise<XExpression> promise = value.calculateEvaluationExpression();
     if (promise.getState() == Promise.State.PENDING) return true;
     if (promise instanceof Getter) {
       return ((Getter)promise).get() != null;

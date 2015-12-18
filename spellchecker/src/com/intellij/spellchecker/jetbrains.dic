@@ -1,4 +1,5 @@
 accessor
+agentmain
 aggregator
 ajax
 akka
@@ -146,7 +147,6 @@ elseif
 elsif
 endregion
 endif
-enqueue
 enum
 enums
 eqeqeq
@@ -154,6 +154,7 @@ eval
 evex
 exif
 expr
+externalizer
 facebook
 facelet
 fallthrough
@@ -431,6 +432,7 @@ postprocessor
 pragma
 prebuilt
 prefetch
+premain
 prepend
 prepended
 prepends
@@ -470,6 +472,7 @@ reifies
 reify
 reifying
 reindex
+reindexing
 renderer
 replacer
 repo
@@ -571,6 +574,7 @@ subpartition
 subpartitions
 subst
 substring
+subtag
 subtree
 subtrees
 subview
@@ -625,6 +629,7 @@ undofile
 unescaped
 unhandled
 uninstall
+uniques
 unmerged
 unpivot
 unprotect

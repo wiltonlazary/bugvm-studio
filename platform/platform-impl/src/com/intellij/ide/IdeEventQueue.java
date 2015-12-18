@@ -15,7 +15,6 @@
  */
 package com.intellij.ide;
 
-import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.ide.dnd.DnDManager;
 import com.intellij.ide.dnd.DnDManagerImpl;
 import com.intellij.ide.plugins.PluginManager;
@@ -26,7 +25,6 @@ import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ex.ApplicationEx;
-import com.intellij.openapi.application.impl.ApplicationImpl;
 import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.diagnostic.FrequentEventDetector;
 import com.intellij.openapi.diagnostic.Logger;
@@ -34,6 +32,7 @@ import com.intellij.openapi.keymap.KeyboardSettingsExternalizable;
 import com.intellij.openapi.keymap.impl.IdeKeyEventDispatcher;
 import com.intellij.openapi.keymap.impl.IdeMouseEventDispatcher;
 import com.intellij.openapi.keymap.impl.KeyState;
+import com.intellij.openapi.ui.JBPopupMenu;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.ExpirableRunnable;
@@ -48,8 +47,8 @@ import com.intellij.util.Alarm;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.HashMap;
+import com.intellij.util.ui.MouseEventAdapter;
 import com.intellij.util.ui.UIUtil;
-import com.sun.java.swing.plaf.windows.WindowsLookAndFeel;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -65,7 +64,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author Vladimir Kondratyev
@@ -124,18 +122,15 @@ public class IdeEventQueue extends EventQueue {
    * <p/>
    * Swing event.
    */
-
   private int myEventCount;
 
+  private boolean myIsInInputEvent;
 
-  private boolean myIsInInputEvent = false;
-
-  private AWTEvent myCurrentEvent = null;
+  private AWTEvent myCurrentEvent;
 
   private long myLastActiveTime;
 
   private WindowManagerEx myWindowManager;
-
 
   private final Set<EventDispatcher> myDispatchers = new LinkedHashSet<EventDispatcher>();
   private final Set<EventDispatcher> myPostProcessors = new LinkedHashSet<EventDispatcher>();
@@ -164,7 +159,7 @@ public class IdeEventQueue extends EventQueue {
     keyboardFocusManager.addPropertyChangeListener("permanentFocusOwner", new PropertyChangeListener() {
 
       @Override
-      public void propertyChange(final PropertyChangeEvent e) {
+      public void propertyChange(@NotNull final PropertyChangeEvent e) {
         final Application application = ApplicationManager.getApplication();
         if (application == null) {
           // We can get focus event before application is initialized
@@ -179,7 +174,7 @@ public class IdeEventQueue extends EventQueue {
       }
     });
 
-    addDispatcher(new WindowsAltSupressor(), null);
+    addDispatcher(new WindowsAltSuppressor(), null);
   }
 
 
@@ -224,24 +219,18 @@ public class IdeEventQueue extends EventQueue {
     mySuspendModeAlarm.addRequest(myExitSuspendModeRunnable, 750);
   }
 
-
   /**
-   * Exits supend mode and pumps all suspended events.
+   * Exits suspend mode and pumps all suspended events.
    */
-
   private void exitSuspendMode() {
     if (shallEnterSuspendMode()) {
-
       // We have to exit from suspend mode (focus owner changes or alarm is triggered) but
-
       // WINDOW_OPENED isn't dispatched yet. In this case we have to restart the alarm until
-
       // all WINDOW_OPENED event will be processed.
       mySuspendModeAlarm.cancelAllRequests();
       mySuspendModeAlarm.addRequest(myExitSuspendModeRunnable, 250);
     }
     else {
-
       // Now we can pump all suspended events.
       mySuspendMode = false;
       myFocusOwner = null; // to prevent memory leaks
@@ -259,7 +248,6 @@ public class IdeEventQueue extends EventQueue {
     }
   }
 
-
   public void removeIdleListener(@NotNull final Runnable runnable) {
     synchronized (myLock) {
       final boolean wasRemoved = myIdleListeners.remove(runnable);
@@ -272,7 +260,8 @@ public class IdeEventQueue extends EventQueue {
     }
   }
 
-
+  /** @deprecated use {@link #addActivityListener(Runnable, Disposable)} (to be removed in IDEA 17) */
+  @SuppressWarnings("unused")
   public void addActivityListener(@NotNull final Runnable runnable) {
     synchronized (myLock) {
       myActivityListeners.add(runnable);
@@ -284,7 +273,6 @@ public class IdeEventQueue extends EventQueue {
       ContainerUtil.add(runnable, myActivityListeners, parentDisposable);
     }
   }
-
 
   public void removeActivityListener(@NotNull final Runnable runnable) {
     synchronized (myLock) {
@@ -329,7 +317,6 @@ public class IdeEventQueue extends EventQueue {
     return myEventCount;
   }
 
-
   public void setEventCount(int evCount) {
     myEventCount = evCount;
   }
@@ -340,8 +327,8 @@ public class IdeEventQueue extends EventQueue {
 
   private static class InertialMouseRouter {
     private static final int MOUSE_WHEEL_RESTART_THRESHOLD = 50;
-    private static Component wheelDestinationComponent = null;
-    private static long lastMouseWheel = 0;
+    private static Component wheelDestinationComponent;
+    private static long lastMouseWheel;
 
     private static AWTEvent changeSourceIfNeeded(AWTEvent awtEvent) {
       if (SystemInfo.isMac && Registry.is("ide.inertial.mouse.fix") && awtEvent instanceof MouseWheelEvent) {
@@ -351,17 +338,14 @@ public class IdeEventQueue extends EventQueue {
         }
         lastMouseWheel = System.currentTimeMillis();
 
-        MouseWheelEvent newMouseWheelEvent = new MouseWheelEvent(
-          wheelDestinationComponent, mwe.getID(), lastMouseWheel, mwe.getModifiers(), mwe.getX(), mwe.getY(),
-          mwe.getClickCount(), mwe.isPopupTrigger(), mwe.getScrollType(), mwe.getScrollAmount(), mwe.getWheelRotation()
-        );
-        return newMouseWheelEvent;
+        int modifiers = mwe.getModifiers() | mwe.getModifiersEx();
+        return MouseEventAdapter.convert(mwe, wheelDestinationComponent, mwe.getID(), lastMouseWheel, modifiers, mwe.getX(), mwe.getY());
       }
       return awtEvent;
     }
   }
 
-  private static boolean ourAppIsLoaded = false;
+  private static boolean ourAppIsLoaded;
 
   private static boolean appIsLoaded() {
     if (ourAppIsLoaded) return true;
@@ -371,7 +355,7 @@ public class IdeEventQueue extends EventQueue {
   }
 
   @Override
-  public void dispatchEvent(AWTEvent e) {
+  public void dispatchEvent(@NotNull AWTEvent e) {
     if (!appIsLoaded()) {
       try {
         super.dispatchEvent(e);
@@ -419,8 +403,8 @@ public class IdeEventQueue extends EventQueue {
     }
   }
 
-  private static int ctrlIsPressedCount = 0;
-  private static boolean leftAltIsPressed = false;
+  private static int ctrlIsPressedCount;
+  private static boolean leftAltIsPressed;
   //private static boolean altGrIsPressed = false;
 
   private static AWTEvent fixNonEnglishKeyboardLayouts(AWTEvent e) {
@@ -436,12 +420,12 @@ public class IdeEventQueue extends EventQueue {
 
     if (ke.getID() == KeyEvent.KEY_PRESSED) {
       switch (ke.getKeyCode()) {
-        case (KeyEvent.VK_CONTROL):
+        case KeyEvent.VK_CONTROL:
           if ((ke.getModifiersEx() & (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) != (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) {
             ctrlIsPressedCount++;
           }
           break;
-        case (KeyEvent.VK_ALT):
+        case KeyEvent.VK_ALT:
           if (ke.getKeyLocation() == KeyEvent.KEY_LOCATION_LEFT) {
             if ((ke.getModifiersEx() & (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) != (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) {
               leftAltIsPressed = true;
@@ -452,10 +436,10 @@ public class IdeEventQueue extends EventQueue {
     }
     else if (ke.getID() == KeyEvent.KEY_RELEASED) {
       switch (ke.getKeyCode()) {
-        case (KeyEvent.VK_CONTROL):
+        case KeyEvent.VK_CONTROL:
           ctrlIsPressedCount--;
           break;
-        case (KeyEvent.VK_ALT):
+        case KeyEvent.VK_ALT:
           if (ke.getKeyLocation() == KeyEvent.KEY_LOCATION_LEFT) {
             leftAltIsPressed = false;
           }
@@ -540,6 +524,8 @@ public class IdeEventQueue extends EventQueue {
     }
 
     myEventCount++;
+    
+    traceClipboardEvents(e);
 
     if (processAppActivationEvents(e)) return;
 
@@ -572,8 +558,12 @@ public class IdeEventQueue extends EventQueue {
 
     if (e instanceof MouseWheelEvent) {
       final MenuElement[] selectedPath = MenuSelectionManager.defaultManager().getSelectedPath();
-      if (selectedPath != null && selectedPath.length > 0 && !(selectedPath[0] instanceof ComboPopup)) {
+      if (selectedPath.length > 0 && !(selectedPath[0] instanceof ComboPopup)) {
         ((MouseWheelEvent)e).consume();
+        Component component = selectedPath[0].getComponent();
+        if (component instanceof JBPopupMenu) {
+          ((JBPopupMenu)component).processMouseWheelEvent((MouseWheelEvent)e);
+        }
         return;
       }
     }
@@ -590,8 +580,9 @@ public class IdeEventQueue extends EventQueue {
           if (request == null) {
             LOG.error("There is no request for " + idleListener);
           }
-          int timeout = request.getTimeout();
-          myIdleRequestsAlarm.addRequest(request, timeout, ModalityState.NON_MODAL);
+          else {
+            myIdleRequestsAlarm.addRequest(request, request.getTimeout(), ModalityState.NON_MODAL);
+          }
         }
         if (KeyEvent.KEY_PRESSED == e.getID() ||
             KeyEvent.KEY_TYPED == e.getID() ||
@@ -642,6 +633,7 @@ public class IdeEventQueue extends EventQueue {
         final MouseEvent toDispatch =
           new MouseEvent(me.getComponent(), me.getID(), System.currentTimeMillis(), me.getModifiers(), me.getX(), me.getY(), 1,
                          me.isPopupTrigger(), me.getButton());
+        //noinspection SSBasedInspection
         SwingUtilities.invokeLater(new Runnable() {
           @Override
           public void run() {
@@ -663,8 +655,42 @@ public class IdeEventQueue extends EventQueue {
     }
   }
 
-  private MouseEvent lastClickEvent = null;
-  private long lastClickTime = 0L;
+  private static final Field ourInvocationEventRunnableAccessor;
+  
+  static {
+    Field field = null;
+    if (Registry.is("trace.clipboard.events") && SystemInfo.isJavaVersionAtLeast("1.8.0_60")) {
+      try {
+        field = InvocationEvent.class.getDeclaredField("runnable");
+        field.setAccessible(true);
+      }
+      catch (Exception e) {
+        LOG.warn("Error creating accessor for java.awt.event.InvocationEvent.runnable field", e);
+      }
+    }
+    ourInvocationEventRunnableAccessor = field;
+  }
+  
+  private static void traceClipboardEvents(AWTEvent e) {
+    if (ourInvocationEventRunnableAccessor != null && e instanceof InvocationEvent && e.getClass().getName().equals("sun.awt.PeerEvent")) {
+      try {
+        Object r = ourInvocationEventRunnableAccessor.get(e);
+        if (r != null) {
+          String className = r.getClass().getName();
+          // This check for event constructed in SunClipboard.lostOwnershipLater() (known to work with JDK 8u60) 
+          if (className.contains("sun.awt.datatransfer.SunClipboard") && className.contains("Lambda")) {
+            LOG.info("Clipboard has been set by other application");
+          }
+        }
+      }
+      catch (Exception ex) {
+        LOG.warn("Error accessing java.awt.event.InvocationEvent.runnable field");
+      }
+    }
+  }
+
+  private MouseEvent lastClickEvent;
+  private long lastClickTime;
 
   private void setLastClickEvent(@Nullable MouseEvent event) {
     lastClickEvent = event;
@@ -795,72 +821,39 @@ public class IdeEventQueue extends EventQueue {
     return peekEvent(WindowEvent.WINDOW_OPENED) != null;
   }
 
-  private static AtomicLong requestToDeactivateTime = new AtomicLong(System.currentTimeMillis());
-
-  private boolean processAppActivationEvents(AWTEvent e) {
-    Application app = ApplicationManager.getApplication();
-    if (!(app instanceof ApplicationImpl)) return false;
-    final ApplicationImpl appImpl = (ApplicationImpl)app;
+  private static boolean processAppActivationEvents(AWTEvent e) {
 
     if (e instanceof WindowEvent) {
       final WindowEvent we = (WindowEvent)e;
 
-      // Only Dialogs and Frames get window activated events.
-      // Let's handle Windows this way.
+      ApplicationActivationStateManager.get().updateState(we);
 
-      final Window eventWindow = we.getWindow();
-      if (we.getID() == WindowEvent.WINDOW_ACTIVATED || we.getID() == WindowEvent.WINDOW_GAINED_FOCUS) {
-        //if () {
-        //  getPopupManager().closeAllPopups();
-        //}
-        appImpl.myCancelDeactivation = true;
-        if (!appImpl.isActive()) {
-          OpenAPIAccessor.getApplicationImplAccessor().applyActivation(appImpl, eventWindow);
-        }
-      }
-      else if (we.getID() == WindowEvent.WINDOW_DEACTIVATED) {
-        requestToDeactivateTime.getAndSet(System.currentTimeMillis());
+      storeLastFocusedComponent(we);
+    }
 
-        // For stuf that cannot wait timeout we notify about deactivation
-        OpenAPIAccessor.getApplicationImplAccessor().applyDeactivation(appImpl, eventWindow);
+    return false;
+  }
 
-        // We do not know for sure that application is going to be inactive,
-        // we could just be showing a popup or another transient window.
-        // So let's postpone the application deactivation for a while
-        appImpl.myCancelDeactivation = false;
+  private static void storeLastFocusedComponent(WindowEvent we) {
+    final Window eventWindow = we.getWindow();
 
-        Timer timer = new Timer(Registry.intValue("app.deactivation.timeout"), new ActionListener() {
-          public void actionPerformed(ActionEvent evt) {
-            if (appImpl.isActiveDelayed() && !appImpl.isDeactivationCanceled()) {
-              OpenAPIAccessor.getApplicationImplAccessor().applyDelayedDeactivation(appImpl, eventWindow);
-            }
-          }
-        });
+    if (we.getID() == WindowEvent.WINDOW_DEACTIVATED || we.getID() == WindowEvent.WINDOW_LOST_FOCUS) {
+      Component frame = UIUtil.findUltimateParent(eventWindow);
+      Component focusOwnerInDeactivatedWindow = eventWindow.getMostRecentFocusOwner();
+      IdeFrame[] allProjectFrames = WindowManager.getInstance().getAllProjectFrames();
 
-        timer.setRepeats(false);
-        timer.start();
-      }
-
-      if (we.getID() == WindowEvent.WINDOW_DEACTIVATED || we.getID() == WindowEvent.WINDOW_LOST_FOCUS) {
-        Component frame = UIUtil.findUltimateParent(eventWindow);
-        Component focusOwnerInDeactivatedWindow = eventWindow.getMostRecentFocusOwner();
-        IdeFrame[] allProjectFrames = WindowManager.getInstance().getAllProjectFrames();
-
-        if (focusOwnerInDeactivatedWindow != null) {
-          for (IdeFrame ideFrame : allProjectFrames) {
-            JFrame aFrame = WindowManager.getInstance().getFrame(ideFrame.getProject());
-            if (aFrame.equals(frame)) {
-              IdeFocusManager focusManager = IdeFocusManager.getGlobalInstance();
-              if (focusManager instanceof FocusManagerImpl) {
-                ((FocusManagerImpl)focusManager).setLastFocusedAtDeactivation(ideFrame, focusOwnerInDeactivatedWindow);
-              }
+      if (focusOwnerInDeactivatedWindow != null) {
+        for (IdeFrame ideFrame : allProjectFrames) {
+          JFrame aFrame = WindowManager.getInstance().getFrame(ideFrame.getProject());
+          if (aFrame.equals(frame)) {
+            IdeFocusManager focusManager = IdeFocusManager.getGlobalInstance();
+            if (focusManager instanceof FocusManagerImpl) {
+              ((FocusManagerImpl)focusManager).setLastFocusedAtDeactivation(ideFrame, focusOwnerInDeactivatedWindow);
             }
           }
         }
       }
     }
-
-    return false;
   }
 
   private void defaultDispatchEvent(final AWTEvent e) {
@@ -880,27 +873,30 @@ public class IdeEventQueue extends EventQueue {
     }
   }
 
-  private static Field stickyAltField;
-  //IDEA-17359
+  private static Field ourStickyAltField;
+
   private static void fixStickyAlt(AWTEvent e) {
     if (Registry.is("actionSystem.win.suppressAlt.new")) {
-      if (SystemInfo.isWindows
-          && UIManager.getLookAndFeel() instanceof WindowsLookAndFeel
-          && e instanceof InputEvent
-          && (((InputEvent)e).getModifiers() & (InputEvent.ALT_MASK | InputEvent.ALT_DOWN_MASK)) != 0
-          && !(e instanceof KeyEvent && ((KeyEvent)e).getKeyCode() == KeyEvent.VK_ALT)) {
+      if (UIUtil.isUnderWindowsLookAndFeel() &&
+          e instanceof InputEvent &&
+          (((InputEvent)e).getModifiers() & (InputEvent.ALT_MASK | InputEvent.ALT_DOWN_MASK)) != 0 &&
+          !(e instanceof KeyEvent && ((KeyEvent)e).getKeyCode() == KeyEvent.VK_ALT)) {
         try {
-          if (stickyAltField == null) {
-            stickyAltField = ReflectionUtil.getDeclaredField(Class.forName("com.sun.java.swing.plaf.windows.WindowsRootPaneUI$AltProcessor"), "menuCanceledOnPress");
+          if (ourStickyAltField == null) {
+            Class<?> aClass = Class.forName("com.sun.java.swing.plaf.windows.WindowsRootPaneUI$AltProcessor");
+            ourStickyAltField = ReflectionUtil.getDeclaredField(aClass, "menuCanceledOnPress");
           }
-          stickyAltField.set(null, true);
+          if (ourStickyAltField != null) {
+            ourStickyAltField.set(null, true);
+          }
         }
         catch (Exception exception) {
           LOG.error(exception);
         }
       }
-    } else if (SystemInfo.isWindowsXP && e instanceof KeyEvent && ((KeyEvent)e).getKeyCode() == KeyEvent.VK_ALT) {
-      ((KeyEvent)e).consume();
+    }
+    else if (SystemInfo.isWinXpOrNewer && !SystemInfo.isWinVistaOrNewer && e instanceof KeyEvent && ((KeyEvent)e).getKeyCode() == KeyEvent.VK_ALT) {
+      ((KeyEvent)e).consume();  // IDEA-17359
     }
   }
 
@@ -1024,8 +1020,7 @@ public class IdeEventQueue extends EventQueue {
   }
 
   /**
-   * Same as {@link #blockNextEvents(java.awt.event.MouseEvent, com.intellij.ide.IdeEventQueue.BlockMode)} with <code>blockMode</code> equal
-   * to <code>COMPLETE</code>.
+   * Same as {@link #blockNextEvents(MouseEvent, IdeEventQueue.BlockMode)} with <code>blockMode</code> equal to <code>COMPLETE</code>.
    */
   public void blockNextEvents(final MouseEvent e) {
     blockNextEvents(e, BlockMode.COMPLETE);
@@ -1072,6 +1067,7 @@ public class IdeEventQueue extends EventQueue {
       maybeReady();
     }
     else {
+      //noinspection SSBasedInspection
       SwingUtilities.invokeLater(new Runnable() {
         @Override
         public void run() {
@@ -1086,7 +1082,7 @@ public class IdeEventQueue extends EventQueue {
     return myPopupManager.isPopupActive();
   }
 
-  private static class WindowsAltSupressor implements EventDispatcher {
+  private static class WindowsAltSuppressor implements EventDispatcher {
     private boolean myWaitingForAltRelease;
     private Robot myRobot;
 
@@ -1164,7 +1160,7 @@ public class IdeEventQueue extends EventQueue {
 
   private final FrequentEventDetector myFrequentEventDetector = new FrequentEventDetector(1009, 100);
   @Override
-  public void postEvent(AWTEvent theEvent) {
+  public void postEvent(@NotNull AWTEvent theEvent) {
     myFrequentEventDetector.eventHappened();
     super.postEvent(theEvent);
   }
@@ -1195,7 +1191,7 @@ public class IdeEventQueue extends EventQueue {
   }
 
   /**
-   * @see com.intellij.ide.IdeEventQueue#blockNextEvents(java.awt.event.MouseEvent, com.intellij.ide.IdeEventQueue.BlockMode)
+   * @see IdeEventQueue#blockNextEvents(MouseEvent, IdeEventQueue.BlockMode)
    */
   public enum BlockMode {
     COMPLETE, ACTIONS

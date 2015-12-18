@@ -70,7 +70,7 @@ class ClassFieldsManager extends FieldsManager {
 
   @Override
   protected boolean classHasField(@NotNull final PyClass pyClass, @NotNull final String fieldName) {
-    return pyClass.findClassAttribute(fieldName, true) != null;
+    return pyClass.findClassAttribute(fieldName, true, null) != null;
   }
 
   @NotNull
@@ -104,7 +104,7 @@ class ClassFieldsManager extends FieldsManager {
       final PyExpression assignedValue = input.findAssignedValue();
       if (assignedValue instanceof PyCallExpression) {
         final PyExpression callee = ((PyCallExpression)assignedValue).getCallee();
-        if ((callee != null) && PyNames.PROPERTY.equals(callee.getName()) && (myClass.findProperty(name, false) != null)) {
+        if ((callee != null) && PyNames.PROPERTY.equals(callee.getName()) && (myClass.findProperty(name, false, null) != null)) {
           return false;
         }
       }

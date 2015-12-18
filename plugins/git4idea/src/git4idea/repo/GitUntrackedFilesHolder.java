@@ -15,11 +15,11 @@
  */
 package git4idea.repo;
 
-import com.intellij.dvcs.DvcsUtil;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
@@ -28,6 +28,7 @@ import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.events.*;
 import com.intellij.util.messages.MessageBusConnection;
+import git4idea.GitLocalBranch;
 import git4idea.GitUtil;
 import git4idea.commands.Git;
 import org.jetbrains.annotations.NotNull;
@@ -88,8 +89,10 @@ public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
 
   private final Project myProject;
   private final VirtualFile myRoot;
+  private final GitRepository myRepository;
   private final ChangeListManager myChangeListManager;
   private final VcsDirtyScopeManager myDirtyScopeManager;
+  private final ProjectLevelVcsManager myVcsManager;
   private final GitRepositoryFiles myRepositoryFiles;
   private final Git myGit;
 
@@ -101,10 +104,12 @@ public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
 
   GitUntrackedFilesHolder(@NotNull GitRepository repository) {
     myProject = repository.getProject();
+    myRepository = repository;
     myRoot = repository.getRoot();
     myChangeListManager = ChangeListManager.getInstance(myProject);
     myDirtyScopeManager = VcsDirtyScopeManager.getInstance(myProject);
     myGit = ServiceManager.getService(Git.class);
+    myVcsManager = ProjectLevelVcsManager.getInstance(myProject);
 
     myRepositoryManager = GitUtil.getRepositoryManager(myProject);
     myRepositoryFiles = GitRepositoryFiles.getInstance(repository.getGitDir());
@@ -264,7 +269,21 @@ public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
   }
 
   private boolean totalRefreshNeeded(@NotNull String path) {
-    return indexChanged(path) || externallyCommitted(path) || gitignoreChanged(path);
+    return indexChanged(path) || externallyCommitted(path) || headMoved(path) ||
+           headChanged(path) || currentBranchChanged(path) || gitignoreChanged(path);
+  }
+
+  private boolean headChanged(@NotNull String path) {
+    return myRepositoryFiles.isHeadFile(path);
+  }
+
+  private boolean currentBranchChanged(@NotNull String path) {
+    GitLocalBranch currentBranch = myRepository.getCurrentBranch();
+    return currentBranch != null && myRepositoryFiles.isBranchFile(path, currentBranch.getFullName());
+  }
+
+  private boolean headMoved(@NotNull String path) {
+    return myRepositoryFiles.isOrigHeadFile(path);
   }
 
   private boolean indexChanged(@NotNull String path) {
@@ -302,7 +321,7 @@ public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
   private boolean belongsToThisRepository(VirtualFile file) {
     // this check should be quick
     // we shouldn't create a full instance repository here because it may lead to SOE while many unversioned files will be processed
-    final GitRepository repository = myRepositoryManager.getRepositoryForRootQuick(DvcsUtil.getVcsRoot(myProject, file));
+    GitRepository repository = myRepositoryManager.getRepositoryForRootQuick(myVcsManager.getVcsRootFor(file));
     return repository != null && repository.getRoot().equals(myRoot);
   }
 }

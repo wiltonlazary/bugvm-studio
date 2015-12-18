@@ -12,6 +12,7 @@ import gc
 from pydevd_comm import CMD_SIGNATURE_CALL_TRACE, NetCommand
 import pydevd_vars
 from pydevd_constants import xrange
+import pydevd_utils
 
 class Signature(object):
     def __init__(self, file, name):
@@ -31,17 +32,10 @@ class Signature(object):
 class SignatureFactory(object):
     def __init__(self):
         self._caller_cache = {}
-        self.project_roots =  os.getenv('IDE_PROJECT_ROOTS', '').split(os.pathsep)
+        self._ignore_module_name = ('__main__', '__builtin__', 'builtins')
 
     def is_in_scope(self, filename):
-        filename = os.path.normcase(filename)
-        for root in self.project_roots:
-            root = os.path.normcase(root)
-            if filename.startswith(root):
-                return True
-        return False
-
-
+        return not pydevd_utils.not_in_project_roots(filename)
 
     def create_signature(self, frame):
         try:
@@ -57,7 +51,7 @@ class SignatureFactory(object):
                     tp = locals[name].__class__
                     class_name = tp.__name__
 
-                if tp.__module__ and tp.__module__ != '__main__':
+                if hasattr(tp, '__module__') and tp.__module__ and tp.__module__ not in self._ignore_module_name:
                     class_name = "%s.%s"%(tp.__module__, class_name)
 
                 res.add_arg(name, class_name)

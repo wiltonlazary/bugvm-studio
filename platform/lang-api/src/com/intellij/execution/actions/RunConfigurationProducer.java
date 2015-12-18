@@ -19,6 +19,7 @@ import com.intellij.execution.*;
 import com.intellij.execution.configurations.ConfigurationFactory;
 import com.intellij.execution.configurations.ConfigurationType;
 import com.intellij.execution.configurations.RunConfiguration;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
@@ -39,6 +40,7 @@ import java.util.*;
  */
 public abstract class RunConfigurationProducer<T extends RunConfiguration> {
   public static final ExtensionPointName<RunConfigurationProducer> EP_NAME = ExtensionPointName.create("com.intellij.runConfigurationProducer");
+  private static final Logger LOG = Logger.getInstance("#" + RunConfigurationProducer.class.getName());
 
   @NotNull
   public static List<RunConfigurationProducer<?>> getProducers(@NotNull Project project) {
@@ -83,11 +85,17 @@ public abstract class RunConfigurationProducer<T extends RunConfiguration> {
   @Nullable
   public ConfigurationFromContext createConfigurationFromContext(ConfigurationContext context) {
     final RunnerAndConfigurationSettings settings = cloneTemplateConfiguration(context);
-    final Ref<PsiElement> locationRef = new Ref<PsiElement>(context.getPsiLocation());
-    if (!setupConfigurationFromContext((T)settings.getConfiguration(), context, locationRef)) {
+    Ref<PsiElement> ref = new Ref<PsiElement>(context.getPsiLocation());
+    try {
+      if (!setupConfigurationFromContext((T)settings.getConfiguration(), context, ref)) {
+       return null;
+     }
+    }
+    catch (ClassCastException e) {
+      LOG.error(myConfigurationFactory + " produced wrong type", e);
       return null;
     }
-    return new ConfigurationFromContextImpl(this, settings, locationRef.get());
+    return new ConfigurationFromContextImpl(this, settings, ref.get());
   }
 
   /**
@@ -186,7 +194,10 @@ public abstract class RunConfigurationProducer<T extends RunConfiguration> {
           }
           RunConfiguration configuration = fromContext.getConfiguration();
           String name = configuration.getName();
-          assert name != null : configuration;
+          if (name == null) {
+            LOG.error(configuration);
+            name = "Unnamed";
+          }
           configuration.setName(RunManager.suggestUniqueName(name, currentNames));
         }
       }
@@ -230,5 +241,21 @@ public abstract class RunConfigurationProducer<T extends RunConfiguration> {
     }
     assert false : aClass;
     return null;
+  }
+
+  @Nullable
+  public RunConfiguration createLightConfiguration(@NotNull final ConfigurationContext context) {
+    RunConfiguration configuration = myConfigurationFactory.createTemplateConfiguration(context.getProject());
+    final Ref<PsiElement> ref = new Ref<PsiElement>(context.getPsiLocation());
+    try {
+      if (!setupConfigurationFromContext((T)configuration, context, ref)) {
+        return null;
+      }
+    }
+    catch (ClassCastException e) {
+      LOG.error(myConfigurationFactory + " produced wrong type", e);
+      return null;
+    }
+    return configuration;
   }
 }

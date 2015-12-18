@@ -23,6 +23,7 @@ import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.ide.plugins.PluginManagerMain;
 import com.intellij.notification.*;
 import com.intellij.openapi.extensions.PluginId;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginsAdvertiser;
@@ -39,11 +40,16 @@ import java.util.Set;
 /**
  * @author nik
  */
-public class CheckRequiredPluginsActivity implements StartupActivity {
+public class CheckRequiredPluginsActivity implements StartupActivity, DumbAware {
   private static final NotificationGroup NOTIFICATION_GROUP = new NotificationGroup("Required Plugins", NotificationDisplayType.BALLOON, true);
 
   @Override
   public void runActivity(@NotNull final Project project) {
+    //will trigger 'loadState' and run check if required plugins are specified
+    ExternalDependenciesManager.getInstance(project);
+  }
+
+  public static void runCheck(@NotNull final Project project) {
     List<DependencyOnPlugin> dependencies = ExternalDependenciesManager.getInstance(project).getDependencies(DependencyOnPlugin.class);
     if (dependencies.isEmpty()) return;
 

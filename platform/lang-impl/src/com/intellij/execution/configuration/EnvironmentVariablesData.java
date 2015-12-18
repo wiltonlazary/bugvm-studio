@@ -16,6 +16,7 @@
 package com.intellij.execution.configuration;
 
 import com.google.common.collect.ImmutableMap;
+import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
@@ -83,7 +84,7 @@ public class EnvironmentVariablesData {
       return DEFAULT;
     }
     Map<String, String> envs = ImmutableMap.of();
-    String passParentEnvsStr = element.getAttributeValue(PASS_PARENT_ENVS);
+    String passParentEnvsStr = envsElement.getAttributeValue(PASS_PARENT_ENVS);
     boolean passParentEnvs = passParentEnvsStr == null || Boolean.parseBoolean(passParentEnvsStr);
     for (Element envElement : envsElement.getChildren(ENV)) {
       String envName = envElement.getAttributeValue(NAME);
@@ -112,6 +113,17 @@ public class EnvironmentVariablesData {
       envsElement.addContent(envElement);
     }
     parent.addContent(envsElement);
+  }
+
+  public void configureCommandLine(@NotNull GeneralCommandLine commandLine, boolean consoleParentEnvs) {
+    if (myPassParentEnvs) {
+      commandLine.withParentEnvironmentType(consoleParentEnvs ? GeneralCommandLine.ParentEnvironmentType.CONSOLE
+                                                              : GeneralCommandLine.ParentEnvironmentType.SYSTEM);
+    }
+    else {
+      commandLine.withParentEnvironmentType(GeneralCommandLine.ParentEnvironmentType.NONE);
+    }
+    commandLine.withEnvironment(myEnvs);
   }
 
   /**

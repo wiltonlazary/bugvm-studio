@@ -310,6 +310,8 @@ public class PackageAnnotator {
           final String toplevelClassSrcFQName = getSourceToplevelFQName(classFqVMName);
           final Ref<VirtualFile> containingFileRef = new Ref<VirtualFile>();
           final Ref<PsiClass> psiClassRef = new Ref<PsiClass>();
+          final CoverageSuitesBundle suitesBundle = myCoverageManager.getCurrentSuitesBundle();
+          if (suitesBundle == null) continue;
           final Boolean isInSource = DumbService.getInstance(myProject).runReadActionInSmartMode(new Computable<Boolean>() {
             public Boolean compute() {
               if (myProject.isDisposed()) return null;
@@ -330,21 +332,21 @@ public class PackageAnnotator {
           PackageCoverageInfo coverageInfoForClass = null;
           String classCoverageKey = classFqVMName.replace('/', '.');
           boolean ignoreClass = false;
+          boolean keepWithoutSource = false;
           for (JavaCoverageEngineExtension extension : JavaCoverageEngineExtension.EP_NAME.getExtensions()) {
-            if (extension.ignoreCoverageForClass(myCoverageManager.getCurrentSuitesBundle(), child)) {
+            if (extension.ignoreCoverageForClass(suitesBundle, child)) {
               ignoreClass = true;
               break;
             }
-            if (extension.keepCoverageInfoForClassWithoutSource(myCoverageManager.getCurrentSuitesBundle(), child)) {
-              coverageInfoForClass = classWithoutSourceCoverageInfo;
-              break;
+            if (extension.keepCoverageInfoForClassWithoutSource(suitesBundle, child)) {
+              keepWithoutSource = true;
             }
           }
           if (ignoreClass) {
             continue;
           }
 
-          if (coverageInfoForClass == null && isInSource != null && isInSource.booleanValue()) {
+          if (isInSource != null && isInSource.booleanValue()) {
             for (DirCoverageInfo dirCoverageInfo : dirs) {
               if (dirCoverageInfo.sourceRoot != null && VfsUtil.isAncestor(dirCoverageInfo.sourceRoot, containingFileRef.get(), false)) {
                 coverageInfoForClass = dirCoverageInfo;
@@ -352,6 +354,9 @@ public class PackageAnnotator {
                 break;
               }
             }
+          }
+          if (coverageInfoForClass == null && keepWithoutSource) {
+            coverageInfoForClass = classWithoutSourceCoverageInfo;
           }
           if (coverageInfoForClass != null) {
             collectClassCoverageInformation(child, psiClassRef.get(), coverageInfoForClass, projectInfo, toplevelClassCoverage,

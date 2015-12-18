@@ -19,7 +19,8 @@ import com.jetbrains.edu.courseFormat.Task;
 import com.jetbrains.edu.courseFormat.TaskFile;
 import com.jetbrains.edu.learning.StudyTaskManager;
 import com.jetbrains.edu.learning.StudyUtils;
-import com.jetbrains.edu.learning.courseFormat.StudyStatus;
+import com.jetbrains.edu.courseFormat.StudyStatus;
+import icons.EducationalIcons;
 import icons.InteractiveLearningIcons;
 import org.jetbrains.annotations.NotNull;
 
@@ -28,8 +29,8 @@ import java.awt.*;
 import java.util.Map;
 
 public class StudyDirectoryNode extends PsiDirectoryNode {
-  private final PsiDirectory myValue;
-  private final Project myProject;
+  protected final PsiDirectory myValue;
+  protected final Project myProject;
 
   public StudyDirectoryNode(@NotNull final Project project,
                             PsiDirectory value,
@@ -41,23 +42,22 @@ public class StudyDirectoryNode extends PsiDirectoryNode {
 
   @Override
   protected void updateImpl(PresentationData data) {
-    data.setIcon(InteractiveLearningIcons.Task);
     String valueName = myValue.getName();
     StudyTaskManager studyTaskManager = StudyTaskManager.getInstance(myProject);
     Course course = studyTaskManager.getCourse();
-    if (course == null) {
+    if (course == null || valueName == null) {
       return;
     }
     if (valueName.equals(myProject.getName())) {
       data.clearText();
+      data.setIcon(EducationalIcons.Course);
       data.addText(course.getName(), new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.BLACK));
-      data.addText(" (" + valueName + ")", SimpleTextAttributes.GRAYED_ATTRIBUTES);
-      return;
     }
-    if (valueName.contains(EduNames.TASK)) {
+    else if (valueName.contains(EduNames.TASK)) {
       TaskFile file = null;
       for (PsiElement child : myValue.getChildren()) {
-        VirtualFile virtualFile = child.getContainingFile().getVirtualFile();
+        VirtualFile virtualFile = child instanceof PsiDirectory ? ((PsiDirectory)child).getVirtualFile() :
+                                  child.getContainingFile().getVirtualFile();
         file = StudyUtils.getTaskFile(myProject, virtualFile);
         if (file != null) {
           break;
@@ -68,18 +68,18 @@ public class StudyDirectoryNode extends PsiDirectoryNode {
         setStudyAttributes(task, data, task.getName());
       }
     }
-    if (valueName.contains(EduNames.LESSON)) {
+    else if (valueName.contains(EduNames.LESSON)) {
       int lessonIndex = Integer.parseInt(valueName.substring(EduNames.LESSON.length())) - 1;
       Lesson lesson = course.getLessons().get(lessonIndex);
       setStudyAttributes(lesson, data, lesson.getName());
+      data.setPresentableText(valueName);
     }
-
-    if (valueName.contains(EduNames.SANDBOX_DIR)) {
+    else if (valueName.contains(EduNames.SANDBOX_DIR)) {
       if (myValue.getParent() != null) {
-        if (!myValue.getParent().getName().contains(EduNames.SANDBOX_DIR)) {
+        final String parentName = myValue.getParent().getName();
+        if (parentName!= null && !parentName.contains(EduNames.SANDBOX_DIR)) {
           data.setPresentableText(EduNames.SANDBOX_DIR);
           data.setIcon(InteractiveLearningIcons.Sandbox);
-          return;
         }
       }
     }
@@ -100,7 +100,7 @@ public class StudyDirectoryNode extends PsiDirectoryNode {
     StudyStatus taskStatus = StudyTaskManager.getInstance(myProject).getStatus(lesson);
     switch (taskStatus) {
       case Unchecked: {
-        updatePresentation(data, additionalName, JBColor.BLACK, InteractiveLearningIcons.Lesson);
+        updatePresentation(data, additionalName, JBColor.BLACK, EducationalIcons.Lesson);
         break;
       }
       case Solved: {
@@ -108,16 +108,16 @@ public class StudyDirectoryNode extends PsiDirectoryNode {
         break;
       }
       case Failed: {
-        updatePresentation(data, additionalName, JBColor.RED, InteractiveLearningIcons.Lesson);
+        updatePresentation(data, additionalName, JBColor.RED, EducationalIcons.Lesson);
       }
     }
   }
 
-  private void setStudyAttributes(Task task, PresentationData data, String additionalName) {
+  protected void setStudyAttributes(Task task, PresentationData data, String additionalName) {
     StudyStatus taskStatus = StudyTaskManager.getInstance(myProject).getStatus(task);
     switch (taskStatus) {
       case Unchecked: {
-        updatePresentation(data, additionalName, JBColor.BLACK, InteractiveLearningIcons.Task);
+        updatePresentation(data, additionalName, JBColor.BLACK, EducationalIcons.Task);
         break;
       }
       case Solved: {
@@ -131,7 +131,7 @@ public class StudyDirectoryNode extends PsiDirectoryNode {
     }
   }
 
-  private static void updatePresentation(PresentationData data, String additionalName, JBColor color, Icon icon) {
+  protected static void updatePresentation(PresentationData data, String additionalName, JBColor color, Icon icon) {
     data.clearText();
     data.addText(additionalName, new SimpleTextAttributes(Font.PLAIN, color));
     data.setIcon(icon);
@@ -149,7 +149,8 @@ public class StudyDirectoryNode extends PsiDirectoryNode {
 
   @Override
   public void navigate(boolean requestFocus) {
-    if (myValue.getName().contains(EduNames.TASK)) {
+    final String myValueName = myValue.getName();
+    if (myValueName != null && myValueName.contains(EduNames.TASK)) {
       TaskFile taskFile = null;
       VirtualFile virtualFile =  null;
       for (PsiElement child : myValue.getChildren()) {
@@ -192,7 +193,8 @@ public class StudyDirectoryNode extends PsiDirectoryNode {
 
   @Override
   public boolean expandOnDoubleClick() {
-    if (myValue.getName().contains(EduNames.TASK)) {
+    final String myValueName = myValue.getName();
+    if (myValueName!= null && myValueName.contains(EduNames.TASK)) {
       return false;
     }
     return super.expandOnDoubleClick();
@@ -201,5 +203,10 @@ public class StudyDirectoryNode extends PsiDirectoryNode {
   @Override
   protected boolean hasProblemFileBeneath() {
     return false;
+  }
+
+  @Override
+  public String getNavigateActionText(boolean focusEditor) {
+    return null;
   }
 }

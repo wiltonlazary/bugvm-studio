@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.event.DocumentAdapter;
@@ -32,7 +33,6 @@ import com.intellij.openapi.ui.VerticalFlowLayout;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiCodeFragment;
 import com.intellij.psi.PsiDocumentManager;
@@ -462,7 +462,7 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
     myParametersTable.setSurrendersFocusOnKeystroke(true);
     myPropagateParamChangesButton.setShortcut(CustomShortcutSet.fromString("alt G"));
 
-    if (isListTableViewSupported() && Registry.is("change.signature.awesome.mode")) {
+    if (isListTableViewSupported()) {
       myParametersList = createParametersListTable();
       final JPanel buttonsPanel = ToolbarDecorator.createDecorator(myParametersList.getTable())
         .addExtraAction(myPropagateParamChangesButton)
@@ -606,7 +606,7 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
           public void run() {
             updateSignatureAlarmFired();
           }
-        }, 100);
+        }, 100, ModalityState.stateForComponent(mySignatureArea));
       }
     };
     //noinspection SSBasedInspection
@@ -656,6 +656,7 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
       myMethodsToPropagateParameters = null;
     }
 
+    myDisposed = true;
     invokeRefactoring(createRefactoringProcessor());
   }
 

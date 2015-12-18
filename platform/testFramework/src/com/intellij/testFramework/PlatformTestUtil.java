@@ -78,12 +78,39 @@ import static org.junit.Assert.assertNotNull;
 /**
  * @author yole
  */
-@SuppressWarnings("UseOfSystemOutOrSystemErr")
+@SuppressWarnings({"UseOfSystemOutOrSystemErr", "TestOnlyProblems"})
 public class PlatformTestUtil {
   public static final boolean COVERAGE_ENABLED_BUILD = "true".equals(System.getProperty("idea.coverage.enabled.build"));
 
   private static final boolean SKIP_HEADLESS = GraphicsEnvironment.isHeadless();
   private static final boolean SKIP_SLOW = Boolean.getBoolean("skip.slow.tests.locally");
+
+  @NotNull
+  public static String getTestName(@NotNull String name, boolean lowercaseFirstLetter) {
+    name = StringUtil.trimStart(name, "test");
+    return StringUtil.isEmpty(name) ? "" : lowercaseFirstLetter(name, lowercaseFirstLetter);
+  }
+
+  @NotNull
+  public static String lowercaseFirstLetter(@NotNull String name, boolean lowercaseFirstLetter) {
+    if (lowercaseFirstLetter && !isAllUppercaseName(name)) {
+      name = Character.toLowerCase(name.charAt(0)) + name.substring(1);
+    }
+    return name;
+  }
+
+  public static boolean isAllUppercaseName(@NotNull String name) {
+    int uppercaseChars = 0;
+    for (int i = 0; i < name.length(); i++) {
+      if (Character.isLowerCase(name.charAt(i))) {
+        return false;
+      }
+      if (Character.isUpperCase(name.charAt(i))) {
+        uppercaseChars++;
+      }
+    }
+    return uppercaseChars >= 3;
+  }
 
   public static <T> void registerExtension(@NotNull ExtensionPointName<T> name, @NotNull T t, @NotNull Disposable parentDisposable) {
     registerExtension(Extensions.getRootArea(), name, t, parentDisposable);
@@ -369,7 +396,7 @@ public class PlatformTestUtil {
     assertNotNull(action);
     final Presentation presentation = new Presentation();
     @SuppressWarnings("deprecation") final DataContext context = DataManager.getInstance().getDataContext();
-    final AnActionEvent event = new AnActionEvent(null, context, "", presentation, ActionManager.getInstance(), 0);
+    final AnActionEvent event = AnActionEvent.createFromAnAction(action, null, "", context);
     action.update(event);
     Assert.assertTrue(presentation.isEnabled());
     action.actionPerformed(event);

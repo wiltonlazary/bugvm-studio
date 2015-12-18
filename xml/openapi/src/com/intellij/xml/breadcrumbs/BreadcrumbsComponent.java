@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package com.intellij.xml.breadcrumbs;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
@@ -43,12 +42,15 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
   private static final Logger LOG = Logger.getInstance("#com.intellij.xml.breadcrumbs.BreadcrumbsComponent");
   private static final Painter DEFAULT_PAINTER = new DefaultPainter(new ButtonSettings());
 
+  private static final int EXTRA_WIDTH = 10;
+
   private List<BreadcrumbsItemListener<T>> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private Crumb myHovered;
   private PagedImage myBuffer;
   private List<Crumb> myCrumbs = new ArrayList<Crumb>();
   private final CrumbLineMouseListener myMouseListener;
   private List<T> myItems;
+  private int myOffset;
 
   public BreadcrumbsComponent() {
     myMouseListener = new CrumbLineMouseListener(this);
@@ -65,6 +67,13 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
     }
 
     repaint();
+  }
+
+  public void setOffset(int offset) {
+    if (myOffset != offset) {
+      myOffset = offset;
+      repaint();
+    }
   }
 
   public void addBreadcrumbsItemListener(@NotNull final BreadcrumbsItemListener<T> listener) {
@@ -236,14 +245,14 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
     Crumb rightmostCrumb = null;
 
     // fill up crumb list first going from end to start
+    final NavigationCrumb fwd = new NavigationCrumb(this, fm, true, DEFAULT_PAINTER);
     for (int i = elements.size() - 1; i >= 0; i--) {
       final NavigationCrumb forward = new NavigationCrumb(this, fm, true, DEFAULT_PAINTER);
       final NavigationCrumb backward = new NavigationCrumb(this, fm, false, DEFAULT_PAINTER);
-
       final BreadcrumbsItem element = elements.get(i);
       final String s = element.getDisplayText();
       final Dimension d = DEFAULT_PAINTER.getSize(s, fm, width - forward.getWidth() - backward.getWidth());
-      final Crumb crumb = new Crumb(this, s, d.width, element);
+      final Crumb crumb = new Crumb(this, s, d.width + EXTRA_WIDTH, element);
       if (screenWidth + d.width > width) {
         Crumb first = null;
         if (screenWidth + backward.getWidth() > width && !result.isEmpty()) {
@@ -253,7 +262,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
 
         // put backward crumb
         result.addFirst(backward);
-        screenWidth += backward.getWidth();
+        screenWidth += backward.getWidth() - myOffset;
 
         // put dummy crumb to fill up empty space (add it to the end!!!)
         int dummyWidth = width - screenWidth;
@@ -285,34 +294,14 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
     }
 
     if (rightmostCrumb != null && screenWidth < width) {
-      // fill up empty space with elements from the full screen
-      int index = result.indexOf(rightmostCrumb);
-      for (int i = index + 1; i < result.size(); i++) {
-        final Crumb crumb = result.get(i);
-        if (crumb instanceof NavigationCrumb || crumb instanceof DummyCrumb) {
-          continue;
-        }
-
-        if (screenWidth + crumb.getWidth() < width) {
-          result.add(++index, new Crumb(this, crumb.getString(), crumb.getWidth(), crumb.getItem()));
-          screenWidth += crumb.getWidth();
-          i++;
-        }
-        else {
-          break;
-        }
-      }
-
       // add first dummy crumb
-      if (screenWidth < width) {
-        result.add(index + 1, new DummyCrumb(width - screenWidth));
-      }
+      result.add(result.indexOf(rightmostCrumb) + 2, new DummyCrumb(width - screenWidth - fwd.getWidth() - 8));
     }
 
     //assert screenWidth < width;
 
     // now fix up offsets going forward
-    int offset = 0;
+    int offset = myOffset;
     for (final Crumb each : result) {
       each.setOffset(offset);
       offset += each.getWidth();
@@ -398,6 +387,8 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
                          @NotNull final List<Crumb> crumbList,
                          @NotNull final Painter painter,
                          final int height) {
+      UISettings.setupAntialiasing(g2);
+
       //final int height = myImage.getHeight();
       final int pageOffset = getPageOffset();
 
@@ -562,7 +553,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
                            @NotNull final FontMetrics fm,
                            final boolean forward,
                            @NotNull final Painter p) {
-      super(forward ? FORWARD : BACKWARD, p.getSize(forward ? FORWARD : BACKWARD, fm, Integer.MAX_VALUE).width);
+      super(forward ? FORWARD : BACKWARD, p.getSize(forward ? FORWARD : BACKWARD, fm, Integer.MAX_VALUE).width + EXTRA_WIDTH);
       myForward = forward;
       myLine = line;
     }
@@ -624,15 +615,15 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
   }
 
   static class ButtonSettings extends PainterSettings {
-    protected static final Color DEFAULT_BG_COLOR = new JBColor(Gray._245, new Color(101, 104, 106));
+    static final Color DEFAULT_BG_COLOR = new JBColor(Gray._245, new Color(101, 104, 106));
     private static final Color LIGHT_BG_COLOR = new JBColor(Gray._253, Gray._130);
     private static final Color CURRENT_BG_COLOR = new JBColor(new Color(250, 250, 220), new Color(97, 97, 75));
-    protected static final Color HOVERED_BG_COLOR = new JBColor(Gray._220, ColorUtil.shift(DEFAULT_BG_COLOR, 1.2));
+    private static final Color HOVERED_BG_COLOR = new JBColor(Gray._220, ColorUtil.shift(DEFAULT_BG_COLOR, 1.2));
 
     private static final Color LIGHT_TEXT_COLOR = new JBColor(Gray._170, UIUtil.getListForeground());
 
-    protected static final Color DEFAULT_BORDER_COLOR = new JBColor(Gray._90, Gray._50);
-    private static final Color LIGHT_BORDER_COLOR = new JBColor(Gray._170, Gray._70);
+    private static final Color DEFAULT_BORDER_COLOR = new JBColor(Gray._170, Gray._50);
+    private static final Color LIGHT_BORDER_COLOR = new JBColor(Gray._200, Gray._70);
 
     static Color getBackgroundColor(boolean selected, boolean hovered, boolean light, boolean navigationCrumb) {
       if (hovered) {
@@ -681,7 +672,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
   }
 
   abstract static class Painter {
-    public static final int ROUND_VALUE = SystemInfo.isMac ? 3 : 2;
+    public static final int ROUND_VALUE = 2;
 
     private final PainterSettings mySettings;
 
@@ -718,13 +709,13 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
       final int width = c.getWidth();
       if (bg != null) {
         g2.setColor(bg);
-        g2.fillRoundRect(offset + 2, 0, width - 4, height - 3, ROUND_VALUE, ROUND_VALUE);
+        g2.fillRoundRect(offset + 2, 1, width - 4, height - 3, ROUND_VALUE, ROUND_VALUE);
       }
 
       final Color borderColor = s.getBorderColor(c);
       if (borderColor != null) {
         g2.setColor(borderColor);
-        g2.drawRoundRect(offset + 1, 0, width - 2, height - 3, ROUND_VALUE, ROUND_VALUE);
+        g2.drawRoundRect(offset + 2, 1, width - 4, height - 3, ROUND_VALUE, ROUND_VALUE);
       }
 
       final Color textColor = s.getForegroundColor(c);
@@ -757,8 +748,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
         string = sb.append("...").toString();
       }
 
-      UISettings.setupAntialiasing(g2);
-      g2.drawString(string, offset + ROUND_VALUE, height - fm.getDescent() - 4);
+      g2.drawString(string, offset + ROUND_VALUE + 5, height - fm.getDescent() - 3);
 
       g2.setFont(oldFont);
     }

@@ -24,7 +24,6 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.changes.ChangeListManagerEx;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.continuation.ContinuationContext;
 import git4idea.GitPlatformFacade;
 import git4idea.commands.Git;
 import git4idea.config.GitVcsSettings;
@@ -55,30 +54,19 @@ public abstract class GitChangesSaver {
   protected GitConflictResolver.Params myParams;
 
   /**
-   * Refreshes files changed during save or load.
+   * Returns an instance of the proper GitChangesSaver depending on the given save changes policy.
+   * @return {@link GitStashChangesSaver} or {@link GitShelveChangesSaver}.
    */
-  public abstract void refresh();
-
-  /**
-   * Returns an instance of the proper GitChangesSaver depending on the chosen save changes policy.
-   * @return {@link GitStashChangesSaver}, {@link GitShelveChangesSaver} or {@link GitDumbChangesSaver}
-   */
-  public static GitChangesSaver getSaver(@NotNull Project project, @NotNull GitPlatformFacade platformFacade, @NotNull Git git,
-                                         @NotNull ProgressIndicator progressIndicator, @NotNull String stashMessage) {
-    final GitVcsSettings settings = GitVcsSettings.getInstance(project);
-    if (settings == null) {
-      return getDefaultSaver(project, platformFacade, git, progressIndicator, stashMessage);
+  @NotNull
+  public static GitChangesSaver getSaver(@NotNull Project project,
+                                         @NotNull GitPlatformFacade platformFacade,
+                                         @NotNull Git git,
+                                         @NotNull ProgressIndicator progressIndicator,
+                                         @NotNull String stashMessage,
+                                         @NotNull GitVcsSettings.UpdateChangesPolicy saveMethod) {
+    if (saveMethod == GitVcsSettings.UpdateChangesPolicy.SHELVE) {
+      return new GitShelveChangesSaver(project, platformFacade, git, progressIndicator, stashMessage);
     }
-    switch (settings.updateChangesPolicy()) {
-      case STASH: return new GitStashChangesSaver(project, platformFacade, git, progressIndicator, stashMessage);
-      case SHELVE: return new GitShelveChangesSaver(project, platformFacade, git, progressIndicator, stashMessage);
-    }
-    return getDefaultSaver(project, platformFacade, git, progressIndicator, stashMessage);
-  }
-
-  // In the case of illegal value in the settings or impossibility to get the settings.
-  private static GitChangesSaver getDefaultSaver(@NotNull Project project, @NotNull GitPlatformFacade platformFacade, @NotNull Git git,
-                                                 @NotNull ProgressIndicator progressIndicator, @NotNull String stashMessage) {
     return new GitStashChangesSaver(project, platformFacade, git, progressIndicator, stashMessage);
   }
 
@@ -101,14 +89,6 @@ public abstract class GitChangesSaver {
       return;
     }
     save(rootsToSave);
-  }
-
-  /**
-   * Loads local changes from stash or shelf, and sorts the changes back to the change lists they were before update.
-   * @param context
-   */
-  public void restoreLocalChanges(ContinuationContext context) {
-    load(context);
   }
 
   public void notifyLocalChangesAreNotRestored() {
@@ -137,14 +117,13 @@ public abstract class GitChangesSaver {
 
   /**
    * Loads the changes - specific for chosen save strategy.
-   * @param exceptionConsumer
    */
-  protected abstract void load(ContinuationContext exceptionConsumer);
+  public abstract void load();
 
   /**
    * @return true if there were local changes to save.
    */
-  protected abstract boolean wereChangesSaved();
+  public abstract boolean wereChangesSaved();
 
   /**
    * @return name of the save capability provider - stash or shelf.
@@ -152,9 +131,15 @@ public abstract class GitChangesSaver {
   public abstract String getSaverName();
 
   /**
+   * @return the name of the saving operation: stash or shelve.
+   */
+  @NotNull
+  public abstract String getOperationName();
+
+  /**
    * Show the saved local changes in the proper viewer.
    */
-  protected abstract void showSavedChanges();
+  public abstract void showSavedChanges();
 
   /**
    * The right panel title of the merge conflict dialog: changes that came from update.

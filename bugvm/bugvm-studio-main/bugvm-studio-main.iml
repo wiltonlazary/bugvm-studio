@@ -87,7 +87,6 @@
     <orderEntry type="module" module-name="gradle" />
     <orderEntry type="module" module-name="remote-servers-impl" />
     <orderEntry type="module" module-name="dom-tests" />
-    <orderEntry type="module" module-name="colorSchemes" />
     <orderEntry type="module" module-name="javaFX-CE" />
     <orderEntry type="module" module-name="javaFX-jps-plugin" />
     <orderEntry type="module" module-name="IntelliLang-tests" />

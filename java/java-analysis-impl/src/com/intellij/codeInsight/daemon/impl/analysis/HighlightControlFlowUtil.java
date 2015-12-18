@@ -95,7 +95,8 @@ public class HighlightControlFlowUtil {
     // do not compute constant expressions for if() statement condition
     // see JLS 14.20 Unreachable Statements
     try {
-      final ControlFlow controlFlow = getControlFlowNoConstantEvaluate(codeBlock);
+      AllVariablesControlFlowPolicy policy = AllVariablesControlFlowPolicy.getInstance();
+      final ControlFlow controlFlow = ControlFlowFactory.getInstance(codeBlock.getProject()).getControlFlow(codeBlock, policy, false, false);
       final PsiElement unreachableStatement = ControlFlowUtil.getUnreachableStatement(controlFlow);
       if (unreachableStatement != null) {
         String description = JavaErrorMessages.message("unreachable.statement");
@@ -341,9 +342,8 @@ public class HighlightControlFlowUtil {
               PsiMethod redirectedConstructor = redirectedConstructors.get(j);
               // variable must be initialized before its usage
               if (offset < redirectedConstructor.getTextRange().getStartOffset()) continue;
-              PsiCodeBlock redirBody = redirectedConstructor.getBody();
-              if (redirBody != null
-                  && variableDefinitelyAssignedIn(variable, redirBody)) {
+              PsiCodeBlock redirectedBody = redirectedConstructor.getBody();
+              if (redirectedBody != null && variableDefinitelyAssignedIn(variable, redirectedBody)) {
                 return null;
               }
             }
@@ -682,10 +682,8 @@ public class HighlightControlFlowUtil {
         return null;
       }
       if (!isEffectivelyFinal(variable, lambdaExpression, context)) {
-        final HighlightInfo highlightInfo = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR)
-          .range(context)
-          .descriptionAndTooltip("Variable used in lambda expression should be effectively final")
-          .create();
+        String text = JavaErrorMessages.message("lambda.variable.must.be.final");
+        HighlightInfo highlightInfo = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(context).descriptionAndTooltip(text).create();
         QuickFixAction.registerQuickFixAction(highlightInfo, QUICK_FIX_FACTORY.createVariableAccessFromInnerClassFix(variable, lambdaExpression));
         return highlightInfo;
       }

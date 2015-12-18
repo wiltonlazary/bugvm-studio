@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -678,12 +678,16 @@ public class PsiUtil {
     return false;
   }
 
-  public static boolean isNewLine(PsiElement element) {
+  public static boolean isWhiteSpaceOrLineFeed(PsiElement element) {
     if (element == null) return false;
     ASTNode node = element.getNode();
     if (node == null) return false;
     IElementType elementType = node.getElementType();
-    return elementType == GroovyTokenTypes.mNLS || elementType == TokenType.WHITE_SPACE && element.getText().contains("\n");
+    return elementType == GroovyTokenTypes.mNLS || elementType == TokenType.WHITE_SPACE;
+  }
+
+  public static boolean isNewLine(PsiElement element) {
+    return isWhiteSpaceOrLineFeed(element) && element.getText().contains("\n");
   }
 
   @Nullable
@@ -1074,7 +1078,7 @@ public class PsiUtil {
     return ((GrListOrMap)firstArg).getNamedArguments();
   }
 
-  public static boolean isExpressionStatement(@NotNull PsiElement expr) {
+  public static boolean isExpressionStatement(@Nullable PsiElement expr) {
     if (!(expr instanceof GrStatement)) return false;
 
     final PsiElement parent = expr.getParent();
@@ -1178,7 +1182,7 @@ public class PsiUtil {
       if (controlFlowOwnerParent instanceof GrMethod && ((GrMethod)controlFlowOwnerParent).isConstructor()) {
         return false;
       }
-      else if (controlFlowOwnerParent instanceof PsiMethod && ((PsiMethod)controlFlowOwnerParent).getReturnType() == PsiType.VOID) {
+      else if (controlFlowOwnerParent instanceof PsiMethod && PsiType.VOID.equals(((PsiMethod)controlFlowOwnerParent).getReturnType())) {
         return false;
       }
     }

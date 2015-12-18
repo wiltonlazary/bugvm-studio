@@ -15,6 +15,7 @@
  */
 package com.intellij.formatting.contextConfiguration;
 
+import com.intellij.application.options.codeStyle.CodeStyleSchemesModel;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.lang.Language;
@@ -64,7 +65,15 @@ public class ConfigureCodeStyleOnSelectedFragment implements IntentionAction {
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     Language language = file.getLanguage();
-    return editor.getSelectionModel().hasSelection() && LanguageCodeStyleSettingsProvider.forLanguage(language) != null && file.isWritable();
+    return editor.getSelectionModel().hasSelection() && file.isWritable() && hasSettingsToShow(language);
+  }
+  
+  private static boolean hasSettingsToShow(Language language) {
+    LanguageCodeStyleSettingsProvider provider = LanguageCodeStyleSettingsProvider.forLanguage(language);
+    if (provider == null) {
+      return false;
+    }
+    return CodeFragmentCodeStyleSettingsPanel.hasOptionsToShow(provider);
   }
 
   @Override
@@ -93,7 +102,7 @@ public class ConfigureCodeStyleOnSelectedFragment implements IntentionAction {
     private final Editor myEditor;
     private final Document myDocument;
     private SelectedTextFormatter mySelectedTextFormatter;
-    private final CodeStyleSettings mySettings;
+    private CodeStyleSettings mySettings;
 
 
     public FragmentCodeStyleSettingsDialog(@NotNull final Editor editor,
@@ -159,10 +168,22 @@ public class ConfigureCodeStyleOnSelectedFragment implements IntentionAction {
 
     private void applyFromUiToSettings() {
       try {
+        createNewCodeStyleSchemeIfDefault();
         myTabbedLanguagePanel.apply(mySettings);
       }
       catch (ConfigurationException e) {
         LOG.debug("Can not apply code style settings from context menu to project code style settings");
+      }
+    }
+
+    private void createNewCodeStyleSchemeIfDefault() {
+      CodeStyleSchemes schemes = CodeStyleSchemes.getInstance();
+      CodeStyleScheme current = schemes.getCurrentScheme();
+      if (current != null && CodeStyleSchemesModel.cannotBeModified(current)) {
+        CodeStyleScheme newScheme = schemes.createNewScheme(null, current);
+        schemes.addScheme(newScheme);
+        CodeStyleSettingsManager.getInstance(myEditor.getProject()).PREFERRED_PROJECT_CODE_STYLE = newScheme.getName(); 
+        mySettings = newScheme.getCodeStyleSettings();
       }
     }
 

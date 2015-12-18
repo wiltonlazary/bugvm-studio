@@ -25,13 +25,13 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.impl.local.FileWatcher;
 import com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl;
+import com.intellij.openapi.vfs.impl.local.NativeFileWatcherImpl;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.openapi.vfs.newvfs.events.*;
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.testFramework.PlatformTestCase;
 import com.intellij.util.Alarm;
-import com.intellij.util.Function;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
@@ -41,6 +41,8 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.intellij.openapi.util.io.IoTestUtil.*;
 
@@ -49,35 +51,17 @@ public class FileWatcherTest extends PlatformTestCase {
   private static final int INTER_RESPONSE_DELAY = 500;  // time to wait for a next event in a sequence
   private static final int NATIVE_PROCESS_DELAY = 60000;  // time to wait for a native watcher response
 
-  private static Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.impl.local.FileWatcher");
+  private static final Logger LOG = Logger.getInstance(NativeFileWatcherImpl.class);
 
   private FileWatcher myWatcher;
   private LocalFileSystem myFileSystem;
   private MessageBusConnection myConnection;
   private volatile boolean myAccept = false;
   private Alarm myAlarm;
-  private final Runnable myNotifier = new Runnable() {
-    @Override
-    public void run() {
-      LOG.debug("-- (event, expected=" + myAccept + ")");
-      if (!myAccept) return;
-      myAlarm.cancelAllRequests();
-      myAlarm.addRequest(new Runnable() {
-        @Override
-        public void run() {
-          myAccept = false;
-          LOG.debug("** waiting finished");
-          synchronized (myWaiter) {
-            myWaiter.notifyAll();
-          }
-        }
-      }, INTER_RESPONSE_DELAY);
-    }
-  };
   private final Object myWaiter = new Object();
   private int myTimeout = NATIVE_PROCESS_DELAY;
   private final List<VFileEvent> myEvents = ContainerUtil.newArrayList();
-  private final List<String> myAcceptedDirectories = ContainerUtil.newArrayList();
+  private File myTempDirectory;
 
   @Override
   protected void setUp() throws Exception {
@@ -91,7 +75,18 @@ public class FileWatcherTest extends PlatformTestCase {
     myWatcher = ((LocalFileSystemImpl)myFileSystem).getFileWatcher();
     assertNotNull(myWatcher);
     assertFalse(myWatcher.isOperational());
-    myWatcher.startup(myNotifier);
+    myWatcher.startup(() -> {
+      LOG.debug("-- (event, expected=" + myAccept + ")");
+      if (!myAccept) return;
+      myAlarm.cancelAllRequests();
+      myAlarm.addRequest(() -> {
+        myAccept = false;
+        LOG.debug("** waiting finished");
+        synchronized (myWaiter) {
+          myWaiter.notifyAll();
+        }
+      }, INTER_RESPONSE_DELAY);
+    });
     assertTrue(myWatcher.isOperational());
 
     myAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, getProject());
@@ -102,17 +97,15 @@ public class FileWatcherTest extends PlatformTestCase {
       @Override
       public void after(@NotNull List<? extends VFileEvent> events) {
         synchronized (myEvents) {
-          myEvents.addAll(events);
+          events.stream().filter(VFileEvent::isFromRefresh).forEach(myEvents::add);
         }
       }
     });
 
     ((LocalFileSystemImpl)myFileSystem).cleanupForNextTest();
 
-    myAcceptedDirectories.clear();
-    myAcceptedDirectories.add(getTempDirectory().getAbsolutePath());
+    myTempDirectory = createTestDir(getName());
 
-    LOG = FileWatcher.getLog();
     LOG.debug("================== setting up " + getName() + " ==================");
   }
 
@@ -121,9 +114,12 @@ public class FileWatcherTest extends PlatformTestCase {
     LOG.debug("================== tearing down " + getName() + " ==================");
 
     try {
+      myAccept = false;
+      myAlarm.cancelAllRequests();
       myConnection.disconnect();
       myWatcher.shutdown();
       assertFalse(myWatcher.isOperational());
+      FileUtil.delete(myTempDirectory);
     }
     finally {
       myFileSystem = null;
@@ -149,7 +145,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testFileRoot() throws Exception {
-    File file = createTestFile("test.txt");
+    File file = createTestFile(myTempDirectory, "test.txt");
     refresh(file);
 
     LocalFileSystem.WatchRequest request = watch(file);
@@ -178,7 +174,7 @@ public class FileWatcherTest extends PlatformTestCase {
       return;
     }
 
-    File file = createTestFile("test.txt");
+    File file = createTestFile(myTempDirectory, "test.txt");
     refresh(file);
 
     String watchRoot = file.getPath().toUpperCase(Locale.US);
@@ -203,7 +199,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testDirectoryRecursive() throws Exception {
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     refresh(topDir);
 
     LocalFileSystem.WatchRequest request = watch(topDir);
@@ -236,7 +232,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testDirectoryFlat() throws Exception {
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     File watchedFile = createTestFile(topDir, "test.txt");
     File subDir = createTestDir(topDir, "sub");
     File unwatchedFile = createTestFile(subDir, "test.txt");
@@ -261,7 +257,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testDirectoryMixed() throws Exception {
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     File watchedFile1 = createTestFile(topDir, "test.txt");
     File sub1Dir = createTestDir(topDir, "sub1");
     File unwatchedFile = createTestFile(sub1Dir, "test.txt");
@@ -286,7 +282,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testDirectoryNonExisting() throws Exception {
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     File subDir = new File(topDir, "subDir");
     File file = new File(subDir, "file.txt");
     refresh(topDir);
@@ -309,7 +305,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testIncorrectPath() throws Exception {
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     File file = createTestFile(topDir, "file.zip");
     File subDir = new File(file, "sub/zip");
     refresh(topDir);
@@ -329,11 +325,11 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testDirectoryOverlapping() throws Exception {
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     File fileInTopDir = createTestFile(topDir, "file1.txt");
     File subDir = createTestDir(topDir, "sub");
     File fileInSubDir = createTestFile(subDir, "file2.txt");
-    File sideDir = createTestDir("side");
+    File sideDir = createTestDir(myTempDirectory, "side");
     File fileInSideDir = createTestFile(sideDir, "file3.txt");
     refresh(topDir);
     refresh(sideDir);
@@ -446,7 +442,7 @@ public class FileWatcherTest extends PlatformTestCase {
       return;
     }
 
-    File targetDir = createTestDir("top");
+    File targetDir = createTestDir(myTempDirectory, "top");
     File subDir = createTestDir(targetDir, "sub");
     File file = createTestFile(subDir, "test.txt");
     File rootFile = createSubst(targetDir.getPath());
@@ -459,7 +455,6 @@ public class FileWatcherTest extends PlatformTestCase {
       File substFile = new File(substDir, file.getName());
       refresh(targetDir);
       refresh(substDir);
-      myAcceptedDirectories.add(substDir.getPath());
 
       LocalFileSystem.WatchRequest request = watch(substDir);
       try {
@@ -497,7 +492,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testDirectoryRecreation() throws Exception {
-    File rootDir = createTestDir("root");
+    File rootDir = createTestDir(myTempDirectory, "root");
     File topDir = createTestDir(rootDir, "top");
     File file1 = createTestFile(topDir, "file1.txt", "abc");
     File file2 = createTestFile(topDir, "file2.txt", "123");
@@ -520,7 +515,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testWatchRootRecreation() throws Exception {
-    File rootDir = createTestDir("root");
+    File rootDir = createTestDir(myTempDirectory, "root");
     File file1 = createTestFile(rootDir, "file1.txt", "abc");
     File file2 = createTestFile(rootDir, "file2.txt", "123");
     refresh(rootDir);
@@ -542,7 +537,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testWatchRootRenameRemove() throws Exception {
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     File rootDir = createTestDir(topDir, "root");
     File rootDir2 = new File(topDir, "_" + rootDir.getName());
     refresh(topDir);
@@ -581,7 +576,7 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   public void testSwitchingToFsRoot() throws Exception {
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     File rootDir = createTestDir(topDir, "root");
     File file1 = createTestFile(topDir, "1.txt");
     File file2 = createTestFile(rootDir, "2.txt");
@@ -633,7 +628,7 @@ public class FileWatcherTest extends PlatformTestCase {
       return;
     }
 
-    File topDir = createTestDir("topDir");
+    File topDir = createTestDir(myTempDirectory, "topDir");
     File testDir = createTestDir(topDir, "weird\ndir\nname");
     File testFile = createTestFile(testDir, "weird\nfile\nname");
     refresh(topDir);
@@ -655,7 +650,7 @@ public class FileWatcherTest extends PlatformTestCase {
       return;
     }
 
-    File topDir = createTestDir("topDir");
+    File topDir = createTestDir(myTempDirectory, "topDir");
     File testDir = createTestDir(topDir, "dir");
     File testFile = createTestFile(testDir, "file", "123");
     refresh(topDir);
@@ -677,7 +672,7 @@ public class FileWatcherTest extends PlatformTestCase {
       return;
     }
 
-    File topDir = createTestDir("topDir");
+    File topDir = createTestDir(myTempDirectory, "topDir");
     File testFile = createTestFile(topDir, "file.txt", "123");
     refresh(topDir);
 
@@ -695,13 +690,13 @@ public class FileWatcherTest extends PlatformTestCase {
 
   public void testPartialRefresh() throws Exception {
     // tests the same scenario with an active file watcher (prevents explicit marking of refreshed paths)
-    File top = createTestDir("top");
+    File top = createTestDir(myTempDirectory, "top");
     LocalFileSystemTest.doTestPartialRefresh(top);
   }
 
   public void testInterruptedRefresh() throws Exception {
     // tests the same scenario with an active file watcher (prevents explicit marking of refreshed paths)
-    File top = createTestDir("top");
+    File top = createTestDir(myTempDirectory, "top");
     LocalFileSystemTest.doTestInterruptedRefresh(top);
   }
 
@@ -711,7 +706,7 @@ public class FileWatcherTest extends PlatformTestCase {
       return;
     }
 
-    File topDir = createTestDir("top");
+    File topDir = createTestDir(myTempDirectory, "top");
     File testDir = createTestDir(topDir, "тест");
     File testFile = createTestFile(testDir, "файл.txt");
     refresh(topDir);
@@ -729,12 +724,11 @@ public class FileWatcherTest extends PlatformTestCase {
 
   public void testDisplacementByIsomorphicTree() throws Exception {
     if (SystemInfo.isMac) {
-      assertTrue("Kaboom", new GregorianCalendar(2015, Calendar.SEPTEMBER, 1).getTimeInMillis() > new Date().getTime());
       System.out.println("** skipped");
       return;
     }
 
-    File top = createTestDir("top");
+    File top = createTestDir(myTempDirectory, "top");
     File up = createTestDir(top, "up");
     File middle = createTestDir(up, "middle");
     File file = createTestFile(middle, "file.txt", "original content");
@@ -760,6 +754,35 @@ public class FileWatcherTest extends PlatformTestCase {
     }
   }
 
+  public void testWatchRootReplacement() throws IOException {
+    File top = createTestDir(myTempDirectory, "top");
+    File dir1 = createTestDir(top, "dir1");
+    File dir2 = createTestDir(top, "dir2");
+    File f1 = createTestFile(dir1, "f.txt");
+    File f2 = createTestFile(dir2, "f.txt");
+    refresh(f1);
+    refresh(f2);
+
+    Ref<LocalFileSystem.WatchRequest> request = Ref.create(watch(dir1));
+    try {
+      myAccept = true;
+      FileUtil.writeToFile(f1, "data");
+      FileUtil.writeToFile(f2, "data");
+      assertEvent(VFileContentChangeEvent.class, f1.getPath());
+
+      String newRoot = dir2.getPath();
+      getEvents("events to replace watch root", () -> request.set(myFileSystem.replaceWatchedRoot(request.get(), newRoot, true)));
+
+      myAccept = true;
+      FileUtil.writeToFile(f1, "more data");
+      FileUtil.writeToFile(f2, "more data");
+      assertEvent(VFileContentChangeEvent.class, f2.getPath());
+    }
+    finally {
+      unwatch(request.get());
+    }
+  }
+
 
   @NotNull
   private LocalFileSystem.WatchRequest watch(File watchFile) {
@@ -767,26 +790,16 @@ public class FileWatcherTest extends PlatformTestCase {
   }
 
   @NotNull
-  private LocalFileSystem.WatchRequest watch(final File watchFile, final boolean recursive) {
-    final Ref<LocalFileSystem.WatchRequest> request = Ref.create();
-    getEvents("events to add watch " + watchFile, new Runnable() {
-      @Override
-      public void run() {
-        request.set(myFileSystem.addRootToWatch(watchFile.getPath(), recursive));
-      }
-    });
+  private LocalFileSystem.WatchRequest watch(File watchFile, boolean recursive) {
+    Ref<LocalFileSystem.WatchRequest> request = Ref.create();
+    getEvents("events to add watch " + watchFile, () -> request.set(myFileSystem.addRootToWatch(watchFile.getPath(), recursive)));
     assertFalse(request.isNull());
     assertFalse(myWatcher.isSettingRoots());
     return request.get();
   }
 
-  private void unwatch(final LocalFileSystem.WatchRequest... requests) {
-    getEvents("events to stop watching", new Runnable() {
-      @Override
-      public void run() {
-        myFileSystem.removeWatchedRoots(Arrays.asList(requests));
-      }
-    });
+  private void unwatch(LocalFileSystem.WatchRequest... requests) {
+    getEvents("events to stop watching", () -> myFileSystem.removeWatchedRoots(Arrays.asList(requests)));
   }
 
   private VirtualFile refresh(File file) {
@@ -846,23 +859,6 @@ public class FileWatcherTest extends PlatformTestCase {
       myEvents.clear();
     }
 
-    if (!result.isEmpty()) {
-      nextEvent:
-      for (Iterator<VFileEvent> iterator = result.iterator(); iterator.hasNext(); ) {
-        VFileEvent event = iterator.next();
-        VirtualFile file = event.getFile();
-        if (file != null) {
-          for (String acceptedDirectory : myAcceptedDirectories) {
-            if (FileUtil.isAncestor(acceptedDirectory, file.getPath(), false)) {
-              continue nextEvent;
-            }
-          }
-          LOG.debug("~~ not accepted: " + event);
-          iterator.remove();
-        }
-      }
-    }
-
     LOG.debug("** events: " + result.size());
     return result;
   }
@@ -871,12 +867,7 @@ public class FileWatcherTest extends PlatformTestCase {
     List<VFileEvent> events = getEvents(type.getSimpleName(), null);
     assertEquals(events.toString(), paths.length, events.size());
 
-    Set<String> pathSet = ContainerUtil.map2Set(paths, new Function<String, String>() {
-      @Override
-      public String fun(final String path) {
-        return FileUtil.toSystemIndependentName(path);
-      }
-    });
+    Set<String> pathSet = Stream.of(paths).map(FileUtil::toSystemIndependentName).collect(Collectors.toSet());
 
     for (VFileEvent event : events) {
       assertTrue(event.toString(), type.isInstance(event));

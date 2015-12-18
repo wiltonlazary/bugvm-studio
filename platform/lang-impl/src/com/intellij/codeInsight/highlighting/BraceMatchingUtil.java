@@ -21,7 +21,6 @@ import com.intellij.lang.LanguageBraceMatching;
 import com.intellij.lang.PairedBraceMatcher;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.extensions.Extensions;
@@ -67,7 +66,7 @@ public class BraceMatchingUtil {
   public static int getMatchedBraceOffset(@NotNull Editor editor, boolean forward, @NotNull PsiFile file) {
     Document document = editor.getDocument();
     int offset = editor.getCaretModel().getOffset();
-    EditorHighlighter editorHighlighter = ((EditorEx)editor).getHighlighter();
+    EditorHighlighter editorHighlighter = BraceHighlightingHandler.getLazyParsableHighlighterIfAny(file.getProject(), editor, file);
     HighlighterIterator iterator = editorHighlighter.createIterator(offset);
     boolean matched = matchBrace(document.getCharsSequence(), file.getFileType(), iterator, forward);
     assert matched;
@@ -376,7 +375,14 @@ public class BraceMatchingUtil {
 
   @NotNull
   public static BraceMatcher getBraceMatcher(@NotNull FileType fileType, @NotNull HighlighterIterator iterator) {
-    return getBraceMatcher(fileType, iterator.getTokenType());
+    IElementType tokenType = iterator.getTokenType();
+    if (tokenType == null) {
+      throw new AssertionError("Null token for iterator " + iterator +
+                               " at " + iterator.getStart() +
+                               " in " + iterator.getDocument() +
+                               "; atEnd=" + iterator.atEnd());
+    }
+    return getBraceMatcher(fileType, tokenType);
   }
 
   @NotNull

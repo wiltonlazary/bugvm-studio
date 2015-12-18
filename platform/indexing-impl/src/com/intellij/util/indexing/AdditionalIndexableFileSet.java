@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.intellij.util.indexing;
 
 import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ContentIterator;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -29,12 +30,27 @@ import java.util.Set;
  * @author peter
  */
 public class AdditionalIndexableFileSet implements IndexableFileSet {
+  private final Project myProject;
   private volatile Set<VirtualFile> cachedFiles;
   private volatile Set<VirtualFile> cachedDirectories;
   private volatile IndexedRootsProvider[] myExtensions;
 
-  public AdditionalIndexableFileSet(IndexedRootsProvider... extensions) {
+  public AdditionalIndexableFileSet(Project project, IndexedRootsProvider... extensions) {
+    myProject = project;
     myExtensions = extensions;
+  }
+
+  public AdditionalIndexableFileSet(Project project) {
+    myProject = project;
+  }
+
+  public AdditionalIndexableFileSet(IndexedRootsProvider... extensions) {
+    myProject = null;
+    myExtensions = extensions;
+  }
+
+  public AdditionalIndexableFileSet() {
+    myProject = null;
   }
 
   private Set<VirtualFile> getDirectories() {
@@ -52,8 +68,14 @@ public class AdditionalIndexableFileSet implements IndexableFileSet {
       myExtensions = Extensions.getExtensions(IndexedRootsProvider.EP_NAME);
     }
     for (IndexedRootsProvider provider : myExtensions) {
-      for(VirtualFile file:IndexableSetContributor.getRootsToIndex(provider)) {
-        (file.isDirectory() ? directories:files).add(file);
+      for (VirtualFile root : IndexableSetContributor.getRootsToIndex(provider)) {
+        (root.isDirectory() ? directories : files).add(root);
+      }
+      if (myProject != null) {
+        Set<VirtualFile> projectRoots = IndexableSetContributor.getProjectRootsToIndex(provider, myProject);
+        for (VirtualFile root : projectRoots) {
+          (root.isDirectory() ? directories : files).add(root);
+        }
       }
     }
     cachedFiles = files;
@@ -68,9 +90,6 @@ public class AdditionalIndexableFileSet implements IndexableFileSet {
       }
     }
     return false;
-  }
-
-  public AdditionalIndexableFileSet() {
   }
 
   @Override

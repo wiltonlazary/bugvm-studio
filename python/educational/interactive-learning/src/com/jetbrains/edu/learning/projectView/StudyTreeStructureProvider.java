@@ -33,8 +33,9 @@ public class StudyTreeStructureProvider implements TreeStructureProvider, DumbAw
       if (project != null) {
         if (node.getValue() instanceof PsiDirectory) {
           final PsiDirectory nodeValue = (PsiDirectory)node.getValue();
-          if (!nodeValue.getName().contains(EduNames.USER_TESTS) && !nodeValue.getName().equals(".idea")) {
-            StudyDirectoryNode newNode = new StudyDirectoryNode(project, nodeValue, settings);
+          final String name = nodeValue.getName();
+          if (name != null && !name.contains(EduNames.USER_TESTS) && !name.startsWith(".")) {
+            AbstractTreeNode newNode = createStudyDirectoryNode(settings, project, nodeValue);
             nodes.add(newNode);
           }
         }
@@ -54,12 +55,33 @@ public class StudyTreeStructureProvider implements TreeStructureProvider, DumbAw
               if (parentName.equals(EduNames.SANDBOX_DIR)) {
                 nodes.add(node);
               }
+              if (parentName.startsWith(EduNames.TASK)) {
+                addNonInvisibleFiles(nodes, node, project, virtualFile);
+              }
             }
           }
         }
       }
     }
     return nodes;
+  }
+
+  @NotNull
+  protected AbstractTreeNode createStudyDirectoryNode(ViewSettings settings, Project project, PsiDirectory nodeValue) {
+    return new StudyDirectoryNode(project, nodeValue, settings);
+  }
+
+  private static void addNonInvisibleFiles(@NotNull final Collection<AbstractTreeNode> nodes,
+                                           @NotNull final AbstractTreeNode node,
+                                           @NotNull final Project project,
+                                           @NotNull final VirtualFile virtualFile) {
+    if (!StudyTaskManager.getInstance(project).isInvisibleFile(virtualFile.getPath())) {
+      String fileName = virtualFile.getName();
+      if (!fileName.contains(EduNames.WINDOW_POSTFIX) && !fileName.contains(EduNames.WINDOWS_POSTFIX)
+          && !StudyUtils.isTestsFile(project, fileName) && !EduNames.TASK_HTML.equals(fileName) && !fileName.contains(".answer")) {
+        nodes.add(node);
+      }
+    }
   }
 
   protected boolean isCourseBasedProject(@NotNull final AbstractTreeNode parent) {

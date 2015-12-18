@@ -20,10 +20,14 @@ import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserFactory;
 import com.intellij.openapi.ide.CopyPasteManager;
+import com.intellij.openapi.options.ex.SingleConfigurableEditor;
+import com.intellij.openapi.options.newEditor.SettingsDialog;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.*;
 import com.intellij.openapi.util.SystemInfo;
@@ -31,10 +35,14 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.HyperlinkLabel;
 import com.intellij.ui.TextFieldWithHistory;
 import com.intellij.ui.TextFieldWithHistoryWithBrowseButton;
+import com.intellij.util.Consumer;
 import com.intellij.util.NotNullProducer;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.containers.ComparatorUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.update.UiNotifyConnector;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -55,6 +63,7 @@ import java.util.Set;
 public class SwingHelper {
 
   private static final Logger LOG = Logger.getInstance(SwingHelper.class);
+  private static final String DIALOG_RESIZED_TO_FIT_TEXT = "INTELLIJ_DIALOG_RESIZED_TO_FIT_TEXT";
 
   /**
    * Creates panel whose content consists of given {@code children} components
@@ -138,12 +147,12 @@ public class SwingHelper {
   }
 
   public static void setPreferredWidthToFitText(@NotNull TextFieldWithHistoryWithBrowseButton component) {
-    int childWidth = calcWidthToFitText(component.getChildComponent().getTextEditor(), 35);
+    int childWidth = calcWidthToFitText(component.getChildComponent().getTextEditor(), JBUI.scale(32));
     setPreferredWidthForComponentWithBrowseButton(component, childWidth);
   }
 
   public static void setPreferredWidthToFitText(@NotNull TextFieldWithBrowseButton component) {
-    int childWidth = calcWidthToFitText(component.getChildComponent(), 20);
+    int childWidth = calcWidthToFitText(component.getChildComponent(), JBUI.scale(20));
     setPreferredWidthForComponentWithBrowseButton(component, childWidth);
   }
 
@@ -154,7 +163,7 @@ public class SwingHelper {
   }
 
   public static void setPreferredWidthToFitText(@NotNull JTextField textField) {
-    setPreferredWidthToFitText(textField, 15);
+    setPreferredWidthToFitText(textField, JBUI.scale(15));
   }
 
   public static void setPreferredWidthToFitText(@NotNull JTextField textField, int additionalWidth) {
@@ -162,7 +171,7 @@ public class SwingHelper {
   }
 
   public static void setPreferredWidthToFitText(@NotNull JTextField textField, @NotNull String text) {
-    setPreferredSizeToFitText(textField, text, 15);
+    setPreferredSizeToFitText(textField, text, JBUI.scale(15));
   }
 
   private static void setPreferredSizeToFitText(@NotNull JTextField textField, @NotNull String text, int additionalWidth) {
@@ -196,6 +205,61 @@ public class SwingHelper {
     rootPane.repaint();
 
     LOG.info("DialogWrapper '" + dialogWrapper.getTitle() + "' has been re-sized (added width: " + dw + ", added height: " + dh + ")");
+  }
+
+  public static void resizeDialogToFitTextFor(@NotNull final JComponent... components) {
+    if (components.length == 0) return;
+    doWithDialogWrapper(components[0], new Consumer<DialogWrapper>() {
+      @Override
+      public void consume(final DialogWrapper dialogWrapper) {
+        if (dialogWrapper instanceof SettingsDialog || dialogWrapper instanceof SingleConfigurableEditor) {
+          for (Component component : components) {
+            if (component instanceof TextFieldWithHistoryWithBrowseButton) {
+              setPreferredWidthToFitText((TextFieldWithHistoryWithBrowseButton)component);
+            }
+            else if (component instanceof TextFieldWithBrowseButton) {
+              setPreferredWidthToFitText((TextFieldWithBrowseButton)component);
+            }
+            else if (component instanceof JTextField) {
+              setPreferredWidthToFitText((JTextField)component);
+            }
+          }
+          ApplicationManager.getApplication().invokeLater(new Runnable() {
+            @Override
+            public void run() {
+              adjustDialogSizeToFitPreferredSize(dialogWrapper);
+            }
+          }, ModalityState.any());
+        }
+      }
+    });
+  }
+
+  private static void doWithDialogWrapper(@NotNull final JComponent component, @NotNull final Consumer<DialogWrapper> consumer) {
+    UIUtil.invokeLaterIfNeeded(new Runnable() {
+      @Override
+      public void run() {
+        if (component.getClientProperty(DIALOG_RESIZED_TO_FIT_TEXT) != null) {
+          return;
+        }
+        component.putClientProperty(DIALOG_RESIZED_TO_FIT_TEXT, true);
+        DialogWrapper dialogWrapper = DialogWrapper.findInstance(component);
+        if (dialogWrapper != null) {
+          consumer.consume(dialogWrapper);
+        }
+        else {
+          UiNotifyConnector.doWhenFirstShown(component, new Runnable() {
+            @Override
+            public void run() {
+              DialogWrapper dialogWrapper = DialogWrapper.findInstance(component);
+              if (dialogWrapper != null) {
+                consumer.consume(dialogWrapper);
+              }
+            }
+          });
+        }
+      }
+    });
   }
 
   public static <T> void updateItems(@NotNull JComboBox comboBox,
@@ -294,7 +358,7 @@ public class SwingHelper {
                                 boolean mergeWithPrevHistory) {
     Set<String> newHistorySet = ContainerUtil.newHashSet(history);
     List<String> prevHistory = textFieldWithHistory.getHistory();
-    List<String> mergedHistory = ContainerUtil.newArrayList();
+    List<String> mergedHistory = ContainerUtil.newArrayListWithCapacity(history.size());
     if (mergeWithPrevHistory) {
       for (String item : prevHistory) {
         if (!newHistorySet.contains(item)) {
@@ -302,15 +366,20 @@ public class SwingHelper {
         }
       }
     }
-    else {
-      String currentText = textFieldWithHistory.getText();
-      if (StringUtil.isNotEmpty(currentText) && !newHistorySet.contains(currentText)) {
-        mergedHistory.add(currentText);
-      }
-    }
     mergedHistory.addAll(history);
+    String oldText = StringUtil.notNullize(textFieldWithHistory.getText());
+    String oldSelectedItem = ObjectUtils.tryCast(textFieldWithHistory.getSelectedItem(), String.class);
+    if (!mergedHistory.contains(oldSelectedItem)) {
+      oldSelectedItem = null;
+    }
     textFieldWithHistory.setHistory(mergedHistory);
     setLongestAsPrototype(textFieldWithHistory, mergedHistory);
+    if (oldSelectedItem != null) {
+      textFieldWithHistory.setSelectedItem(oldSelectedItem);
+    }
+    if (!oldText.equals(oldSelectedItem)) {
+      textFieldWithHistory.setText(oldText);
+    }
   }
 
   private static void setLongestAsPrototype(@NotNull JComboBox comboBox, @NotNull List<String> variants) {
@@ -337,7 +406,7 @@ public class SwingHelper {
 
   public static void installFileCompletionAndBrowseDialog(@Nullable Project project,
                                                           @NotNull TextFieldWithHistoryWithBrowseButton textFieldWithHistoryWithBrowseButton,
-                                                          @NotNull String browseDialogTitle,
+                                                          @NotNull @Nls(capitalization = Nls.Capitalization.Title) String browseDialogTitle,
                                                           @NotNull FileChooserDescriptor fileChooserDescriptor) {
     doInstall(project,
               textFieldWithHistoryWithBrowseButton,
@@ -349,7 +418,7 @@ public class SwingHelper {
 
   public static void installFileCompletionAndBrowseDialog(@Nullable Project project,
                                                           @NotNull TextFieldWithBrowseButton textFieldWithBrowseButton,
-                                                          @NotNull String browseDialogTitle,
+                                                          @NotNull @Nls(capitalization = Nls.Capitalization.Title) String browseDialogTitle,
                                                           @NotNull FileChooserDescriptor fileChooserDescriptor) {
     doInstall(project,
               textFieldWithBrowseButton,
@@ -359,10 +428,10 @@ public class SwingHelper {
               TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT);
   }
 
-  public static <T extends JComponent> void doInstall(@Nullable Project project,
+  private static <T extends JComponent> void doInstall(@Nullable Project project,
                                                        @NotNull ComponentWithBrowseButton<T> componentWithBrowseButton,
                                                        @NotNull JTextField textField,
-                                                       @NotNull String browseDialogTitle,
+                                                       @NotNull @Nls(capitalization = Nls.Capitalization.Title) String browseDialogTitle,
                                                        @NotNull FileChooserDescriptor fileChooserDescriptor,
                                                        @NotNull TextComponentAccessor<T> textComponentAccessor) {
     fileChooserDescriptor = fileChooserDescriptor.withShowHiddenFiles(SystemInfo.isUnix);

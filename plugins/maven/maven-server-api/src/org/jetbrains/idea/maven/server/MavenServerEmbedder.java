@@ -35,6 +35,15 @@ public interface MavenServerEmbedder extends Remote {
                  @NotNull MavenServerProgressIndicator indicator,
                  boolean alwaysUpdateSnapshots) throws RemoteException;
 
+  void customizeComponents() throws RemoteException;
+
+  @NotNull
+  List<String> retrieveAvailableVersions(@NotNull String groupId,
+                                         @NotNull String artifactId,
+                                         @NotNull List<MavenRemoteRepository> remoteRepositories)
+    throws RemoteException;
+
+
   @NotNull
   MavenServerExecutionResult resolveProject(@NotNull File file,
                                             @NotNull Collection<String> activeProfiles,

@@ -39,7 +39,6 @@ import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.messages.MessageHandler;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.List;
 
@@ -118,10 +117,8 @@ public class ModuleManagerComponent extends ModuleManagerImpl {
 
   @NotNull
   @Override
-  protected ModuleEx createAndLoadModule(@NotNull String filePath) throws IOException {
-    ModuleImpl module = new ModuleImpl(filePath, myProject);
-    module.getStateStore().load();
-    return module;
+  protected ModuleEx createAndLoadModule(@NotNull String filePath) {
+    return new ModuleImpl(filePath, myProject);
   }
 
   @Override
@@ -131,10 +128,14 @@ public class ModuleManagerComponent extends ModuleManagerImpl {
 
   @Override
   protected void fireModulesAdded() {
+    if (myModuleModel.myModules.isEmpty()) {
+      return;
+    }
+
     Runnable runnableWithProgress = new Runnable() {
       @Override
       public void run() {
-        for (final Module module : myModuleModel.myPathToModule.values()) {
+        for (final Module module : myModuleModel.myModules.values()) {
           final Application app = ApplicationManager.getApplication();
           final Runnable swingRunnable = new Runnable() {
             @Override

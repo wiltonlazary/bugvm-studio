@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ public interface Project extends ComponentManager, AreaInstance {
   VirtualFile getBaseDir();
 
   /**
-   * Returns a system-dependent path to a project base directory (see {@linkplain #getBaseDir()}).<br/>
+   * Returns a system-independent path to a project base directory (see {@linkplain #getBaseDir()}).<br/>
    * Returns <code>null</code> for default project.
    *
    * @return a path to a project base directory, or <code>null</code> for default project
@@ -77,12 +77,9 @@ public interface Project extends ComponentManager, AreaInstance {
   VirtualFile getProjectFile();
 
   /**
-   * Returns a system-dependent path to project descriptor file (see {@linkplain #getProjectFile()}).<br/>
-   * Returns empty string (<code>""</code>) for default project.
-   *
-   * @return project descriptor file, or empty string for default project
+   * @return a system-independent path to project file (see {@linkplain #getProjectFile()}) or <code>null</code> for default project.
    */
-  @NotNull
+  @Nullable
   @NonNls
   String getProjectFilePath();
 
@@ -115,9 +112,6 @@ public interface Project extends ComponentManager, AreaInstance {
   @NonNls
   String getLocationHash();
 
-  /**
-   * Should be invoked under WriteAction.
-   */
   void save();
 
   boolean isOpen();

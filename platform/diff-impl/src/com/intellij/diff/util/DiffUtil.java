@@ -30,16 +30,16 @@ import com.intellij.diff.fragments.DiffFragment;
 import com.intellij.diff.fragments.LineFragment;
 import com.intellij.diff.requests.ContentDiffRequest;
 import com.intellij.diff.requests.DiffRequest;
-import com.intellij.diff.tools.util.LineFragmentCache;
-import com.intellij.diff.tools.util.LineFragmentCache.PolicyData;
 import com.intellij.diff.tools.util.base.HighlightPolicy;
 import com.intellij.diff.tools.util.base.IgnorePolicy;
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diff.DiffBundle;
@@ -57,6 +57,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.DialogWrapperDialog;
 import com.intellij.openapi.ui.WindowWrapper;
 import com.intellij.openapi.util.*;
@@ -69,15 +70,14 @@ import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.ScreenUtil;
+import com.intellij.ui.components.JBLabel;
+import com.intellij.util.DocumentUtil;
 import com.intellij.util.Function;
 import com.intellij.util.LineSeparator;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.CalledInAwt;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
@@ -167,6 +167,7 @@ public class DiffUtil {
     editor.putUserData(DiffManagerImpl.EDITOR_IS_DIFF_KEY, Boolean.TRUE);
 
     editor.getSettings().setLineNumbersShown(true);
+    editor.getSettings().setShowIntentionBulb(false);
     ((EditorMarkupModel)editor.getMarkupModel()).setErrorStripeVisible(true);
     editor.getGutterComponentEx().setShowDefaultGutterPopup(false);
 
@@ -244,8 +245,26 @@ public class DiffUtil {
   }
 
   //
+  // Icons
+  //
+
+  @NotNull
+  public static Icon getArrowIcon(@NotNull Side sourceSide) {
+    return sourceSide.select(AllIcons.Diff.ArrowRight, AllIcons.Diff.Arrow);
+  }
+
+  @NotNull
+  public static Icon getArrowDownIcon(@NotNull Side sourceSide) {
+    return sourceSide.select(AllIcons.Diff.ArrowRightDown, AllIcons.Diff.ArrowLeftDown);
+  }
+
+  //
   // UI
   //
+
+  public static void registerAction(@NotNull AnAction action, @NotNull JComponent component) {
+    action.registerCustomShortcutSet(action.getShortcutSet(), component);
+  }
 
   @NotNull
   public static JPanel createMessagePanel(@NotNull String message) {
@@ -287,6 +306,20 @@ public class DiffUtil {
   @NotNull
   public static String getSettingsConfigurablePath() {
     return "Settings | Tools | Diff";
+  }
+
+  @NotNull
+  public static String createTooltipText(@NotNull String text, @Nullable String appendix) {
+    @NonNls StringBuilder result = new StringBuilder();
+    result.append("<html><body>");
+    result.append(text);
+    if (appendix != null) {
+      result.append("<br><div style='margin-top: 5px'><font size='2'>");
+      result.append(appendix);
+      result.append("</font></div>");
+    }
+    result.append("</body></html>");
+    return result.toString();
   }
 
   // Titles
@@ -382,7 +415,7 @@ public class DiffUtil {
 
     JPanel panel = new JPanel(new BorderLayout());
     panel.setBorder(IdeBorderFactory.createEmptyBorder(0, 4, 0, 4));
-    panel.add(createTitlePanel(title), BorderLayout.CENTER);
+    panel.add(new JBLabel(title).setCopyable(true), BorderLayout.CENTER);
     if (charset != null && separator != null) {
       JPanel panel2 = new JPanel();
       panel2.setLayout(new BoxLayout(panel2, BoxLayout.X_AXIS));
@@ -398,11 +431,6 @@ public class DiffUtil {
       panel.add(createSeparatorPanel(separator), BorderLayout.EAST);
     }
     return panel;
-  }
-
-  @NotNull
-  private static JComponent createTitlePanel(@NotNull String title) {
-    return CopyableLabel.create(title);
   }
 
   @NotNull
@@ -464,86 +492,23 @@ public class DiffUtil {
   //
 
   @NotNull
-  public static List<LineFragment> compareWithCache(@NotNull DiffRequest request,
-                                                    @NotNull DocumentData data,
-                                                    @NotNull DiffConfig config,
-                                                    @NotNull ProgressIndicator indicator) {
-    return compareWithCache(request, data.getText1(), data.getText2(), data.getStamp1(), data.getStamp2(), config, indicator);
-  }
+  public static List<LineFragment> compare(@NotNull CharSequence text1,
+                                           @NotNull CharSequence text2,
+                                           @NotNull DiffConfig config,
+                                           @NotNull ProgressIndicator indicator) {
+    indicator.checkCanceled();
 
-  @NotNull
-  public static List<LineFragment> compareWithCache(@NotNull DiffRequest request,
-                                                    @NotNull CharSequence text1,
-                                                    @NotNull CharSequence text2,
-                                                    long stamp1,
-                                                    long stamp2,
-                                                    @NotNull DiffConfig config,
-                                                    @NotNull ProgressIndicator indicator) {
-    List<LineFragment> fragments = doCompareWithCache(request, text1, text2, stamp1, stamp2, config, indicator);
+    List<LineFragment> fragments;
+    if (config.innerFragments) {
+      fragments = ComparisonManager.getInstance().compareLinesInner(text1, text2, config.policy, indicator);
+    }
+    else {
+      fragments = ComparisonManager.getInstance().compareLines(text1, text2, config.policy, indicator);
+    }
 
     indicator.checkCanceled();
     return ComparisonManager.getInstance().processBlocks(fragments, text1, text2,
                                                          config.policy, config.squashFragments, config.trimFragments);
-  }
-
-  @NotNull
-  private static List<LineFragment> doCompareWithCache(@NotNull DiffRequest request,
-                                                       @NotNull CharSequence text1,
-                                                       @NotNull CharSequence text2,
-                                                       long stamp1,
-                                                       long stamp2,
-                                                       @NotNull DiffConfig config,
-                                                       @NotNull ProgressIndicator indicator) {
-    indicator.checkCanceled();
-    PolicyData cachedData = getFromCache(request, config, stamp1, stamp2);
-
-    List<LineFragment> newFragments;
-    if (cachedData != null) {
-      if (cachedData.getFragments().isEmpty()) return cachedData.getFragments();
-      if (!config.innerFragments) return cachedData.getFragments();
-      if (cachedData.isInnerFragments()) return cachedData.getFragments();
-      newFragments = ComparisonManager.getInstance().compareLinesInner(text1, text2, cachedData.getFragments(), config.policy, indicator);
-    }
-    else {
-      if (config.innerFragments) {
-        newFragments = ComparisonManager.getInstance().compareLinesInner(text1, text2, config.policy, indicator);
-      }
-      else {
-        newFragments = ComparisonManager.getInstance().compareLines(text1, text2, config.policy, indicator);
-      }
-    }
-
-    indicator.checkCanceled();
-    putToCache(request, config, stamp1, stamp2, newFragments, config.innerFragments);
-    return newFragments;
-  }
-
-  @Nullable
-  public static PolicyData getFromCache(@NotNull DiffRequest request, @NotNull DiffConfig config, long stamp1, long stamp2) {
-    LineFragmentCache cache = request.getUserData(DiffUserDataKeysEx.LINE_FRAGMENT_CACHE);
-    if (cache != null && cache.checkStamps(stamp1, stamp2)) {
-      return cache.getData(config.policy);
-    }
-    return null;
-  }
-
-  public static void putToCache(@NotNull DiffRequest request, @NotNull DiffConfig config, long stamp1, long stamp2,
-                                @NotNull List<LineFragment> fragments, boolean isInnerFragments) {
-    // We can't rely on monotonicity on modificationStamps, so we can't check if we actually compared freshest versions of documents
-    // Possible data races also could make cache outdated.
-    // But these cases shouldn't be often and won't break anything.
-
-    LineFragmentCache oldCache = request.getUserData(DiffUserDataKeysEx.LINE_FRAGMENT_CACHE);
-    LineFragmentCache cache;
-    if (oldCache == null || !oldCache.checkStamps(stamp1, stamp2)) {
-      cache = new LineFragmentCache(stamp1, stamp2);
-    }
-    else {
-      cache = new LineFragmentCache(oldCache);
-    }
-
-    cache.putData(config.policy, fragments, isInnerFragments);
-    request.putUserData(DiffUserDataKeysEx.LINE_FRAGMENT_CACHE, cache);
   }
 
   //
@@ -772,7 +737,8 @@ public class DiffUtil {
       return TextDiffType.INSERTED;
     }
     else {
-      throw new IllegalArgumentException();
+      LOG.error("DiffFragment should not be empty");
+      return TextDiffType.MODIFIED;
     }
   }
 
@@ -780,18 +746,87 @@ public class DiffUtil {
   // Writable
   //
 
+  public static abstract class DiffCommandAction implements Runnable {
+    @Nullable protected final Project myProject;
+    @NotNull protected final Document myDocument;
+    @Nullable private final String myCommandName;
+    @Nullable private final String myCommandGroupId;
+    @NotNull private final UndoConfirmationPolicy myConfirmationPolicy;
+    private final boolean myUnderBulkUpdate;
+
+    public DiffCommandAction(@Nullable Project project,
+                             @NotNull Document document,
+                             @Nullable String commandName) {
+      this(project, document, commandName, null, UndoConfirmationPolicy.DEFAULT);
+    }
+
+    public DiffCommandAction(@Nullable Project project,
+                             @NotNull Document document,
+                             @Nullable String commandName,
+                             @Nullable String commandGroupId,
+                             @NotNull UndoConfirmationPolicy confirmationPolicy) {
+      this(project, document, commandName, commandGroupId, confirmationPolicy, false);
+    }
+
+    public DiffCommandAction(@Nullable Project project,
+                             @NotNull Document document,
+                             @Nullable String commandName,
+                             @Nullable String commandGroupId,
+                             @NotNull UndoConfirmationPolicy confirmationPolicy,
+                             boolean underBulkUpdate) {
+      myDocument = document;
+      myProject = project;
+      myCommandName = commandName;
+      myCommandGroupId = commandGroupId;
+      myConfirmationPolicy = confirmationPolicy;
+      myUnderBulkUpdate = underBulkUpdate;
+    }
+
+    @CalledInAwt
+    public final void run() {
+      if (!makeWritable(myProject, myDocument)) {
+        VirtualFile file = FileDocumentManager.getInstance().getFile(myDocument);
+        LOG.warn("Document is read-only" + (file != null ? ": " + file.getPresentableName() : ""));
+        return;
+      }
+
+      ApplicationManager.getApplication().runWriteAction(new Runnable() {
+        public void run() {
+          CommandProcessor.getInstance().executeCommand(myProject, new Runnable() {
+            @Override
+            public void run() {
+              if (myUnderBulkUpdate) {
+                DocumentUtil.executeInBulk(myDocument, true, new Runnable() {
+                  @Override
+                  public void run() {
+                    execute();
+                  }
+                });
+              }
+              else {
+                execute();
+              }
+            }
+          }, myCommandName, myCommandGroupId, myConfirmationPolicy, myDocument);
+        }
+      });
+    }
+
+    @CalledWithWriteLock
+    protected abstract void execute();
+  }
+
   @CalledInAwt
   public static void executeWriteCommand(@NotNull final Document document,
                                          @Nullable final Project project,
                                          @Nullable final String name,
                                          @NotNull final Runnable task) {
-    if (!makeWritable(project, document)) return;
-
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      public void run() {
-        CommandProcessor.getInstance().executeCommand(project, task, name, null);
+    new DiffCommandAction(project, document, name) {
+      @Override
+      protected void execute() {
+        task.run();
       }
-    });
+    }.run();
   }
 
   public static boolean isEditable(@NotNull Editor editor) {
@@ -812,8 +847,16 @@ public class DiffUtil {
   @CalledInAwt
   public static boolean makeWritable(@Nullable Project project, @NotNull Document document) {
     if (document.isWritable()) return true;
-    if (project == null) return false;
-    return ReadonlyStatusHandler.ensureDocumentWritable(project, document);
+    VirtualFile file = FileDocumentManager.getInstance().getFile(document);
+    if (file == null) return false;
+    return makeWritable(project, file);
+  }
+
+  @CalledInAwt
+  public static boolean makeWritable(@Nullable Project project, @NotNull VirtualFile file) {
+    if (file.isWritable()) return true;
+    if (project == null) project = ProjectManager.getInstance().getDefaultProject();
+    return !ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(file).hasReadonlyFiles();
   }
 
   //
@@ -886,28 +929,32 @@ public class DiffUtil {
     return false;
   }
 
-  public static <T> T getUserData(@Nullable DiffRequest request, @Nullable DiffContext context, @NotNull Key<T> key) {
-    if (request != null) {
-      T data = request.getUserData(key);
+  public static <T> T getUserData(@Nullable UserDataHolder first, @Nullable UserDataHolder second, @NotNull Key<T> key) {
+    if (first != null) {
+      T data = first.getUserData(key);
       if (data != null) return data;
     }
-    if (context != null) {
-      T data = context.getUserData(key);
+    if (second != null) {
+      T data = second.getUserData(key);
       if (data != null) return data;
     }
     return null;
   }
 
-  public static <T> T getUserData(@Nullable DiffContext context, @Nullable DiffRequest request, @NotNull Key<T> key) {
-    if (context != null) {
-      T data = context.getUserData(key);
-      if (data != null) return data;
+  public static void addNotification(@NotNull JComponent component, @NotNull UserDataHolder holder) {
+    List<JComponent> components = holder.getUserData(DiffUserDataKeys.NOTIFICATIONS);
+    if (components == null) {
+      holder.putUserData(DiffUserDataKeys.NOTIFICATIONS, Collections.singletonList(component));
     }
-    if (request != null) {
-      T data = request.getUserData(key);
-      if (data != null) return data;
+    else {
+      holder.putUserData(DiffUserDataKeys.NOTIFICATIONS, ContainerUtil.append(components, component));
     }
-    return null;
+  }
+
+  public static List<JComponent> getCustomNotifications(@NotNull DiffContext context, @NotNull DiffRequest request) {
+    List<JComponent> requestComponents = request.getUserData(DiffUserDataKeys.NOTIFICATIONS);
+    List<JComponent> contextComponents = context.getUserData(DiffUserDataKeys.NOTIFICATIONS);
+    return ContainerUtil.concat(ContainerUtil.notNullize(contextComponents), ContainerUtil.notNullize(requestComponents));
   }
 
   //
@@ -982,38 +1029,6 @@ public class DiffUtil {
   //
   // Helpers
   //
-
-  public static class DocumentData {
-    @NotNull private final CharSequence myText1;
-    @NotNull private final CharSequence myText2;
-    private final long myStamp1;
-    private final long myStamp2;
-
-    public DocumentData(@NotNull CharSequence text1, @NotNull CharSequence text2, long stamp1, long stamp2) {
-      myText1 = text1;
-      myText2 = text2;
-      myStamp1 = stamp1;
-      myStamp2 = stamp2;
-    }
-
-    @NotNull
-    public CharSequence getText1() {
-      return myText1;
-    }
-
-    @NotNull
-    public CharSequence getText2() {
-      return myText2;
-    }
-
-    public long getStamp1() {
-      return myStamp1;
-    }
-
-    public long getStamp2() {
-      return myStamp2;
-    }
-  }
 
   public static class DiffConfig {
     @NotNull public final ComparisonPolicy policy;

@@ -28,6 +28,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.util.ObjectUtils;
@@ -56,11 +57,11 @@ import java.util.Set;
  * <p> Bundled resources are updated automatically upon plugin version change. For bundled plugins, application version is used. </p>
  */
 public class ExtensionsRootType extends RootType {
-  public static final String EXTENSIONS_PATH = "extensions";
-  public static final String BACKUP_FILE_EXTENSION = "old";
-
   static final Logger LOG = Logger.getInstance(ExtensionsRootType.class);
+
   private static final String HASH_ALGORITHM = "MD5";
+  private static final String EXTENSIONS_PATH = "extensions";
+  private static final String BACKUP_FILE_EXTENSION = "old";
 
   ExtensionsRootType() {
     super(EXTENSIONS_PATH, "Extensions");
@@ -69,6 +70,17 @@ public class ExtensionsRootType extends RootType {
   @NotNull
   public static ExtensionsRootType getInstance() {
     return findByClass(ExtensionsRootType.class);
+  }
+
+  @NotNull
+  public static Condition<VirtualFile> regularFileFilter() {
+    return new Condition<VirtualFile>() {
+      private final ExtensionsRootType myRootType = getInstance();
+      @Override
+      public boolean value(VirtualFile file) {
+        return !file.isDirectory() && !myRootType.isBackupFile(file);
+      }
+    };
   }
 
   @Nullable
@@ -99,7 +111,7 @@ public class ExtensionsRootType extends RootType {
     Application application = ApplicationManager.getApplication();
     for (URL bundledResourceDirUrl : bundledResources) {
       VirtualFile bundledResourcesDir = VfsUtil.findFileByURL(bundledResourceDirUrl);
-      if (!bundledResourcesDir.isDirectory()) continue;
+      if (bundledResourcesDir == null || !bundledResourcesDir.isDirectory()) continue;
 
       AccessToken token = application.acquireWriteActionLock(ExtensionsRootType.class);
       try {
@@ -127,6 +139,11 @@ public class ExtensionsRootType extends RootType {
     catch (IOException ignore) {
     }
     return super.substituteName(project, file);
+  }
+
+  public boolean isBackupFile(@NotNull VirtualFile file) {
+    String extension = file.getExtension();
+    return !file.isDirectory() && extension != null && extension.startsWith(BACKUP_FILE_EXTENSION);
   }
 
   @Nullable

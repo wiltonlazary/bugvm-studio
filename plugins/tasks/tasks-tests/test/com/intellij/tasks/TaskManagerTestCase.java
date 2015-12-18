@@ -16,7 +16,6 @@
 package com.intellij.tasks;
 
 import com.intellij.tasks.impl.TaskManagerImpl;
-import com.intellij.testFramework.IdeaTestCase;
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
 
 import java.util.Collections;
@@ -26,11 +25,6 @@ import java.util.List;
  * @author Dmitry Avdeev
  */
 public abstract class TaskManagerTestCase extends LightCodeInsightFixtureTestCase {
-  @SuppressWarnings("JUnitTestCaseWithNonTrivialConstructors")
-  protected TaskManagerTestCase() {
-    IdeaTestCase.initPlatformPrefix();
-  }
-
   protected TaskManager myTaskManager;
 
   @Override
@@ -48,8 +42,8 @@ public abstract class TaskManagerTestCase extends LightCodeInsightFixtureTestCas
     }
     finally {
       myTaskManager = null;
+      super.tearDown();
     }
-    super.tearDown();
   }
 
   private void removeAllTasks() {

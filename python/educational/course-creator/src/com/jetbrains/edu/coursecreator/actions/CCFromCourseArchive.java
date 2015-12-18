@@ -18,13 +18,16 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.platform.templates.github.ZipUtil;
 import com.jetbrains.edu.EduDocumentListener;
 import com.jetbrains.edu.EduNames;
+import com.jetbrains.edu.EduUtils;
 import com.jetbrains.edu.courseFormat.*;
 import com.jetbrains.edu.coursecreator.CCProjectService;
+import com.jetbrains.edu.oldCourseFormat.OldCourse;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
@@ -38,11 +41,6 @@ public class CCFromCourseArchive extends DumbAwareAction {
   }
 
   @Override
-  public void update(@NotNull AnActionEvent e) {
-    CCProjectService.setCCActionAvailable(e);
-  }
-
-  @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) {
@@ -52,7 +50,7 @@ public class CCFromCourseArchive extends DumbAwareAction {
   }
 
   private static void unpackCourseArchive(final Project project) {
-    FileChooserDescriptor descriptor = new FileChooserDescriptor(true, true, true, true, true, true);
+    FileChooserDescriptor descriptor = new FileChooserDescriptor(true, true, true, true, true, false);
 
     final VirtualFile virtualFile = FileChooser.chooseFile(descriptor, project, null);
     if (virtualFile == null) {
@@ -61,12 +59,24 @@ public class CCFromCourseArchive extends DumbAwareAction {
     final String basePath = project.getBasePath();
     if (basePath == null) return;
     final CCProjectService service = CCProjectService.getInstance(project);
-    Reader reader;
+    Reader reader = null;
     try {
       ZipUtil.unzip(null, new File(basePath), new File(virtualFile.getPath()), null, null, true);
-      reader = new InputStreamReader(new FileInputStream(new File(basePath, "course.json")));
+      reader = new InputStreamReader(new FileInputStream(new File(basePath, EduNames.COURSE_META_FILE)));
       Gson gson = new GsonBuilder().setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES).create();
       Course course = gson.fromJson(reader, Course.class);
+      if (course == null || course.getLessons().isEmpty() || StringUtil.isEmptyOrSpaces(course.getLessons().get(0).getName())) {
+        try {
+          reader.close();
+        }
+        catch (IOException e) {
+          LOG.error(e.getMessage());
+        }
+        reader = new InputStreamReader(new FileInputStream(new File(basePath, EduNames.COURSE_META_FILE)));
+        OldCourse oldCourse = gson.fromJson(reader, OldCourse.class);
+        course = EduUtils.transformOldCourse(oldCourse);
+      }
+
       service.setCourse(course);
       project.getBaseDir().refresh(false, true);
       int index = 1;
@@ -78,6 +88,7 @@ public class CCFromCourseArchive extends DumbAwareAction {
         for (Task task : lesson.getTaskList()) {
           final VirtualFile taskDir = lessonDir.findChild(EduNames.TASK + String.valueOf(taskIndex));
           task.setIndex(taskIndex);
+          task.setLesson(lesson);
           if (taskDir == null) continue;
           for (final Map.Entry<String, TaskFile> entry : task.getTaskFiles().entrySet()) {
             ApplicationManager.getApplication().runWriteAction(new Runnable() {
@@ -101,6 +112,16 @@ public class CCFromCourseArchive extends DumbAwareAction {
     }
     catch (JsonSyntaxException e) {
       LOG.error(e.getMessage());
+    }
+    finally {
+      if (reader != null) {
+        try {
+          reader.close();
+        }
+        catch (IOException e) {
+          LOG.error(e.getMessage());
+        }
+      }
     }
     synchronize(project);
   }
@@ -182,7 +203,7 @@ public class CCFromCourseArchive extends DumbAwareAction {
           public void run() {
             final String text = document.getText(TextRange.create(offset, offset + answerPlaceholder.getLength()));
             answerPlaceholder.setTaskText(text);
-            final VirtualFile hints = project.getBaseDir().findChild("hints");
+            final VirtualFile hints = project.getBaseDir().findChild(EduNames.HINTS);
             if (hints != null) {
               final String hintFile = answerPlaceholder.getHint();
               final VirtualFile virtualFile = hints.findChild(hintFile);

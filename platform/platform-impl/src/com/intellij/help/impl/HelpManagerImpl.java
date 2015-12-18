@@ -20,15 +20,14 @@ import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.plugins.HelpSetPath;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
-import com.intellij.ide.plugins.PluginManager;
+import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.internal.statistic.UsageTrigger;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.NullableLazyValue;
 import com.intellij.util.PlatformUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
@@ -36,9 +35,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.help.BadIDException;
 import javax.help.HelpSet;
 import java.awt.*;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.URL;
 
 public class HelpManagerImpl extends HelpManager {
@@ -46,27 +42,25 @@ public class HelpManagerImpl extends HelpManager {
 
   @NonNls private static final String HELP_HS = "Help.hs";
 
-  private HelpSet myHelpSet = null;
-  private IdeaHelpBroker myBroker = null;
-  private Object myFXHelpBrowser = null;
+  private final NullableLazyValue<IdeaHelpBroker> myBrokerValue = new NullableLazyValue<IdeaHelpBroker>() {
+    @Nullable
+    @Override
+    protected IdeaHelpBroker compute() {
+      HelpSet set = createHelpSet();
+      return set == null ? null : new IdeaHelpBroker(set);
+    }
+  };
 
   public void invokeHelp(@Nullable String id) {
     UsageTrigger.trigger("ide.help." + id);
-
-    if (myHelpSet == null) {
-      myHelpSet = createHelpSet();
-    }
 
     if (MacHelpUtil.isApplicable() && MacHelpUtil.invokeHelp(id)) {
       return;
     }
 
-    if (SystemInfo.isJavaVersionAtLeast("1.7.0.40") && Registry.is("ide.help.fxbrowser")) {
-      showHelpInFXBrowser(id);
-      return;
-    }
+    IdeaHelpBroker broker = myBrokerValue.getValue();
 
-    if (myHelpSet == null) {
+    if (broker == null) {
       ApplicationInfoEx info = ApplicationInfoEx.getInstanceEx();
       String url = info.getWebHelpUrl() + "?";
       if (PlatformUtils.isCLion()) {
@@ -83,63 +77,19 @@ public class HelpManagerImpl extends HelpManager {
       return;
     }
 
-    if (myBroker == null) {
-      myBroker = new IdeaHelpBroker(myHelpSet);
-    }
-
     Window activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-    myBroker.setActivationWindow(activeWindow);
+    broker.setActivationWindow(activeWindow);
 
     if (id != null) {
       try {
-        myBroker.setCurrentID(id);
+        broker.setCurrentID(id);
       }
       catch (BadIDException e) {
         Messages.showErrorDialog(IdeBundle.message("help.topic.not.found.error", id), CommonBundle.getErrorTitle());
         return;
       }
     }
-    myBroker.setDisplayed(true);
-  }
-
-  private void showHelpInFXBrowser(final String id) {
-    if (myHelpSet == null) {
-      Messages.showInfoMessage("Looks like you have enabled 'ide.help.fxbrowser' registry key but we cannot load JavaHelp bundle. " +
-                               "Please put ideahelp.jar in the help directory.",
-                               "Cannot find JavaHelp bundle");
-      return;
-    }
-    try {
-      final Class<?> myFXHelpBrowserClass = Class.forName("com.intellij.help.impl.FXHelpBrowser");
-
-      if (myFXHelpBrowser == null) {
-        Object[] arguments = {myHelpSet};
-
-        Class[] argTypes = {HelpSet.class};
-        Constructor constructor = myFXHelpBrowserClass.getDeclaredConstructor(argTypes);
-        myFXHelpBrowser = constructor.newInstance(arguments);
-      }
-      Class[] showDocumentationMethodArgTypes = {String.class};
-      Method showDocumentationMethod = myFXHelpBrowserClass.getDeclaredMethod("showDocumentationById", showDocumentationMethodArgTypes);
-      showDocumentationMethod.invoke(myFXHelpBrowser, id);
-
-    }
-    catch (ClassNotFoundException e) {
-      LOG.error(e);
-    }
-    catch (IllegalAccessException e) {
-      LOG.error(e);
-    }
-    catch (NoSuchMethodException e) {
-      LOG.error(e);
-    }
-    catch (InvocationTargetException e) {
-      LOG.error(e);
-    }
-    catch (InstantiationException e) {
-      LOG.error(e);
-    }
-
+    broker.setDisplayed(true);
   }
 
   @Nullable
@@ -149,7 +99,7 @@ public class HelpManagerImpl extends HelpManager {
     if (mainHelpSet == null) return null;
 
     // merge plugins help sets
-    IdeaPluginDescriptor[] pluginDescriptors = PluginManager.getPlugins();
+    IdeaPluginDescriptor[] pluginDescriptors = PluginManagerCore.getPlugins();
     for (IdeaPluginDescriptor pluginDescriptor : pluginDescriptors) {
       HelpSetPath[] sets = pluginDescriptor.getHelpSets();
       for (HelpSetPath hsPath : sets) {

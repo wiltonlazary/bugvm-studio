@@ -40,6 +40,7 @@ import com.intellij.ui.BalloonImpl;
 import com.intellij.ui.BalloonLayout;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
+import com.intellij.ui.components.panels.HorizontalLayout;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.JBUI;
@@ -264,6 +265,10 @@ public class NotificationsManagerImpl extends NotificationsManager {
   }
 
   public static Balloon createBalloon(@NotNull final IdeFrame window, final Notification notification, final boolean showCallout, final boolean hideOnClickOutside) {
+    return createBalloon(window.getComponent(), notification, showCallout, hideOnClickOutside);
+  }
+
+  public static Balloon createBalloon(@Nullable final JComponent windowComponent, final Notification notification, final boolean showCallout, final boolean hideOnClickOutside) {
     final JEditorPane text = new JEditorPane();
     text.setEditorKit(UIUtil.getHTMLEditorKit());
 
@@ -300,11 +305,23 @@ public class NotificationsManagerImpl extends NotificationsManager {
 
     content.setBorder(new EmptyBorder(2, 4, 2, 4));
 
+    JPanel buttons = null;
+    if (notification instanceof NotificationActionProvider) {
+      NotificationActionProvider provider = (NotificationActionProvider)notification;
+      buttons = new JPanel(new HorizontalLayout(5));
+      buttons.setOpaque(false);
+      content.add(BorderLayout.SOUTH, buttons);
+      for (Action action : provider.getActions(listener)) {
+        JButton button = new JButton(action);
+        button.setOpaque(false);
+        buttons.add(HorizontalLayout.RIGHT, button);
+      }
+    }
+
     Dimension preferredSize = text.getPreferredSize();
     text.setSize(preferredSize);
     
     Dimension paneSize = new Dimension(text.getPreferredSize());
-    JComponent windowComponent = window.getComponent();
 
     int maxHeight = JBUI.scale(400);
     int maxWidth = JBUI.scale(600);
@@ -322,7 +339,7 @@ public class NotificationsManagerImpl extends NotificationsManager {
 
     final BalloonBuilder builder = JBPopupFactory.getInstance().createBalloonBuilder(content);
     builder.setFillColor(new JBColor(Gray._234, Gray._92))
-      .setCloseButtonEnabled(true)
+      .setCloseButtonEnabled(buttons == null)
       .setShowCallout(showCallout)
       .setShadow(false)
       .setHideOnClickOutside(hideOnClickOutside)

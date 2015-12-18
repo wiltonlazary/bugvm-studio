@@ -1,4 +1,3 @@
-.jps-build-data/
 /android
 /config
 /system
@@ -7,3 +6,4 @@
 .DS_Store
 /test-system
 /test-config
+/.jps-build-data/

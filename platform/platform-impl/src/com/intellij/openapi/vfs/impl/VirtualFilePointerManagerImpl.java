@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -176,12 +176,13 @@ public class VirtualFilePointerManagerImpl extends VirtualFilePointerManager imp
       if (protocolEnd == -1) {
         protocol = null;
         fileSystem = null;
+        path = url;
       }
       else {
         protocol = url.substring(0, protocolEnd);
         fileSystem = myVirtualFileManager.getFileSystem(protocol);
+        path = url.substring(protocolEnd + URLUtil.SCHEME_SEPARATOR.length());
       }
-      path = url.substring(protocolEnd + URLUtil.SCHEME_SEPARATOR.length());
     }
     else {
       fileSystem = file.getFileSystem();
@@ -222,7 +223,7 @@ public class VirtualFilePointerManagerImpl extends VirtualFilePointerManager imp
 
   private final Map<String, IdentityVirtualFilePointer> myUrlToIdentity = new THashMap<String, IdentityVirtualFilePointer>();
   @NotNull
-  private IdentityVirtualFilePointer getOrCreateIdentity(@NotNull String url, VirtualFile found) {
+  private IdentityVirtualFilePointer getOrCreateIdentity(@NotNull String url, @Nullable VirtualFile found) {
     IdentityVirtualFilePointer pointer = myUrlToIdentity.get(url);
     if (pointer == null) {
       pointer = new IdentityVirtualFilePointer(found, url);
@@ -431,7 +432,8 @@ public class VirtualFilePointerManagerImpl extends VirtualFilePointerManager imp
         }
         else if (event instanceof VFilePropertyChangeEvent) {
           final VFilePropertyChangeEvent change = (VFilePropertyChangeEvent)event;
-          if (VirtualFile.PROP_NAME.equals(change.getPropertyName())) {
+          if (VirtualFile.PROP_NAME.equals(change.getPropertyName())
+              && !Comparing.equal(change.getOldValue(), change.getNewValue())) {
             VirtualFile eventFile = change.getFile();
             VirtualFile parent = eventFile.getParent(); // e.g. for LightVirtualFiles
             addPointersUnder(parent, true, change.getNewValue().toString(), toFireEvents);

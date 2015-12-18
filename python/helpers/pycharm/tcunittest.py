@@ -151,8 +151,8 @@ class TeamcityTestResult(TestResult):
     self.current_failed = True
     self.messages.testIgnored(self.getTestName(test), message=reason)
 
-  def __getSuite(self, test):
-    if hasattr(test, "suite"):
+  def _getSuite(self, test):
+    try:
       suite = strclass(test.suite)
       suite_location = test.suite.location
       location = test.suite.abs_location
@@ -160,7 +160,7 @@ class TeamcityTestResult(TestResult):
         location = location + ":" + str(test.lineno)
       else:
         location = location + ":" + str(test.test.lineno)
-    else:
+    except AttributeError:
       import inspect
 
       try:
@@ -184,7 +184,7 @@ class TeamcityTestResult(TestResult):
     setattr(test, "startTime", datetime.datetime.now())
 
   def init_suite(self, test):
-    suite, location, suite_location = self.__getSuite(test)
+    suite, location, suite_location = self._getSuite(test)
     if suite != self.current_suite:
       if self.current_suite:
         self.messages.testSuiteFinished(self.current_suite)

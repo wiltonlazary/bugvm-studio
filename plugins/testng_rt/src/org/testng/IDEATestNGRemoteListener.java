@@ -1,3 +1,18 @@
+/*
+ * Copyright 2000-2015 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.testng;
 
 import com.intellij.rt.execution.junit.ComparisonFailureData;
@@ -13,7 +28,7 @@ import java.util.*;
  * User: anna
  * Date: 5/22/13
  */
-public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener, IInvokedMethodListener {
+public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener {
 
   private final PrintStream myPrintStream;
   private final List<String> myCurrentSuites = new ArrayList<String>();
@@ -21,49 +36,71 @@ public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener
   private final Map<ExposedTestResult, String> myParamsMap = new HashMap<ExposedTestResult, String>();
 
   public IDEATestNGRemoteListener() {
-    myPrintStream = System.out;
+    this(System.out);
   }
 
   public IDEATestNGRemoteListener(PrintStream printStream) {
     myPrintStream = printStream;
+    myPrintStream.println("##teamcity[enteredTheMatrix]");
   }
 
   public synchronized void onStart(final ISuite suite) {
-    myPrintStream.println("##teamcity[enteredTheMatrix]");
     if (suite != null) {
-      final List<ITestNGMethod> allMethods = suite.getAllMethods();
-      if (allMethods != null) {
-        int count = 0;
-        for (ITestNGMethod method : allMethods) {
-          if (method.isTest()) count += method.getInvocationCount();
+      try {
+        final List<ITestNGMethod> allMethods = suite.getAllMethods();
+        if (allMethods != null) {
+          int count = 0;
+          for (ITestNGMethod method : allMethods) {
+            if (method.isTest()) count += method.getInvocationCount();
+          }
+          myPrintStream.println("##teamcity[testCount count = \'" + count + "\']");
         }
-        myPrintStream.println("##teamcity[testCount count = \'" + count + "\']");
       }
+      catch (NoSuchMethodError ignore) {}
       myPrintStream.println("##teamcity[rootName name = '" + suite.getName() + "' location = 'file://" + suite.getXmlSuite().getFileName() + "']");
     }
   }
 
   public synchronized void onFinish(ISuite suite) {
+    try {
+      if (suite != null && suite.getAllInvokedMethods().size() < suite.getAllMethods().size()) {
+        for (ITestNGMethod method : suite.getAllMethods()) {
+          if (method.isTest()) {
+            boolean found = false;
+            for (IInvokedMethod invokedMethod : suite.getAllInvokedMethods()) {
+              if (invokedMethod.getTestMethod() == method) {
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              final String fullEscapedMethodName = escapeName(getShortName(method.getTestClass().getName()) + "." + method.getMethodName());
+              myPrintStream.println("##teamcity[testStarted name=\'" + fullEscapedMethodName + "\']");
+              myPrintStream.println("##teamcity[testIgnored name=\'" + fullEscapedMethodName + "\']");
+              myPrintStream.println("##teamcity[testFinished name=\'" + fullEscapedMethodName + "\']");
+              break;
+            }
+          }
+        }
+      }
+    }
+    catch (NoSuchMethodError ignored) {}
     for (int i = myCurrentSuites.size() - 1; i >= 0; i--) {
       onSuiteFinish(myCurrentSuites.remove(i));
     }
     myCurrentSuites.clear();
   }
 
-  public synchronized void beforeInvocation(IInvokedMethod method, ITestResult testResult) {
-    if (!testResult.getMethod().isTest()) {
-      onConfigurationStart(new DelegatedResult(testResult));
-    }
-  }
-  //should be covered by test listeners
-  public void afterInvocation(IInvokedMethod method, ITestResult testResult) {}
-
   public synchronized void onConfigurationSuccess(ITestResult result) {
-    onConfigurationSuccess(new DelegatedResult(result));
+    final DelegatedResult delegatedResult = new DelegatedResult(result);
+    onConfigurationStart(delegatedResult);
+    onConfigurationSuccess(delegatedResult);
   }
 
   public synchronized void onConfigurationFailure(ITestResult result) {
-    onConfigurationFailure(new DelegatedResult(result));
+    final DelegatedResult delegatedResult = new DelegatedResult(result);
+    onConfigurationStart(delegatedResult);
+    onConfigurationFailure(delegatedResult);
   }
 
   public synchronized void onConfigurationSkip(ITestResult itr) {}
@@ -98,7 +135,7 @@ public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener
 
   public void onTestStart(ExposedTestResult result) {
     final Object[] parameters = result.getParameters();
-    final String qualifiedName = result.getClassName() + result.getMethodName();
+    final String qualifiedName = result.getClassName() + result.getDisplayMethodName();
     Integer invocationCount = myInvocationCounts.get(qualifiedName);
     if (invocationCount == null) {
       invocationCount = 0;
@@ -169,8 +206,8 @@ public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener
     myParamsMap.put(result, paramString);
     onSuiteStart(result.getTestHierarchy(), result, true);
     final String className = result.getClassName();
-    final String methodName = result.getMethodName();
-    final String location = className + "." + methodName + (invocationCount >= 0 ? "[" + invocationCount + "]" : "");
+    final String methodName = result.getDisplayMethodName();
+    final String location = className + "." + result.getMethodName() + (invocationCount >= 0 ? "[" + invocationCount + "]" : "");
     myPrintStream.println("\n##teamcity[testStarted name=\'" + escapeName(getShortName(className) + "." + methodName + (paramString != null ? paramString : "")) +
                           "\' locationHint=\'java:test://" + escapeName(location) + (config ? "\' config=\'true" : "") + "\']");
   }
@@ -192,6 +229,7 @@ public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener
       notification = null;
     }
     ComparisonFailureData.registerSMAttributes(notification, getTrace(ex), failureMessage, attrs, ex);
+    myPrintStream.println();
     myPrintStream.println(MapSerializerUtil.asString("testFailed", attrs));
     onTestFinished(result);
   }
@@ -213,7 +251,7 @@ public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener
   }
 
   private synchronized String getTestMethodNameWithParams(ExposedTestResult result) {
-    String methodName = getShortName(result.getClassName()) + "." + result.getMethodName();
+    String methodName = getShortName(result.getClassName()) + "." + result.getDisplayMethodName();
     String paramString = myParamsMap.get(result);
     if (paramString != null) {
       methodName += paramString;
@@ -262,6 +300,7 @@ public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener
   public interface ExposedTestResult {
     Object[] getParameters();
     String getMethodName();
+    String getDisplayMethodName();
     String getClassName();
     long getDuration();
     List<String> getTestHierarchy();
@@ -270,7 +309,7 @@ public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener
     Throwable getThrowable();
   }
 
-  private static class DelegatedResult implements ExposedTestResult {
+  protected static class DelegatedResult implements ExposedTestResult {
     private final ITestResult myResult;
 
     public DelegatedResult(ITestResult result) {
@@ -282,7 +321,12 @@ public class IDEATestNGRemoteListener implements ISuiteListener, IResultListener
     }
 
     public String getMethodName() {
-      return myResult.getMethod().getMethodName();
+      return  myResult.getMethod().getMethodName();
+    }
+
+    public String getDisplayMethodName() {
+      final String testName = myResult.getTestName();
+      return testName != null ? testName : myResult.getMethod().getMethodName();
     }
 
     public String getClassName() {

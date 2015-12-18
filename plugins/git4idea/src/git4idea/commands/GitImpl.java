@@ -18,13 +18,20 @@ package git4idea.commands;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.Function;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcsUtil.VcsFileUtil;
-import git4idea.*;
+import git4idea.GitCommit;
+import git4idea.GitExecutionException;
+import git4idea.GitVcs;
+import git4idea.branch.GitRebaseParams;
 import git4idea.config.GitVersionSpecialty;
 import git4idea.history.GitHistoryUtils;
 import git4idea.repo.GitRemote;
@@ -50,7 +57,7 @@ import static java.util.Collections.singleton;
 @SuppressWarnings("StringToUpperCaseOrToLowerCaseWithoutLocale")
 public class GitImpl implements Git {
 
-  private final Logger LOG = Logger.getInstance(Git.class);
+  private static final Logger LOG = Logger.getInstance(Git.class);
 
   public GitImpl() {
   }
@@ -131,7 +138,7 @@ public class GitImpl implements Git {
 
     return untrackedFiles;
   }
-  
+
   @Override
   @NotNull
   public GitCommandResult clone(@NotNull final Project project, @NotNull final File parentDirectory, @NotNull final String url,
@@ -144,6 +151,7 @@ public class GitImpl implements Git {
         handler.setUrl(url);
         handler.addParameters("--progress");
         handler.addParameters(url);
+        handler.endOptions();
         handler.addParameters(clonedDirectoryName);
         addListeners(handler, listeners);
         return handler;
@@ -173,13 +181,25 @@ public class GitImpl implements Git {
 
   @NotNull
   @Override
-  public GitCommandResult checkAttr(@NotNull GitRepository repository, @NotNull Collection<String> attributes,
+  public GitCommandResult checkAttr(@NotNull final GitRepository repository,
+                                    @NotNull final Collection<String> attributes,
                                     @NotNull Collection<VirtualFile> files) {
-    final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CHECK_ATTR);
-    h.addParameters(new ArrayList<String>(attributes));
-    h.endOptions();
-    h.addRelativeFiles(files);
-    return run(h);
+    List<List<String>> listOfPaths = VcsFileUtil.chunkFiles(repository.getRoot(), files);
+    return runAll(ContainerUtil.map(listOfPaths, new Function<List<String>, Computable<GitCommandResult>>() {
+      @Override
+      public Computable<GitCommandResult> fun(final List<String> relativePaths) {
+        return new Computable<GitCommandResult>() {
+          @Override
+          public GitCommandResult compute() {
+            final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CHECK_ATTR);
+            h.addParameters(new ArrayList<String>(attributes));
+            h.endOptions();
+            h.addParameters(relativePaths);
+            return run(h);
+          }
+        };
+      }
+    }));
   }
 
   @NotNull
@@ -249,7 +269,7 @@ public class GitImpl implements Git {
     }
     if (newBranch == null) { // simply checkout
       h.addParameters(detach ? reference + "^0" : reference); // we could use `--detach` here, but it is supported only since 1.7.5.
-    } 
+    }
     else { // checkout reference as new branch
       h.addParameters("-b", newBranch, reference);
     }
@@ -539,6 +559,17 @@ public class GitImpl implements Git {
   }
 
   @NotNull
+  @Override
+  public GitCommandResult rebase(@NotNull GitRepository repository,
+                                 @NotNull GitRebaseParams params,
+                                 @NotNull GitLineHandlerListener... listeners) {
+    GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REBASE);
+    handler.addParameters(params.getCommandLineArguments());
+    addListeners(handler, listeners);
+    return run(handler);
+  }
+
+  @NotNull
   private static GitCommandResult doLsRemote(@NotNull final Project project,
                                              @NotNull final File workingDir,
                                              @NotNull final String remoteId,
@@ -587,7 +618,7 @@ public class GitImpl implements Git {
       GitLineHandler handler = handlerConstructor.compute();
       handler.addLineListener(new GitLineHandlerListener() {
         @Override public void onLineAvailable(String line, Key outputType) {
-          if (isError(line)) {
+          if (looksLikeError(line)) {
             errorOutput.add(line);
           } else {
             output.add(line);
@@ -607,7 +638,7 @@ public class GitImpl implements Git {
 
       handler.runInCurrentThread(null);
       authFailed = handler.hasHttpAuthFailed();
-      success = !startFailed.get() && errorOutput.isEmpty() && (handler.isIgnoredErrorCode(exitCode.get()) || exitCode.get() == 0);
+      success = !startFailed.get() && (handler.isIgnoredErrorCode(exitCode.get()) || exitCode.get() == 0);
     }
     while (authFailed && authAttempt++ < 2);
     return new GitCommandResult(success, exitCode.get(), errorOutput, output, null);
@@ -638,21 +669,31 @@ public class GitImpl implements Git {
     });
   }
 
-  /**
-   * Check if the line looks line an error message
-   */
-  private static boolean isError(String text) {
-    for (String indicator : ERROR_INDICATORS) {
-      if (text.trim().toLowerCase().startsWith(indicator.toLowerCase())) {
-        return true;
-      }
+  @NotNull
+  private static GitCommandResult runAll(@NotNull List<Computable<GitCommandResult>> commands) {
+    if (commands.isEmpty()) {
+      LOG.error("List of commands should not be empty", new Exception());
+      return GitCommandResult.error("Internal error");
     }
-    return false;
+    GitCommandResult compoundResult = null;
+    for (Computable<GitCommandResult> command : commands) {
+      compoundResult = GitCommandResult.merge(compoundResult, command.compute());
+    }
+    return ObjectUtils.assertNotNull(compoundResult);
+  }
+
+  private static boolean looksLikeError(@NotNull final String text) {
+    return ContainerUtil.exists(ERROR_INDICATORS, new Condition<String>() {
+      @Override
+      public boolean value(@NotNull String indicator) {
+        return StringUtil.startsWithIgnoreCase(text.trim(), indicator);
+      }
+    });
   }
 
   // could be upper-cased, so should check case-insensitively
   public static final String[] ERROR_INDICATORS = {
-    "error", "remote: error", "fatal",
+    "error:", "remote: error", "fatal:",
     "Cannot", "Could not", "Interactive rebase already started", "refusing to pull", "cannot rebase:", "conflict",
     "unable"
   };

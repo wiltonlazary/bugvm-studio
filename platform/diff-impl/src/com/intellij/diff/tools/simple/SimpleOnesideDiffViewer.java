@@ -80,10 +80,13 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
     group.add(new MyReadOnlyLockAction());
     group.add(myEditorSettingsAction);
 
+    group.add(Separator.getInstance());
+    group.addAll(super.createToolbarActions());
+
     return group;
   }
 
-  @Nullable
+  @NotNull
   @Override
   protected List<AnAction> createPopupActions() {
     List<AnAction> group = new ArrayList<AnAction>();
@@ -92,6 +95,9 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
     group.add(new MyIgnorePolicySettingAction().getPopupGroup());
     group.add(Separator.getInstance());
     group.add(new MyHighlightPolicySettingAction().getPopupGroup());
+
+    group.add(Separator.getInstance());
+    group.addAll(super.createPopupActions());
 
     return group;
   }
@@ -133,14 +139,14 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
           int end = document.getTextLength();
           TextDiffType type = getSide().select(TextDiffType.DELETED, TextDiffType.INSERTED);
 
-          myHighlighters.add(DiffDrawUtil.createHighlighter(getEditor(), start, end, type, false));
+          myHighlighters.addAll(DiffDrawUtil.createHighlighter(getEditor(), start, end, type, false));
 
           int startLine = 0;
           int endLine = getLineCount(document);
 
           if (startLine != endLine) {
-            myHighlighters.add(DiffDrawUtil.createLineMarker(getEditor(), startLine, type, SeparatorPlacement.TOP));
-            myHighlighters.add(DiffDrawUtil.createLineMarker(getEditor(), endLine - 1, type, SeparatorPlacement.BOTTOM));
+            myHighlighters.addAll(DiffDrawUtil.createLineMarker(getEditor(), startLine, type, SeparatorPlacement.TOP));
+            myHighlighters.addAll(DiffDrawUtil.createLineMarker(getEditor(), endLine - 1, type, SeparatorPlacement.BOTTOM));
           }
         }
 

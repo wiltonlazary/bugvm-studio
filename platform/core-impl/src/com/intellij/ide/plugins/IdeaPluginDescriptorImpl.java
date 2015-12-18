@@ -93,6 +93,7 @@ public class IdeaPluginDescriptorImpl implements IdeaPluginDescriptor {
   private long myDate;
   private boolean myUseIdeaClassLoader;
   private boolean myUseCoreClassLoader;
+  private boolean myAllowBundledUpdate;
   private boolean myEnabled = true;
   private String mySinceBuild;
   private String myUntilBuild;
@@ -105,7 +106,7 @@ public class IdeaPluginDescriptorImpl implements IdeaPluginDescriptor {
 
   /**
    * @deprecated
-   * use {@link com.intellij.util.containers.StringInterner#intern(Object)} directly instead
+   * use {@link StringInterner#intern(Object)} directly instead
    */
   @NotNull
   @Deprecated
@@ -115,7 +116,7 @@ public class IdeaPluginDescriptorImpl implements IdeaPluginDescriptor {
 
   /**
    * @deprecated 
-   * use {@link com.intellij.openapi.util.JDOMUtil#internElement(org.jdom.Element, com.intellij.util.containers.StringInterner)}
+   * use {@link JDOMUtil#internElement(Element, StringInterner)}
    */
   @SuppressWarnings("unused")
   @Deprecated
@@ -213,6 +214,7 @@ public class IdeaPluginDescriptorImpl implements IdeaPluginDescriptor {
       }
     }
     myUseIdeaClassLoader = pluginBean.useIdeaClassLoader;
+    myAllowBundledUpdate = pluginBean.allowBundledUpdate;
     if (pluginBean.ideaVersion != null) {
       mySinceBuild = pluginBean.ideaVersion.sinceBuild;
       myUntilBuild = pluginBean.ideaVersion.untilBuild;
@@ -223,6 +225,10 @@ public class IdeaPluginDescriptorImpl implements IdeaPluginDescriptor {
     myDescriptionChildText = pluginBean.description;
     myChangeNotes = pluginBean.changeNotes;
     myVersion = pluginBean.pluginVersion;
+    if (myVersion == null) {
+      myVersion = PluginManagerCore.getBuildNumber().getBaselineVersion() + ".SNAPSHOT";
+    }
+
     myCategory = pluginBean.category;
 
 
@@ -680,13 +686,22 @@ public class IdeaPluginDescriptorImpl implements IdeaPluginDescriptor {
     } catch (IOException e) {
       path = getPath().getAbsolutePath();
     }
-    if (ApplicationManager.getApplication() != null && ApplicationManager.getApplication().isInternal()) {
+    Application app = ApplicationManager.getApplication();
+    if (app != null && app.isInternal()) {
       if (path.startsWith(PathManager.getHomePath() + File.separator + "out" + File.separator + "classes")) {
+        return true;
+      }
+      if (app.isUnitTestMode() && !path.startsWith(PathManager.getPluginsPath() + File.separatorChar)) {
         return true;
       }
     }
 
     return path.startsWith(PathManager.getPreInstalledPluginsPath());
+  }
+
+  @Override
+  public boolean allowBundledUpdate() {
+    return myAllowBundledUpdate;
   }
 
   @Nullable

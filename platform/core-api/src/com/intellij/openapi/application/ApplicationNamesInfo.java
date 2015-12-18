@@ -62,8 +62,7 @@ public class ApplicationNamesInfo {
     final Element names = rootElement.getChild(ELEMENT_NAMES);
     myProductName = names.getAttributeValue(ATTRIBUTE_PRODUCT);
     myFullProductName = names.getAttributeValue(ATTRIBUTE_FULL_NAME);
-    // BugVM: need to change this for project directory
-    myLowercaseProductName = myProductName;
+    myLowercaseProductName = StringUtil.capitalize(myProductName.toLowerCase());
     myScriptName = names.getAttributeValue(ATTRIBUTE_SCRIPT);
   }
 

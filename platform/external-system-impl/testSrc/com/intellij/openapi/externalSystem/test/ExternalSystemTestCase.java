@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ import com.intellij.testFramework.*;
 import com.intellij.testFramework.fixtures.IdeaProjectTestFixture;
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.io.TestFileSystemItem;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
@@ -85,10 +86,6 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   protected List<VirtualFile> myAllConfigs = new ArrayList<VirtualFile>();
 
   private List<String> myAllowedRoots = new ArrayList<String>();
-
-  static {
-    IdeaTestCase.initPlatformPrefix();
-  }
 
   @Before
   @Override
@@ -177,16 +174,11 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   @Override
   public void tearDown() throws Exception {
     try {
-      edt(new Runnable() {
+      EdtTestUtil.runInEdtAndWait(new ThrowableRunnable<Throwable>() {
         @Override
-        public void run() {
-          try {
-            CompilerTestUtil.disableExternalCompiler(myProject);
-            tearDownFixtures();
-          }
-          catch (Exception e) {
-            throw new RuntimeException(e);
-          }
+        public void run() throws Throwable {
+          CompilerTestUtil.disableExternalCompiler(myProject);
+          tearDownFixtures();
         }
       });
       myProject = null;
@@ -314,7 +306,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   protected Module createModule(final String name, final ModuleType type) throws IOException {
     return new WriteCommandAction<Module>(myProject) {
       @Override
-      protected void run(Result<Module> moduleResult) throws Throwable {
+      protected void run(@NotNull Result<Module> moduleResult) throws Throwable {
         VirtualFile f = createProjectSubFile(name + "/" + name + ".iml");
         Module module = ModuleManager.getInstance(myProject).newModule(f.getPath(), type.getId());
         PsiTestUtil.addContentRoot(module, f.getParent());
@@ -333,7 +325,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     if (f == null) {
       f = new WriteAction<VirtualFile>() {
         @Override
-        protected void run(Result<VirtualFile> result) throws Throwable {
+        protected void run(@NotNull Result<VirtualFile> result) throws Throwable {
           VirtualFile res = dir.createChildData(null, configFileName);
           result.setResult(res);
         }

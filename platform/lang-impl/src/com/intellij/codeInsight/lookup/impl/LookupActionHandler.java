@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.ui.ListScrollingUtil;
+import com.intellij.ui.ScrollingUtil;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -84,9 +84,9 @@ public abstract class LookupActionHandler extends EditorActionHandler {
       }
     }
     if (up) {
-      ListScrollingUtil.moveUp(lookup.getList(), 0);
+      ScrollingUtil.moveUp(lookup.getList(), 0);
     } else {
-      ListScrollingUtil.moveDown(lookup.getList(), 0);
+      ScrollingUtil.moveDown(lookup.getList(), 0);
     }
     lookup.markSelectionTouched();
     lookup.refreshUi(false, true);
@@ -113,7 +113,7 @@ public abstract class LookupActionHandler extends EditorActionHandler {
       FeatureUsageTracker.getInstance().triggerFeatureUsed(CodeCompletionFeatures.EDITING_COMPLETION_CONTROL_ARROWS);
       LookupImpl lookup = (LookupImpl)LookupManager.getActiveLookup(CommonDataKeys.EDITOR.getData(e.getDataContext()));
       assert lookup != null : LookupImpl.getLastLookupDisposeTrace();
-      lookup.hide();
+      lookup.hideLookup(true);
       ActionManager.getInstance().getAction(IdeActions.ACTION_EDITOR_MOVE_CARET_UP).actionPerformed(e);
     }
 
@@ -131,7 +131,7 @@ public abstract class LookupActionHandler extends EditorActionHandler {
       FeatureUsageTracker.getInstance().triggerFeatureUsed(CodeCompletionFeatures.EDITING_COMPLETION_CONTROL_ARROWS);
       LookupImpl lookup = (LookupImpl)LookupManager.getActiveLookup(CommonDataKeys.EDITOR.getData(e.getDataContext()));
       assert lookup != null;
-      lookup.hide();
+      lookup.hideLookup(true);
       ActionManager.getInstance().getAction(IdeActions.ACTION_EDITOR_MOVE_CARET_DOWN).actionPerformed(e);
     }
 
@@ -166,7 +166,7 @@ public abstract class LookupActionHandler extends EditorActionHandler {
     @Override
     protected void executeInLookup(final LookupImpl lookup, DataContext context, Caret caret) {
       lookup.setFocusDegree(LookupImpl.FocusDegree.FOCUSED);
-      ListScrollingUtil.movePageDown(lookup.getList());
+      ScrollingUtil.movePageDown(lookup.getList());
     }
   }
 
@@ -178,7 +178,7 @@ public abstract class LookupActionHandler extends EditorActionHandler {
     @Override
     protected void executeInLookup(final LookupImpl lookup, DataContext context, Caret caret) {
       lookup.setFocusDegree(LookupImpl.FocusDegree.FOCUSED);
-      ListScrollingUtil.movePageUp(lookup.getList());
+      ScrollingUtil.movePageUp(lookup.getList());
     }
   }
 
@@ -215,7 +215,7 @@ public abstract class LookupActionHandler extends EditorActionHandler {
     protected void executeInLookup(LookupImpl lookup, DataContext context, final Caret caret) {
       final Editor editor = lookup.getEditor();
       final int offset = editor.getCaretModel().getOffset();
-      CharSequence seq = editor.getDocument().getCharsSequence();
+      final CharSequence seq = editor.getDocument().getCharsSequence();
       if (seq.length() <= offset || !lookup.isCompletion()) {
         myOriginalHandler.execute(editor, caret, context);
         return;
@@ -236,7 +236,10 @@ public abstract class LookupActionHandler extends EditorActionHandler {
             @Override
             public void perform(Caret caret) {
               caret.removeSelection();
-              caret.moveToOffset(caret.getOffset() + 1);
+              int caretOffset = caret.getOffset();
+              if (caretOffset < seq.length()) {
+                caret.moveToOffset(caretOffset + 1);
+              }
             }
           };
           if (caret == null) {

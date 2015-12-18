@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,10 @@
 package com.intellij.find;
 
 import com.intellij.find.editorHeaderActions.*;
-import com.intellij.openapi.actionSystem.ActionPlaces;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.IdeActions;
+import com.intellij.ide.IdeEventQueue;
+import com.intellij.ide.impl.DataManagerImpl;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.editor.impl.EditorImpl;
-import com.intellij.openapi.util.Getter;
 import com.intellij.testFramework.fixtures.EditorMouseFixture;
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
 
@@ -136,47 +135,48 @@ public class FindInEditorMultiCaretTest extends LightPlatformCodeInsightFixtureT
                       "<selection>abc<caret></selection>\n" +
                       "abc");
   }
+  
+  public void testFindNextRetainsOnlyOneCaretIfNotUsedAsMoveToNextOccurrence() throws Exception {
+    init("<caret>To be or not to be?");
+    initFind();
+    setTextToFind("be");
+    checkResultByText("To <selection>be<caret></selection> or not to be?");
+    closeFind();
+    new EditorMouseFixture((EditorImpl)myFixture.getEditor()).alt().shift().clickAt(0, 8); // adding second caret
+    checkResultByText("To <selection>be<caret></selection> or<caret> not to be?");
+    nextOccurrenceFromEditor();
+    checkResultByText("To be or not to <selection>be<caret></selection>?");
+  }
 
   private void setTextToFind(String text) {
-    EditorSearchComponent editorSearchComponent = getEditorSearchComponent();
-    assertNotNull(editorSearchComponent);
-    JTextComponent searchField = editorSearchComponent.getSearchField();
+    EditorSearchSession editorSearchSession = getEditorSearchComponent();
+    assertNotNull(editorSearchSession);
+    JTextComponent searchField = editorSearchSession.getComponent().getSearchTextComponent();
     assertNotNull(searchField);
     for (int i = 0; i <= text.length(); i++) {
       searchField.setText(text.substring(0, i)); // emulate typing chars one by one
+      IdeEventQueue.getInstance().flushQueue();
     }
   }
 
   private void nextOccurrence() {
-    final EditorSearchComponent editorSearchComponent = getEditorSearchComponent();
-    executeAction(new NextOccurrenceAction(editorSearchComponent, new Getter<JTextComponent>() {
-      @Override
-      public JTextComponent get() {
-        return editorSearchComponent.getSearchField();
-      }
-    }));
+    executeHeaderAction(new NextOccurrenceAction());
   }
 
   private void prevOccurrence() {
-    final EditorSearchComponent editorSearchComponent = getEditorSearchComponent();
-    executeAction(new PrevOccurrenceAction(editorSearchComponent, new Getter<JTextComponent>() {
-      @Override
-      public JTextComponent get() {
-        return editorSearchComponent.getSearchField();
-      }
-    }));
+    executeHeaderAction(new PrevOccurrenceAction());
   }
 
   private void addOccurrence() {
-    executeAction(new AddOccurrenceAction(getEditorSearchComponent()));
+    executeHeaderAction(new AddOccurrenceAction());
   }
 
   private void removeOccurrence() {
-    executeAction(new RemoveOccurrenceAction(getEditorSearchComponent()));
+    executeHeaderAction(new RemoveOccurrenceAction());
   }
 
   private void allOccurrences() {
-    executeAction(new SelectAllAction(getEditorSearchComponent()));
+    executeHeaderAction(new SelectAllAction());
   }
 
   private void nextOccurrenceFromEditor() {
@@ -200,20 +200,21 @@ public class FindInEditorMultiCaretTest extends LightPlatformCodeInsightFixtureT
   }
 
   private void closeFind() {
-    EditorSearchComponent editorSearchComponent = getEditorSearchComponent();
-    executeAction(new CloseOnESCAction(editorSearchComponent, editorSearchComponent.getSearchField()));
+    EditorSearchSession editorSearchSession = getEditorSearchComponent();
+    editorSearchSession.close();
   }
 
-  private static void executeAction(EditorHeaderAction action) {
-    action.actionPerformed(AnActionEvent.createFromInputEvent(action, null, ActionPlaces.EDITOR_TOOLBAR));
+  private void executeHeaderAction(AnAction action) {
+    DataContext context = new DataManagerImpl.MyDataContext(getEditorSearchComponent().getComponent());
+    action.actionPerformed(AnActionEvent.createFromDataContext(ActionPlaces.EDITOR_TOOLBAR, null, context));
   }
 
   private void initFind() {
-    myFixture.performEditorAction("Find");
+    myFixture.performEditorAction(IdeActions.ACTION_FIND);
   }
 
-  private EditorSearchComponent getEditorSearchComponent() {
-    return (EditorSearchComponent)myFixture.getEditor().getHeaderComponent();
+  private EditorSearchSession getEditorSearchComponent() {
+    return EditorSearchSession.get(myFixture.getEditor());
   }
   
   private void init(String text) {

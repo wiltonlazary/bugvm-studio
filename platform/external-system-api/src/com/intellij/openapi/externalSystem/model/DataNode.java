@@ -16,6 +16,8 @@
 package com.intellij.openapi.externalSystem.model;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.openapi.util.UserDataHolderEx;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.util.containers.ContainerUtilRt;
 import org.jetbrains.annotations.NotNull;
@@ -39,17 +41,19 @@ import java.util.*;
  * @author Denis Zhdanov
  * @since 4/12/13 11:53 AM
  */
-public class DataNode<T> implements Serializable {
+public class DataNode<T> implements Serializable, UserDataHolderEx {
 
   private static final long serialVersionUID = 1L;
   private static final Logger LOG = Logger.getInstance(DataNode.class);
 
   @NotNull private final List<DataNode<?>> myChildren = ContainerUtilRt.newArrayList();
   @NotNull private transient List<DataNode<?>> myChildrenView = Collections.unmodifiableList(myChildren);
+  @NotNull private transient UserDataHolderBase myUserData = new UserDataHolderBase();
 
   @NotNull private final Key<T> myKey;
   private transient T myData;
   private byte[] myRawData;
+  private boolean myIgnored;
 
   @Nullable private DataNode<?> myParent;
 
@@ -86,6 +90,14 @@ public class DataNode<T> implements Serializable {
       prepareData(getClass().getClassLoader(), Thread.currentThread().getContextClassLoader());
     }
     return myData;
+  }
+
+  public boolean isIgnored() {
+    return myIgnored;
+  }
+
+  public void setIgnored(boolean ignored) {
+    myIgnored = ignored;
   }
 
   /**
@@ -245,6 +257,7 @@ public class DataNode<T> implements Serializable {
     throws IOException, ClassNotFoundException {
     in.defaultReadObject();
     myChildrenView = Collections.unmodifiableList(myChildren);
+    myUserData = new UserDataHolderBase();
   }
 
   public byte[] getDataBytes() throws IOException {
@@ -265,10 +278,9 @@ public class DataNode<T> implements Serializable {
 
   @Override
   public int hashCode() {
-    int result = myChildren.hashCode();
-    result = 31 * result + myKey.hashCode();
-    result = 31 * result + getData().hashCode();
-    return result;
+    // We can't use myChildren.hashCode() because it iterates whole subtree. This should not produce many collisions because 'getData()'
+    // usually refers to different objects
+    return 31 * myKey.hashCode() + getData().hashCode();
   }
 
   @Override
@@ -313,17 +325,70 @@ public class DataNode<T> implements Serializable {
     myChildren.clear();
   }
 
+  @NotNull
   public DataNode<T> graphCopy() {
-    return nodeCopy(this, null);
+    return сopy(this, null);
   }
 
-  private static <T> DataNode<T> nodeCopy(@NotNull DataNode<T> dataNode, @Nullable DataNode<?> newParent) {
+  @NotNull
+  public DataNode<T> nodeCopy() {
+    return nodeCopy(this);
+  }
+
+  @Nullable
+  @Override
+  public <U> U getUserData(@NotNull com.intellij.openapi.util.Key<U> key) {
+    return (U)myUserData.getUserData(key);
+  }
+
+  @Override
+  public <U> void putUserData(@NotNull com.intellij.openapi.util.Key<U> key, U value) {
+    myUserData.putUserData(key, value);
+  }
+
+  public <U> void removeUserData(@NotNull com.intellij.openapi.util.Key<U> key) {
+    myUserData.putUserData(key, null);
+  }
+
+  @NotNull
+  @Override
+  public <T> T putUserDataIfAbsent(@NotNull com.intellij.openapi.util.Key<T> key, @NotNull T value) {
+    return myUserData.putUserDataIfAbsent(key, value);
+  }
+
+  @Override
+  public <T> boolean replace(@NotNull com.intellij.openapi.util.Key<T> key, @Nullable T oldValue, @Nullable T newValue) {
+    return myUserData.replace(key, oldValue, newValue);
+  }
+
+  public <T> void putCopyableUserData(@NotNull com.intellij.openapi.util.Key<T> key, T value) {
+    myUserData.putCopyableUserData(key, value);
+  }
+
+  public boolean isUserDataEmpty() {
+    return myUserData.isUserDataEmpty();
+  }
+
+  public <T> T getCopyableUserData(@NotNull com.intellij.openapi.util.Key<T> key) {
+    return myUserData.getCopyableUserData(key);
+  }
+
+  @NotNull
+  public static <T> DataNode<T> nodeCopy(@NotNull DataNode<T> dataNode) {
     DataNode<T> copy = new DataNode<T>(dataNode.myKey);
-    copy.myParent = newParent;
     copy.myData = dataNode.myData;
     copy.myRawData = dataNode.myRawData;
+    copy.myIgnored = dataNode.myIgnored;
+    dataNode.myUserData.copyCopyableDataTo(copy.myUserData);
+    return copy;
+  }
+
+  @NotNull
+  private static <T> DataNode<T> сopy(@NotNull DataNode<T> dataNode, @Nullable DataNode<?> newParent) {
+    DataNode<T> copy = nodeCopy(dataNode);
+    copy.myParent = newParent;
     for (DataNode<?> child : dataNode.myChildren) {
-      copy.addChild(nodeCopy(child, copy));
+      copy.addChild(сopy(child, copy));
     }
     return copy;
   }

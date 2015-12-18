@@ -89,12 +89,25 @@ public class OverloadResolutionTest extends LightDaemonAnalyzerTestCase {
     doTest();
   }
 
+  public void testDefaultAbstractConflictResolution() throws Exception {
+    doTest();
+  }
+
   public void testLambdaValueCompatibleWithNestedTryWithResources() throws Exception {
     doTest(false);
   }
 
   public void testManyOverloadsWithVarargs() throws Exception {
     PlatformTestUtil.startPerformanceTest("Overload resolution with 14 overloads", 20000, new ThrowableRunnable() {
+      @Override
+      public void run() throws Throwable {
+        doTest(false);
+      }
+    }).assertTiming();
+  }
+
+  public void testConstructorOverloadsWithDiamonds() throws Exception {
+    PlatformTestUtil.startPerformanceTest("Overload resolution with chain constructor calls with diamonds", 10000, new ThrowableRunnable() {
       @Override
       public void run() throws Throwable {
         doTest(false);
@@ -131,6 +144,30 @@ public class OverloadResolutionTest extends LightDaemonAnalyzerTestCase {
   }
 
   public void testFunctionalExpressionTypeErasure() throws Exception {
+    doTest();
+  }
+
+  public void testOverrideObjectMethods() throws Exception {
+    doTest();
+  }
+
+  public void testStaticImportOfObjectsToString() throws Exception {
+    doTest();
+  }
+
+  public void testConflictsWithRawQualifier() throws Exception {
+    doTest();
+  }
+
+  public void testIgnoreCandidatesWithLowerApplicabilityLevel() throws Exception {
+    doTest();
+  }
+
+  public void testSiteSubstituteTypeParameterBoundsWhenCheckForMostSpecific() throws Exception {
+    doTest();
+  }
+
+  public void testChooseAbstractMethodArbitrarily() throws Exception {
     doTest();
   }
 

@@ -20,9 +20,11 @@ import com.jetbrains.python.codeInsight.PyCustomMember;
 import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyFunction;
 import com.jetbrains.python.psi.PyTargetExpression;
+import com.jetbrains.python.psi.PyUtil;
 import com.jetbrains.python.psi.types.PyClassMembersProviderBase;
 import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyOverridingAncestorsClassMembersProvider;
+import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,54 +39,64 @@ import java.util.List;
 public class PyUserSkeletonsClassMembersProvider extends PyClassMembersProviderBase implements PyOverridingAncestorsClassMembersProvider {
   @NotNull
   @Override
-  public Collection<PyCustomMember> getMembers(@NotNull PyClassType classType, PsiElement location) {
+  public Collection<PyCustomMember> getMembers(@NotNull PyClassType classType, PsiElement location, TypeEvalContext typeEvalContext) {
     final PyClass cls = classType.getPyClass();
     final PyClass skeleton = PyUserSkeletonsUtil.getUserSkeleton(cls);
     if (skeleton != null) {
-      return getClassMembers(skeleton);
+      return getClassMembers(skeleton, classType.isDefinition());
     }
     return Collections.emptyList();
   }
 
   @Nullable
   @Override
-  public PsiElement resolveMember(@NotNull PyClassType classType, @NotNull String name, PsiElement location) {
+  public PsiElement resolveMember(@NotNull PyClassType classType, @NotNull String name, PsiElement location, TypeEvalContext context) {
     final PyClass cls = classType.getPyClass();
-    final PyClass skeleton = PyUserSkeletonsUtil.getUserSkeleton(cls);
+    final PyClass skeleton = PyUserSkeletonsUtil.getUserSkeletonWithContext(cls, context);
     if (skeleton != null) {
-      return findClassMember(skeleton, name);
+      return findClassMember(skeleton, name, classType.isDefinition());
     }
     return null;
   }
 
-  private static PsiElement findClassMember(@NotNull PyClass cls, @NotNull String name) {
-    final PyFunction function = cls.findMethodByName(name, false);
+  public static PsiElement findClassMember(@NotNull PyClass cls, @NotNull String name, boolean isDefinition) {
+    final PyFunction function = cls.findMethodByName(name, false, null);
     if (function != null) {
-      return function;
+      final PyUtil.MethodFlags methodFlags = PyUtil.MethodFlags.of(function);
+      final boolean instanceMethod = methodFlags == null || methodFlags.isInstanceMethod();
+      if (isDefinition ^ instanceMethod) {
+        return function;
+      }
     }
-    final PyTargetExpression instanceAttribute = cls.findInstanceAttribute(name, false);
-    if (instanceAttribute != null) {
-      return instanceAttribute;
+    if (!isDefinition) {
+      final PyTargetExpression instanceAttribute = cls.findInstanceAttribute(name, false);
+      if (instanceAttribute != null) {
+        return instanceAttribute;
+      }
     }
-    final PyTargetExpression classAttribute = cls.findClassAttribute(name, false);
+    final PyTargetExpression classAttribute = cls.findClassAttribute(name, false, null);
     if (classAttribute != null) {
       return classAttribute;
     }
     return null;
   }
 
-  private static Collection<PyCustomMember> getClassMembers(@NotNull PyClass cls) {
+  public static Collection<PyCustomMember> getClassMembers(@NotNull PyClass cls, boolean isDefinition) {
     final List<PyCustomMember> result = new ArrayList<PyCustomMember>();
-    for (PyFunction function : cls.getMethods(false)) {
+    for (PyFunction function : cls.getMethods()) {
       final String name = function.getName();
-      if (name != null) {
+      final PyUtil.MethodFlags methodFlags = PyUtil.MethodFlags.of(function);
+      final boolean instanceMethod = methodFlags == null || methodFlags.isInstanceMethod();
+      if (name != null && (isDefinition ^ instanceMethod)) {
         result.add(new PyCustomMember(name, function));
       }
     }
-    for (PyTargetExpression attribute : cls.getInstanceAttributes()) {
-      final String name = attribute.getName();
-      if (name != null) {
-        result.add(new PyCustomMember(name, attribute));
+    if (!isDefinition) {
+      for (PyTargetExpression attribute : cls.getInstanceAttributes()) {
+        final String name = attribute.getName();
+        if (name != null) {
+          result.add(new PyCustomMember(name, attribute));
+        }
       }
     }
     for (PyTargetExpression attribute : cls.getClassAttributes()) {

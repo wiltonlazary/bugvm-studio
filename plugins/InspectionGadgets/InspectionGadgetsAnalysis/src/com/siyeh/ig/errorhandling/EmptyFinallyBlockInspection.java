@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -77,6 +77,10 @@ public class EmptyFinallyBlockInspection extends BaseInspection {
       if (tryStatement == null) {
         return;
       }
+      final PsiResourceList resources = tryStatement.getResourceList();
+      if (resources != null) {
+        return;
+      }
       final PsiCodeBlock tryBlock = tryStatement.getTryBlock();
       if (tryBlock == null) {
         return;
@@ -84,15 +88,6 @@ public class EmptyFinallyBlockInspection extends BaseInspection {
       final PsiElement parent = tryStatement.getParent();
       if (parent == null) {
         return;
-      }
-
-      final PsiResourceList resources = tryStatement.getResourceList();
-      if (resources != null) {
-        final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
-        for (PsiResourceVariable resource : resources.getResourceVariables()) {
-          final PsiStatement statement = factory.createStatementFromText(resource.getText() + ";", parent);
-          parent.addBefore(statement, tryStatement);
-        }
       }
 
       final PsiElement first = tryBlock.getFirstBodyElement();
@@ -149,6 +144,11 @@ public class EmptyFinallyBlockInspection extends BaseInspection {
   }
 
   @Override
+  public boolean shouldInspect(PsiFile file) {
+    return !FileTypeUtils.isInServerPageFile(file);
+  }
+
+  @Override
   public BaseInspectionVisitor buildVisitor() {
     return new EmptyFinallyBlockVisitor();
   }
@@ -157,9 +157,6 @@ public class EmptyFinallyBlockInspection extends BaseInspection {
     @Override
     public void visitTryStatement(@NotNull PsiTryStatement statement) {
       super.visitTryStatement(statement);
-      if (FileTypeUtils.isInServerPageFile(statement.getContainingFile())) {
-        return;
-      }
       final PsiCodeBlock finallyBlock = statement.getFinallyBlock();
       if (finallyBlock == null) {
         return;

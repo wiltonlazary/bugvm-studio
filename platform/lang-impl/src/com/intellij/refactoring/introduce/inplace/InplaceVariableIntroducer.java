@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +21,8 @@ import com.intellij.codeInsight.template.ExpressionContext;
 import com.intellij.codeInsight.template.TextResult;
 import com.intellij.codeInsight.template.impl.TemplateManagerImpl;
 import com.intellij.codeInsight.template.impl.TemplateState;
-import com.intellij.lang.ASTNode;
-import com.intellij.lang.LanguageTokenSeparatorGenerators;
+import com.intellij.lang.*;
+import com.intellij.lexer.Lexer;
 import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.command.impl.StartMarkAction;
@@ -38,10 +38,12 @@ import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.SmartPointerManager;
 import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
+import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.refactoring.rename.NameSuggestionProvider;
 import com.intellij.refactoring.rename.PreferrableNameSuggestionProvider;
 import com.intellij.refactoring.rename.inplace.InplaceRefactoring;
 import com.intellij.refactoring.rename.inplace.MyLookupExpression;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -66,23 +68,32 @@ public abstract class InplaceVariableIntroducer<E extends PsiElement> extends In
 
   public InplaceVariableIntroducer(PsiNamedElement elementToRename,
                                    Editor editor,
-                                   Project project,
-                                   String title, E[] occurrences, 
+                                   final Project project,
+                                   String title, E[] occurrences,
                                    @Nullable E expr) {
     super(editor, elementToRename, project);
     myTitle = title;
     myOccurrences = occurrences;
     if (expr != null) {
       final ASTNode node = expr.getNode();
+      ASTNode prev = node.getTreePrev();
       final ASTNode astNode = LanguageTokenSeparatorGenerators.INSTANCE.forLanguage(expr.getLanguage())
-        .generateWhitespaceBetweenTokens(node.getTreePrev(), node);
+        .generateWhitespaceBetweenTokens(prev, node);
       if (astNode != null) {
-        new WriteCommandAction<Object>(project, "Normalize declaration") {
-          @Override
-          protected void run(Result<Object> result) throws Throwable {
-            node.getTreeParent().addChild(astNode, node);
-          }
-        }.execute();
+        final Lexer lexer = LanguageParserDefinitions.INSTANCE.forLanguage(expr.getLanguage()).createLexer(project);
+        if (LanguageUtil.canStickTokensTogetherByLexer(prev, prev, lexer) == ParserDefinition.SpaceRequirements.MUST) {
+          PostprocessReformattingAspect.getInstance(project).disablePostprocessFormattingInside(new Runnable() {
+            @Override
+            public void run() {
+              new WriteCommandAction<Object>(project, "Normalize declaration") {
+                @Override
+                protected void run(@NotNull Result<Object> result) throws Throwable {
+                  node.getTreeParent().addChild(astNode, node);
+                }
+              }.execute(); 
+            }
+          });
+        }
       }
       myExpr = expr;
     }

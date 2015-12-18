@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,15 +24,10 @@ import java.lang.annotation.RetentionPolicy;
 public @interface State {
   String name();
 
-  @Deprecated
   /**
-   * @deprecated Use {@link Storage#roamingType()}
+   * Could be specified as empty list if you need to load only default state ({@link #defaultStateAsResource()} must be true in this case)
    */
-  RoamingType roamingType() default RoamingType.PER_USER;
-
   Storage[] storages();
-
-  Class<? extends StateStorageChooser> storageChooser() default StateStorageChooser.class;
 
   boolean reloadable() default true;
 
@@ -41,6 +36,9 @@ public @interface State {
    */
   boolean defaultStateAsResource() default false;
 
+  /**
+   * Additional export path (relative to application-level configuration root directory).
+   */
   String additionalExportFile() default "";
 
   Class<? extends NameGetter> presentableName() default NameGetter.class;

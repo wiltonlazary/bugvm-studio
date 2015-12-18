@@ -94,8 +94,12 @@ public class AbstractProgressIndicatorBase extends UserDataHolderBase implements
   }
 
   protected void stopSystemActivity() {
-    MacUtil.matrixHasYou(myMacActivity);
-    myMacActivity = null;
+    if (myMacActivity != null) {
+      synchronized (myMacActivity) {
+        MacUtil.matrixHasYou(myMacActivity);
+        myMacActivity = null;
+      }
+    }
   }
 
   @Override
@@ -107,7 +111,9 @@ public class AbstractProgressIndicatorBase extends UserDataHolderBase implements
   public void cancel() {
     myCanceled = true;
     stopSystemActivity();
-    ProgressManager.canceled(this);
+    if (ApplicationManager.getApplication() != null) {
+      ProgressManager.canceled(this);
+    }
   }
 
   @Override

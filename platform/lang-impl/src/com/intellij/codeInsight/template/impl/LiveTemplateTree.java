@@ -22,7 +22,6 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.ide.CopyPasteManager;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.CheckboxTree;
@@ -75,10 +74,9 @@ class LiveTemplateTree extends CheckboxTree implements DataProvider, CopyProvide
         }
         if (object instanceof TemplateImpl) {
           TemplateImpl template = (TemplateImpl)object;
-          return StringUtil.notNullize(template.getKey()) +
-                 " " +
-                 StringUtil.notNullize(template.getDescription()) +
-                 " " +
+          return StringUtil.notNullize(template.getGroupName()) + " " +
+                 StringUtil.notNullize(template.getKey()) + " " +
+                 StringUtil.notNullize(template.getDescription()) + " " +
                  template.getTemplateText();
         }
         return "";
@@ -145,15 +143,13 @@ class LiveTemplateTree extends CheckboxTree implements DataProvider, CopyProvide
     assert buffer != null;
 
     try {
-      for (Element templateElement : JDOMUtil.load(new StringReader("<root>" + buffer + "</root>")).getChildren()) {
-        try {
-          TemplateImpl template = TemplateSettings.readTemplateFromElement(group.getName(), templateElement, getClass().getClassLoader());
-          myConfigurable.addTemplate(template);
-        }
-        catch (InvalidDataException ignore) { }
+      for (Element templateElement : JDOMUtil.load(new StringReader("<root>" + buffer + "</root>")).getChildren(TemplateSettings.TEMPLATE)) {
+        myConfigurable.addTemplate(TemplateSettings.readTemplateFromElement(group.getName(), templateElement, getClass().getClassLoader()));
       }
     }
-    catch (JDOMException ignore) { }
-    catch (IOException ignore) { }
+    catch (JDOMException ignore) {
+    }
+    catch (IOException ignore) {
+    }
   }
 }

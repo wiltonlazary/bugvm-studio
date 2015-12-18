@@ -25,6 +25,7 @@ import com.intellij.debugger.engine.evaluation.EvaluationContext;
 import com.intellij.debugger.engine.evaluation.TextWithImports;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.ui.impl.watch.DebuggerTreeNodeExpression;
 import com.intellij.debugger.ui.tree.DebuggerTreeNode;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.NodeManager;
@@ -54,24 +55,20 @@ public class ExpressionChildrenRenderer extends ReferenceRenderer implements Chi
   private static final Key<Value> EXPRESSION_VALUE = new Key<Value>("EXPRESSION_VALUE");
   private static final Key<NodeRenderer> LAST_CHILDREN_RENDERER = new Key<NodeRenderer>("LAST_CHILDREN_RENDERER");
 
-  private final CachedEvaluator myChildrenExpandable = new CachedEvaluator() {
-    protected String getClassName() {
-      return ExpressionChildrenRenderer.this.getClassName();
-    }
-  };
-
-  private final CachedEvaluator myChildrenExpression = new CachedEvaluator() {
-    protected String getClassName() {
-      return ExpressionChildrenRenderer.this.getClassName();
-    }
-  };
+  private CachedEvaluator myChildrenExpandable = createCachedEvaluator();
+  private CachedEvaluator myChildrenExpression = createCachedEvaluator();
 
   public String getUniqueId() {
     return UNIQUE_ID;
   }
 
   public ExpressionChildrenRenderer clone() {
-    return (ExpressionChildrenRenderer)super.clone();
+    ExpressionChildrenRenderer clone = (ExpressionChildrenRenderer)super.clone();
+    clone.myChildrenExpandable = createCachedEvaluator();
+    clone.setChildrenExpandable(getChildrenExpandable());
+    clone.myChildrenExpression = createCachedEvaluator();
+    clone.setChildrenExpression(getChildrenExpression());
+    return clone;
   }
 
   public void buildChildren(final Value value, final ChildrenBuilder builder, final EvaluationContext evaluationContext) {
@@ -135,18 +132,17 @@ public class ExpressionChildrenRenderer extends ReferenceRenderer implements Chi
   }
 
   public PsiExpression getChildValueExpression(DebuggerTreeNode node, DebuggerContext context) throws EvaluateException {
-    ValueDescriptor descriptor = (ValueDescriptor) node.getParent().getDescriptor();
-    Value expressionValue = descriptor.getUserData(EXPRESSION_VALUE);
-    if(expressionValue == null) {
+    Value expressionValue = node.getParent().getDescriptor().getUserData(EXPRESSION_VALUE);
+    if (expressionValue == null) {
       throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("error.unable.to.evaluate.expression"));
     }
 
-    NodeRenderer childrenRenderer = getChildrenRenderer(expressionValue, descriptor);
+    NodeRenderer childrenRenderer = getChildrenRenderer(expressionValue, (ValueDescriptor) node.getParent().getDescriptor());
 
-    return DebuggerUtils.getInstance().substituteThis(
+    return DebuggerTreeNodeExpression.substituteThis(
       childrenRenderer.getChildValueExpression(node, context),
       (PsiExpression)myChildrenExpression.getPsiExpression(node.getProject()).copy(),
-      expressionValue, context);
+      expressionValue);
   }
 
   private static NodeRenderer getChildrenRenderer(Value childrenValue, ValueDescriptor parentDescriptor) {

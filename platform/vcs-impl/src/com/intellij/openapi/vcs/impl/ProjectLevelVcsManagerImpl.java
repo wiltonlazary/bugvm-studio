@@ -16,10 +16,10 @@
 package com.intellij.openapi.vcs.impl;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.components.ProjectComponent;
-import com.intellij.openapi.components.StorageScheme;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
@@ -30,7 +30,6 @@ import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ex.ProjectEx;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.util.*;
@@ -113,7 +112,6 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
   private final Map<VcsBackgroundableActions, BackgroundableActionEnabledHandler> myBackgroundableActionHandlerMap;
 
   private final List<Pair<String, TextAttributes>> myPendingOutput = new ArrayList<Pair<String, TextAttributes>>();
-  private VcsEventsListenerManagerImpl myVcsEventListenerManager;
 
   private final VcsHistoryCache myVcsHistoryCache;
   private final ContentRevisionCache myContentRevisionCache;
@@ -135,10 +133,6 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
     myInitialization = new VcsInitialization(myProject);
     myMappings = new NewMappings(myProject, myMessageBus, this, manager);
     myMappingsToRoots = new MappingsToRoots(myMappings, myProject);
-
-    if (!myProject.isDefault()) {
-      myVcsEventListenerManager = new VcsEventsListenerManagerImpl();
-    }
 
     myVcsHistoryCache = new VcsHistoryCache();
     myContentRevisionCache = new ContentRevisionCache();
@@ -808,8 +802,9 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
   }
 
   @Override
+  @Nullable
   public VcsEventsListenerManager getVcsEventsListenerManager() {
-    return myVcsEventListenerManager;
+    return null;
   }
 
   @Override
@@ -822,11 +817,6 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
   @Override
   public String haveDefaultMapping() {
     return myMappings.haveDefaultMapping();
-  }
-
-  @Override
-  protected VcsEnvironmentsProxyCreator getProxyCreator() {
-    return myVcsEventListenerManager;
   }
 
   public BackgroundableActionEnabledHandler getBackgroundableActionHandler(final VcsBackgroundableActions action) {
@@ -883,14 +873,13 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
     return false;
   }
 
-  private boolean isInDirectoryBasedRoot(final VirtualFile file) {
-    if (file == null) return false;
-    final StorageScheme storageScheme = ((ProjectEx)myProject).getStateStore().getStorageScheme();
-    if (StorageScheme.DIRECTORY_BASED.equals(storageScheme)) {
-      final VirtualFile baseDir = myProject.getBaseDir();
-      if (baseDir == null) return false;
-      final VirtualFile ideaDir = baseDir.findChild(Project.DIRECTORY_STORE_FOLDER);
-      return ideaDir != null && ideaDir.isValid() && ideaDir.isDirectory() && VfsUtilCore.isAncestor(ideaDir, file, false);
+  private boolean isInDirectoryBasedRoot(@Nullable VirtualFile file) {
+    if (file != null && ProjectUtil.isDirectoryBased(myProject)) {
+      VirtualFile baseDir = myProject.getBaseDir();
+      if (baseDir != null) {
+        VirtualFile ideaDir = baseDir.findChild(Project.DIRECTORY_STORE_FOLDER);
+        return ideaDir != null && ideaDir.isValid() && ideaDir.isDirectory() && VfsUtilCore.isAncestor(ideaDir, file, false);
+      }
     }
     return false;
   }

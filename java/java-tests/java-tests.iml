@@ -44,5 +44,10 @@
     <orderEntry type="module" module-name="java-decompiler-plugin" scope="TEST" />
     <orderEntry type="module" module-name="RegExpSupport" scope="TEST" />
     <orderEntry type="module" module-name="spellchecker" scope="TEST" />
+    <orderEntry type="module" module-name="util-tests" scope="TEST" />
+    <orderEntry type="library" scope="TEST" name="Mocks" level="project" />
+    <orderEntry type="module" module-name="jetgroovy" scope="TEST" />
+    <orderEntry type="module" module-name="lang-tests" scope="TEST" />
+    <orderEntry type="library" scope="TEST" name="mockito" level="project" />
   </component>
 </module>

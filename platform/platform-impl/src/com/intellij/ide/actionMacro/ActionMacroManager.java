@@ -23,8 +23,10 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.components.ExportableApplicationComponent;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.Project;
@@ -36,9 +38,6 @@ import com.intellij.openapi.ui.popup.JBPopupAdapter;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.LightweightWindowEvent;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.NamedJDOMExternalizable;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.CustomStatusBarWidget;
 import com.intellij.openapi.wm.IdeFrame;
@@ -61,16 +60,15 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
-/**
- * @author max
- */
-public class ActionMacroManager implements ExportableApplicationComponent, NamedJDOMExternalizable {
+@State(
+  name = "ActionMacroManager",
+  storages = @Storage(file = StoragePathMacros.APP_CONFIG + "/macros.xml")
+)
+public class ActionMacroManager implements PersistentStateComponent<Element>, Disposable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.actionMacro.ActionMacroManager");
 
   private static final String TYPING_SAMPLE = "WWWWWWWWWWWWWWWWWWWW";
@@ -95,6 +93,7 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
   public ActionMacroManager(ActionManagerEx actionManagerEx) {
     myActionManager = actionManagerEx;
     myActionManager.addAnActionListener(new AnActionListener() {
+      @Override
       public void beforeActionPerformed(AnAction action, DataContext dataContext, final AnActionEvent event) {
         String id = myActionManager.getId(action);
         if (id == null) return;
@@ -113,9 +112,11 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
         }
       }
 
+      @Override
       public void beforeEditorTyping(char c, DataContext dataContext) {
       }
 
+      @Override
       public void afterActionPerformed(final AnAction action, final DataContext dataContext, final AnActionEvent event) {
       }
     });
@@ -124,11 +125,10 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
     IdeEventQueue.getInstance().addPostprocessor(myKeyProcessor, null);
   }
 
-  public void readExternal(Element element) throws InvalidDataException {
+  @Override
+  public void loadState(Element state) {
     myMacros = new ArrayList<ActionMacro>();
-    final List macros = element.getChildren(ELEMENT_MACRO);
-    for (final Object o : macros) {
-      Element macroElement = (Element)o;
+    for (Element macroElement : state.getChildren(ELEMENT_MACRO)) {
       ActionMacro macro = new ActionMacro();
       macro.readExternal(macroElement);
       myMacros.add(macro);
@@ -137,38 +137,20 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
     registerActions();
   }
 
-  public String getExternalFileName() {
-    return "macros";
-  }
-
-  @NotNull
-  public File[] getExportFiles() {
-    return new File[]{PathManager.getOptionsFile(this)};
-  }
-
-  @NotNull
-  public String getPresentableName() {
-    return IdeBundle.message("title.macros");
-  }
-
-  public void writeExternal(Element element) throws WriteExternalException {
+  @Nullable
+   @Override
+   public Element getState() {
+    Element element = new Element("state");
     for (ActionMacro macro : myMacros) {
       Element macroElement = new Element(ELEMENT_MACRO);
       macro.writeExternal(macroElement);
       element.addContent(macroElement);
     }
+    return element;
   }
 
   public static ActionMacroManager getInstance() {
     return ApplicationManager.getApplication().getComponent(ActionMacroManager.class);
-  }
-
-  @NotNull
-  public String getComponentName() {
-    return "ActionMacroManager";
-  }
-
-  public void initComponent() {
   }
 
   public void startRecording(String macroName) {
@@ -397,6 +379,7 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
 
     final PlaybackRunner runner = new PlaybackRunner(script.toString(), new PlaybackRunner.StatusCallback.Edt() {
 
+      @Override
       public void messageEdt(PlaybackContext context, String text, Type type) {
         if (type == Type.message || type == Type.error) {
           StatusBar statusBar = frame.getStatusBar();
@@ -414,12 +397,14 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
 
     runner.run()
       .doWhenDone(new Runnable() {
+        @Override
         public void run() {
           StatusBar statusBar = frame.getStatusBar();
           statusBar.setInfo("Script execution finished");
         }
       })
       .doWhenProcessed(new Runnable() {
+        @Override
         public void run() {
           myIsPlaying = false;
         }
@@ -430,7 +415,8 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
     return myIsRecording;
   }
 
-  public void disposeComponent() {
+  @Override
+  public void dispose() {
     IdeEventQueue.getInstance().removePostprocessor(myKeyProcessor);
   }
 
@@ -525,6 +511,7 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
       getTemplatePresentation().setText(macro.getName(), false);
     }
 
+    @Override
     public void actionPerformed(AnActionEvent e) {
       IdeEventQueue.getInstance().doWhenReady(new Runnable() {
         @Override
@@ -534,6 +521,7 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
       });
     }
 
+    @Override
     public void update(AnActionEvent e) {
       super.update(e);
       e.getPresentation().setEnabled(!getInstance().isPlaying());
@@ -542,6 +530,7 @@ public class ActionMacroManager implements ExportableApplicationComponent, Named
 
   private class MyKeyPostpocessor implements IdeEventQueue.EventDispatcher {
 
+    @Override
     public boolean dispatch(AWTEvent e) {
       if (isRecording() && e instanceof KeyEvent) {
         postProcessKeyEvent((KeyEvent)e);

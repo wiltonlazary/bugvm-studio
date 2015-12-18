@@ -16,8 +16,7 @@
 package com.intellij.tools;
 
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
-import com.intellij.openapi.components.ExportableApplicationComponent;
-import com.intellij.openapi.components.RoamingType;
+import com.intellij.openapi.components.ExportableComponent;
 import com.intellij.openapi.options.SchemeProcessor;
 import com.intellij.openapi.options.SchemesManager;
 import com.intellij.openapi.options.SchemesManagerFactory;
@@ -33,14 +32,14 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-public abstract class BaseToolManager<T extends Tool> implements ExportableApplicationComponent {
+public abstract class BaseToolManager<T extends Tool> implements ExportableComponent {
   @NotNull private final ActionManagerEx myActionManager;
   private final SchemesManager<ToolsGroup<T>, ToolsGroup<T>> mySchemesManager;
 
   public BaseToolManager(@NotNull ActionManagerEx actionManagerEx, SchemesManagerFactory factory) {
     myActionManager = actionManagerEx;
 
-    mySchemesManager = factory.createSchemesManager(getSchemesPath(), createProcessor(), RoamingType.PER_USER);
+    mySchemesManager = factory.create(getSchemesPath(), createProcessor());
     mySchemesManager.loadSchemes();
     registerActions();
   }
@@ -64,14 +63,6 @@ public abstract class BaseToolManager<T extends Tool> implements ExportableAppli
   @NotNull
   public String getPresentableName() {
     return ToolsBundle.message("tools.settings");
-  }
-
-  @Override
-  public void disposeComponent() {
-  }
-
-  @Override
-  public void initComponent() {
   }
 
   public List<T> getTools() {

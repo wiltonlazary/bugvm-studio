@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.intellij.openapi.externalSystem.service.project.manage;
 
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.Key;
@@ -25,10 +24,10 @@ import com.intellij.openapi.externalSystem.model.project.ContentRootData;
 import com.intellij.openapi.externalSystem.model.project.ContentRootData.SourceRoot;
 import com.intellij.openapi.externalSystem.model.project.ExternalSystemSourceType;
 import com.intellij.openapi.externalSystem.model.project.ModuleData;
-import com.intellij.openapi.externalSystem.service.project.PlatformFacade;
+import com.intellij.openapi.externalSystem.model.project.ProjectData;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.externalSystem.settings.AbstractExternalSystemSettings;
 import com.intellij.openapi.externalSystem.settings.ExternalProjectSettings;
-import com.intellij.openapi.externalSystem.util.DisposeAwareProjectChange;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
 import com.intellij.openapi.externalSystem.util.Order;
@@ -36,7 +35,6 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ContentEntry;
 import com.intellij.openapi.roots.ModifiableRootModel;
-import com.intellij.openapi.roots.ModuleRootModificationUtil;
 import com.intellij.openapi.roots.SourceFolder;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
@@ -44,9 +42,10 @@ import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtilRt;
+import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 import org.jetbrains.jps.model.java.JavaResourceRootType;
 import org.jetbrains.jps.model.java.JavaSourceRootProperties;
@@ -59,13 +58,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Thread-safe.
- *
  * @author Denis Zhdanov
  * @since 2/7/12 3:20 PM
  */
 @Order(ExternalSystemConstants.BUILTIN_SERVICE_ORDER)
-public class ContentRootDataService implements ProjectDataServiceEx<ContentRootData, ContentEntry> {
+public class ContentRootDataService extends AbstractProjectDataService<ContentRootData, ContentEntry> {
 
   private static final Logger LOG = Logger.getInstance("#" + ContentRootDataService.class.getName());
 
@@ -75,25 +72,18 @@ public class ContentRootDataService implements ProjectDataServiceEx<ContentRootD
     return ProjectKeys.CONTENT_ROOT;
   }
 
-  public void importData(@NotNull final Collection<DataNode<ContentRootData>> toImport,
-                         @NotNull final Project project,
-                         final boolean synchronous) {
-    final PlatformFacade platformFacade = ServiceManager.getService(PlatformFacade.class);
-    importData(toImport, project, platformFacade, synchronous);
-  }
-
   @Override
-  public void importData(@NotNull final Collection<DataNode<ContentRootData>> toImport,
-                         @NotNull final Project project,
-                         @NotNull final PlatformFacade platformFacade,
-                         final boolean synchronous) {
+  public void importData(@NotNull Collection<DataNode<ContentRootData>> toImport,
+                         @Nullable ProjectData projectData,
+                         @NotNull Project project,
+                         @NotNull IdeModifiableModelsProvider modelsProvider) {
     if (toImport.isEmpty()) {
       return;
     }
 
-    Map<DataNode<ModuleData>, List<DataNode<ContentRootData>>> byModule = ExternalSystemApiUtil.groupBy(toImport, ProjectKeys.MODULE);
-    for (Map.Entry<DataNode<ModuleData>, List<DataNode<ContentRootData>>> entry : byModule.entrySet()) {
-      final Module module = platformFacade.findIdeModule(entry.getKey().getData(), project);
+    MultiMap<DataNode<ModuleData>, DataNode<ContentRootData>> byModule = ExternalSystemApiUtil.groupBy(toImport, ProjectKeys.MODULE);
+    for (Map.Entry<DataNode<ModuleData>, Collection<DataNode<ContentRootData>>> entry : byModule.entrySet()) {
+      Module module = modelsProvider.findIdeModule(entry.getKey().getData());
       if (module == null) {
         LOG.warn(String.format(
           "Can't import content roots. Reason: target module (%s) is not found at the ide. Content roots: %s",
@@ -101,75 +91,72 @@ public class ContentRootDataService implements ProjectDataServiceEx<ContentRootD
         ));
         continue;
       }
-      importData(entry.getValue(), module, synchronous);
+      importData(modelsProvider, entry.getValue(), module);
     }
   }
 
-  private static void importData(@NotNull final Collection<DataNode<ContentRootData>> data,
-                                 @NotNull final Module module,
-                                 boolean synchronous) {
-    ExternalSystemApiUtil.executeProjectChangeAction(synchronous, new DisposeAwareProjectChange(module) {
-      @Override
-      public void execute() {
-        ModuleRootModificationUtil.updateModel(module, new Consumer<ModifiableRootModel>() {
-          @Override
-          public void consume(ModifiableRootModel model) {
-            final ContentEntry[] contentEntries = model.getContentEntries();
-            final Map<String, ContentEntry> contentEntriesMap = ContainerUtilRt.newHashMap();
-            for(ContentEntry contentEntry : contentEntries) {
-              contentEntriesMap.put(contentEntry.getUrl(), contentEntry);
-            }
+  private static void importData(@NotNull IdeModifiableModelsProvider modelsProvider,
+                                 @NotNull final Collection<DataNode<ContentRootData>> data,
+                                 @NotNull final Module module) {
+    final ModifiableRootModel modifiableRootModel = modelsProvider.getModifiableRootModel(module);
+    final ContentEntry[] contentEntries = modifiableRootModel.getContentEntries();
+    final Map<String, ContentEntry> contentEntriesMap = ContainerUtilRt.newHashMap();
+    for (ContentEntry contentEntry : contentEntries) {
+      contentEntriesMap.put(contentEntry.getUrl(), contentEntry);
+    }
 
-            boolean createEmptyContentRootDirectories = false;
-            if (!data.isEmpty()) {
-              ProjectSystemId projectSystemId = data.iterator().next().getData().getOwner();
-              AbstractExternalSystemSettings externalSystemSettings =
-                ExternalSystemApiUtil.getSettings(module.getProject(), projectSystemId);
+    boolean createEmptyContentRootDirectories = false;
+    if (!data.isEmpty()) {
+      ProjectSystemId projectSystemId = data.iterator().next().getData().getOwner();
+      AbstractExternalSystemSettings externalSystemSettings =
+        ExternalSystemApiUtil.getSettings(module.getProject(), projectSystemId);
 
-              String path = module.getOptionValue(ExternalSystemConstants.ROOT_PROJECT_PATH_KEY);
-              if (path != null) {
-                ExternalProjectSettings projectSettings = externalSystemSettings.getLinkedProjectSettings(path);
-                createEmptyContentRootDirectories = projectSettings != null && projectSettings.isCreateEmptyContentRootDirectories();
-              }
-            }
-
-            for (final DataNode<ContentRootData> node : data) {
-              final ContentRootData contentRoot = node.getData();
-
-              final ContentEntry contentEntry = findOrCreateContentRoot(model, contentRoot.getRootPath());
-              contentEntry.clearExcludeFolders();
-              contentEntry.clearSourceFolders();
-              LOG.info(String.format("Importing content root '%s' for module '%s'", contentRoot.getRootPath(), module.getName()));
-              for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.SOURCE)) {
-                createSourceRootIfAbsent(contentEntry, path, module.getName(), JavaSourceRootType.SOURCE, false, createEmptyContentRootDirectories);
-              }
-              for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.TEST)) {
-                createSourceRootIfAbsent(contentEntry, path, module.getName(), JavaSourceRootType.TEST_SOURCE, false, createEmptyContentRootDirectories);
-              }
-              for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.RESOURCE)) {
-                createSourceRootIfAbsent(contentEntry, path, module.getName(), JavaResourceRootType.RESOURCE, false, createEmptyContentRootDirectories);
-              }
-              for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.TEST_RESOURCE)) {
-                createSourceRootIfAbsent(contentEntry, path, module.getName(), JavaResourceRootType.TEST_RESOURCE, false, createEmptyContentRootDirectories);
-              }
-              for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.SOURCE_GENERATED)) {
-                createSourceRootIfAbsent(contentEntry, path, module.getName(), JavaSourceRootType.SOURCE, true, createEmptyContentRootDirectories);
-              }
-              for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.TEST_GENERATED)) {
-                createSourceRootIfAbsent(contentEntry, path, module.getName(), JavaSourceRootType.TEST_SOURCE, true, createEmptyContentRootDirectories);
-              }
-              for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.EXCLUDED)) {
-                createExcludedRootIfAbsent(contentEntry, path, module.getName(), module.getProject());
-              }
-              contentEntriesMap.remove(contentEntry.getUrl());
-            }
-            for(ContentEntry contentEntry : contentEntriesMap.values()) {
-              model.removeContentEntry(contentEntry);
-            }
-          }
-        });
+      String path = module.getOptionValue(ExternalSystemConstants.ROOT_PROJECT_PATH_KEY);
+      if (path != null) {
+        ExternalProjectSettings projectSettings = externalSystemSettings.getLinkedProjectSettings(path);
+        createEmptyContentRootDirectories = projectSettings != null && projectSettings.isCreateEmptyContentRootDirectories();
       }
-    });
+    }
+
+    for (final DataNode<ContentRootData> node : data) {
+      final ContentRootData contentRoot = node.getData();
+
+      final ContentEntry contentEntry = findOrCreateContentRoot(modifiableRootModel, contentRoot.getRootPath());
+      // clear source folders but do not remove existing excluded folders
+      contentEntry.clearSourceFolders();
+      LOG.debug(String.format("Importing content root '%s' for module '%s'", contentRoot.getRootPath(), module.getName()));
+      for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.SOURCE)) {
+        createSourceRootIfAbsent(
+          contentEntry, path, module.getName(), JavaSourceRootType.SOURCE, false, createEmptyContentRootDirectories);
+      }
+      for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.TEST)) {
+        createSourceRootIfAbsent(
+          contentEntry, path, module.getName(), JavaSourceRootType.TEST_SOURCE, false, createEmptyContentRootDirectories);
+      }
+      for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.RESOURCE)) {
+        createSourceRootIfAbsent(
+          contentEntry, path, module.getName(), JavaResourceRootType.RESOURCE, false, createEmptyContentRootDirectories);
+      }
+      for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.TEST_RESOURCE)) {
+        createSourceRootIfAbsent(
+          contentEntry, path, module.getName(), JavaResourceRootType.TEST_RESOURCE, false, createEmptyContentRootDirectories);
+      }
+      for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.SOURCE_GENERATED)) {
+        createSourceRootIfAbsent(
+          contentEntry, path, module.getName(), JavaSourceRootType.SOURCE, true, createEmptyContentRootDirectories);
+      }
+      for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.TEST_GENERATED)) {
+        createSourceRootIfAbsent(
+          contentEntry, path, module.getName(), JavaSourceRootType.TEST_SOURCE, true, createEmptyContentRootDirectories);
+      }
+      for (SourceRoot path : contentRoot.getPaths(ExternalSystemSourceType.EXCLUDED)) {
+        createExcludedRootIfAbsent(contentEntry, path, module.getName(), module.getProject());
+      }
+      contentEntriesMap.remove(contentEntry.getUrl());
+    }
+    for (ContentEntry contentEntry : contentEntriesMap.values()) {
+      modifiableRootModel.removeContentEntry(contentEntry);
+    }
   }
 
   @NotNull
@@ -189,8 +176,8 @@ public class ContentRootDataService implements ProjectDataServiceEx<ContentRootD
   }
 
   private static void createSourceRootIfAbsent(
-    @NotNull ContentEntry entry, @NotNull SourceRoot root, @NotNull String moduleName,
-    @NotNull JpsModuleSourceRootType sourceRootType, boolean generated, boolean createEmptyContentRootDirectories) {
+    @NotNull ContentEntry entry, @NotNull final SourceRoot root, @NotNull String moduleName,
+    @NotNull JpsModuleSourceRootType<?> sourceRootType, boolean generated, boolean createEmptyContentRootDirectories) {
     List<SourceFolder> folders = entry.getSourceFolders(sourceRootType);
     for (SourceFolder folder : folders) {
       VirtualFile file = folder.getFile();
@@ -201,7 +188,7 @@ public class ContentRootDataService implements ProjectDataServiceEx<ContentRootD
         return;
       }
     }
-    LOG.info(String.format("Importing %s for content root '%s' of module '%s'", root, entry.getUrl(), moduleName));
+    LOG.debug(String.format("Importing %s for content root '%s' of module '%s'", root, entry.getUrl(), moduleName));
     SourceFolder sourceFolder = entry.addSourceFolder(toVfsUrl(root.getPath()), sourceRootType);
     if (!StringUtil.isEmpty(root.getPackagePrefix())) {
       sourceFolder.setPackagePrefix(root.getPackagePrefix());
@@ -213,12 +200,17 @@ public class ContentRootDataService implements ProjectDataServiceEx<ContentRootD
       }
     }
     if(createEmptyContentRootDirectories) {
-      try {
-        VfsUtil.createDirectoryIfMissing(root.getPath());
-      }
-      catch (IOException e) {
-        LOG.warn(String.format("Unable to create directory for the path: %s", root.getPath()), e);
-      }
+      ExternalSystemApiUtil.doWriteAction(new Runnable() {
+        @Override
+        public void run() {
+          try {
+            VfsUtil.createDirectoryIfMissing(root.getPath());
+          }
+          catch (IOException e) {
+            LOG.warn(String.format("Unable to create directory for the path: %s", root.getPath()), e);
+          }
+        }
+      });
     }
   }
 
@@ -229,23 +221,13 @@ public class ContentRootDataService implements ProjectDataServiceEx<ContentRootD
         return;
       }
     }
-    LOG.info(String.format("Importing excluded root '%s' for content root '%s' of module '%s'", root, entry.getUrl(), moduleName));
+    LOG.debug(String.format("Importing excluded root '%s' for content root '%s' of module '%s'", root, entry.getUrl(), moduleName));
     entry.addExcludeFolder(toVfsUrl(rootPath));
     if (!Registry.is("ide.hide.excluded.files")) {
       ChangeListManager.getInstance(project).addDirectoryToIgnoreImplicitly(rootPath);
     }
   }
 
-  @Override
-  public void removeData(@NotNull Collection<? extends ContentEntry> toRemove, @NotNull Project project, boolean synchronous) {
-  }
-
-  @Override
-  public void removeData(@NotNull Collection<? extends ContentEntry> toRemove,
-                         @NotNull Project project,
-                         @NotNull PlatformFacade platformFacade,
-                         boolean synchronous) {
-  }
 
   private static String toVfsUrl(@NotNull String path) {
     return LocalFileSystem.PROTOCOL_PREFIX + path;

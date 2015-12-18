@@ -48,9 +48,9 @@ public class ByWord {
     List<InlineChunk> words2 = getInlineChunks(text2);
 
     FairDiffIterable wordChanges = diff(words1, words2, indicator);
-    FairDiffIterable correctedWordChanges = preferBigChunks(words1, words2, wordChanges, indicator);
+    wordChanges = optimizeWordChunks(text1, text2, words1, words2, wordChanges, indicator);
 
-    FairDiffIterable delimitersIterable = matchAdjustmentDelimiters(text1, text2, words1, words2, correctedWordChanges, indicator);
+    FairDiffIterable delimitersIterable = matchAdjustmentDelimiters(text1, text2, words1, words2, wordChanges, indicator);
     DiffIterable iterable = matchAdjustmentWhitespaces(text1, text2, delimitersIterable, policy, indicator);
 
     return convertIntoFragments(iterable);
@@ -84,9 +84,9 @@ public class ByWord {
     List<InlineChunk> words2 = getInlineChunks(text2);
 
     FairDiffIterable wordChanges = diff(words1, words2, indicator);
-    FairDiffIterable correctedWordChanges = preferBigChunks(words1, words2, wordChanges, indicator);
+    wordChanges = optimizeWordChunks(text1, text2, words1, words2, wordChanges, indicator);
 
-    List<WordBlock> wordBlocks = new LineFragmentSplitter(text1, text2, words1, words2, correctedWordChanges, indicator).run();
+    List<WordBlock> wordBlocks = new LineFragmentSplitter(text1, text2, words1, words2, wordChanges, indicator).run();
 
     List<LineBlock> lineBlocks = new ArrayList<LineBlock>(wordBlocks.size());
     for (WordBlock block : wordBlocks) {
@@ -99,7 +99,7 @@ public class ByWord {
       List<InlineChunk> subwords1 = words1.subList(words.start1, words.end1);
       List<InlineChunk> subwords2 = words2.subList(words.start2, words.end2);
 
-      FairDiffIterable subiterable = fair(trim(correctedWordChanges, words.start1, words.end1, words.start2, words.end2));
+      FairDiffIterable subiterable = fair(trim(wordChanges, words.start1, words.end1, words.start2, words.end2));
 
       FairDiffIterable delimitersIterable = matchAdjustmentDelimiters(subtext1, subtext2, subwords1, subwords2, subiterable,
                                                                       offsets.start1, offsets.start2, indicator);
@@ -120,64 +120,14 @@ public class ByWord {
   // Impl
   //
 
-  /*
-   * Try to merge matched blocks to form a bigger ones
-   *
-   * sample: "A X A B" - "A B" should be matched as "A X [A B]" - "[A B]"
-   */
   @NotNull
-  private static FairDiffIterable preferBigChunks(@NotNull List<InlineChunk> words1,
-                                                  @NotNull List<InlineChunk> words2,
-                                                  @NotNull FairDiffIterable iterable,
-                                                  @NotNull ProgressIndicator indicator) {
-    List<Range> newRanges = new ArrayList<Range>();
-
-    for (Range range : iterable.iterateUnchanged()) {
-      if (newRanges.size() == 0) {
-        newRanges.add(range);
-        continue;
-      }
-
-      Range lastRange = newRanges.get(newRanges.size() - 1);
-
-      boolean canMergeLeft = true;
-      int count = range.end1 - range.start1;
-      for (int i = 0; i < count; i++) {
-        InlineChunk word1 = words1.get(lastRange.end1 + i);
-        InlineChunk word2 = words2.get(lastRange.end2 + i);
-        if (!word1.equals(word2)) {
-          canMergeLeft = false;
-          break;
-        }
-      }
-
-      if (canMergeLeft) {
-        newRanges.remove(newRanges.size() - 1);
-        newRanges.add(new Range(lastRange.start1, lastRange.end1 + count, lastRange.start2, lastRange.end2 + count));
-        continue;
-      }
-
-      boolean canMergeRight = true;
-      int lastCount = lastRange.end1 - lastRange.start1;
-      for (int i = 0; i < lastCount; i++) {
-        InlineChunk word1 = words1.get(range.start1 - i - 1);
-        InlineChunk word2 = words2.get(range.start2 - i - 1);
-        if (!word1.equals(word2)) {
-          canMergeRight = false;
-          break;
-        }
-      }
-
-      if (canMergeRight) {
-        newRanges.remove(newRanges.size() - 1);
-        newRanges.add(new Range(range.start1 - lastCount, range.end1, range.start2 - lastCount, range.end2));
-        continue;
-      }
-
-      newRanges.add(range);
-    }
-
-    return fair(createUnchanged(newRanges, words1.size(), words2.size()));
+  private static FairDiffIterable optimizeWordChunks(@NotNull CharSequence text1,
+                                                     @NotNull CharSequence text2,
+                                                     @NotNull List<InlineChunk> words1,
+                                                     @NotNull List<InlineChunk> words2,
+                                                     @NotNull FairDiffIterable iterable,
+                                                     @NotNull ProgressIndicator indicator) {
+    return new ChunkOptimizer.WordChunkOptimizer(words1, words2, text1, text2, iterable, indicator).build();
   }
 
   @NotNull

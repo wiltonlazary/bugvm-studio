@@ -26,6 +26,7 @@ import com.intellij.openapi.util.io.IoTestUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.newvfs.*;
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
@@ -37,13 +38,14 @@ import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
 import com.intellij.openapi.vfs.newvfs.persistent.RefreshWorker;
 import com.intellij.testFramework.PlatformTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.util.Function;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -54,7 +56,7 @@ public class LocalFileSystemTest extends PlatformTestCase {
   protected void setUp() throws Exception {
     super.setUp();
 
-    MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect(myTestRootDisposable);
+    MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect(getTestRootDisposable());
     connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override public void before(@NotNull List<? extends VFileEvent> events) { checkFiles(events, true); }
 
@@ -193,7 +195,7 @@ public class LocalFileSystemTest extends PlatformTestCase {
     assertNotNull(dir);
 
     final VirtualFile child = myFS.refreshAndFindFileByIoFile(childFile);
-    assertNotNull(child);
+    assertNotNull(Arrays.toString(dir.getChildren()), child);
 
     assertTrue(childFile.delete());
   }
@@ -240,6 +242,7 @@ public class LocalFileSystemTest extends PlatformTestCase {
     assertNotNull(root);
 
     File jarFile = IoTestUtil.createTestJar();
+    assertNotNull(getVirtualFile(jarFile));
     root = VirtualFileManager.getInstance().findFileByUrl("jar://" + jarFile.getPath() + "!/");
     assertNotNull(root);
 
@@ -334,7 +337,7 @@ public class LocalFileSystemTest extends PlatformTestCase {
     String content = "";
     FileUtil.writeToFile(new File(testDir, "Foo.java"), content);
 
-    VirtualFile virtualDir = myFS.findFileByIoFile(testDir);
+    VirtualFile virtualDir = getVirtualFile(testDir);
     assertNotNull(virtualDir);
     virtualDir.getChildren();
     virtualDir.refresh(false, true);
@@ -430,6 +433,23 @@ public class LocalFileSystemTest extends PlatformTestCase {
     assertEquals(2, topDir.getChildren().length);
   }
 
+  public void testCaseInsensitiveRename() throws IOException {
+    File file = createTempFile("file.txt", "");
+    File home = file.getParentFile();
+    assertOrderedEquals(Collections.singletonList("file.txt"), home.list());
+
+    final VirtualFile vFile = myFS.refreshAndFindFileByIoFile(file);
+    assertNotNull(vFile);
+    new WriteAction<Void>() {
+      @Override
+      protected void run(@NotNull Result<Void> result) throws Throwable {
+        vFile.rename(LocalFileSystemTest.class, "FILE.txt");
+      }
+    }.execute();
+    assertEquals("FILE.txt", vFile.getName());
+    assertOrderedEquals(Collections.singletonList("FILE.txt"), home.list());
+  }
+
   public void testFileCaseChange() throws Exception {
     if (SystemInfo.isFileSystemCaseSensitive) {
       System.err.println("Ignored: case-insensitive FS required");
@@ -438,7 +458,6 @@ public class LocalFileSystemTest extends PlatformTestCase {
 
     File top = createTempDirectory(false);
     File file = IoTestUtil.createTestFile(top, "file.txt", "test");
-    File intermediate = new File(top, "_intermediate_");
 
     VirtualFile topDir = myFS.refreshAndFindFileByIoFile(top);
     assertNotNull(topDir);
@@ -446,8 +465,7 @@ public class LocalFileSystemTest extends PlatformTestCase {
     assertNotNull(sourceFile);
 
     String newName = StringUtil.capitalize(file.getName());
-    FileUtil.rename(file, intermediate);
-    FileUtil.rename(intermediate, new File(top, newName));
+    FileUtil.rename(file, newName);
     topDir.refresh(false, true);
     assertFalse(((VirtualDirectoryImpl)topDir).allChildrenLoaded());
     assertTrue(sourceFile.isValid());
@@ -455,8 +473,7 @@ public class LocalFileSystemTest extends PlatformTestCase {
 
     topDir.getChildren();
     newName = newName.toLowerCase(Locale.ENGLISH);
-    FileUtil.rename(file, intermediate);
-    FileUtil.rename(intermediate, new File(top, newName));
+    FileUtil.rename(file, newName);
     topDir.refresh(false, true);
     assertTrue(((VirtualDirectoryImpl)topDir).allChildrenLoaded());
     assertTrue(sourceFile.isValid());
@@ -563,12 +580,7 @@ public class LocalFileSystemTest extends PlatformTestCase {
     try {
       subFile1.markDirty();
       subFile2.markDirty();
-      RefreshWorker.setCancellingCondition(new Function<VirtualFile, Boolean>() {
-        @Override
-        public Boolean fun(VirtualFile file) {
-          return "sub_file_to_stop_at".equals(file.getName());
-        }
-      });
+      RefreshWorker.setCancellingCondition(file -> "sub_file_to_stop_at".equals(file.getName()));
       topDir.refresh(false, true);
       // should remain dirty after aborted refresh
       assertTrue(subFile1.isDirty());
@@ -622,5 +634,63 @@ public class LocalFileSystemTest extends PlatformTestCase {
         }
       }
     }.execute();
+  }
+
+  public void testBrokenSymlinkMove() throws IOException, InterruptedException {
+    if (!SystemInfo.areSymLinksSupported) {
+      System.err.println(getName() + " skipped: " + SystemInfo.OS_NAME);
+      return;
+    }
+
+    final File srcDir = IoTestUtil.createTestDir("src");
+    final File link = IoTestUtil.createSymLink(srcDir.getPath() + "/missing", srcDir.getPath() + "/link", false);
+    final File dstDir = IoTestUtil.createTestDir("dst");
+
+    new WriteAction() {
+      @Override
+      protected void run(@NotNull Result result) throws Throwable {
+        VirtualFile file = myFS.refreshAndFindFileByIoFile(link);
+        assertNotNull(file);
+
+        VirtualFile target = myFS.refreshAndFindFileByIoFile(dstDir);
+        assertNotNull(target);
+
+        myFS.moveFile(this, file, target);
+      }
+    }.execute();
+
+    assertOrderedEquals(ArrayUtil.EMPTY_STRING_ARRAY, srcDir.list());
+    assertOrderedEquals(new String[]{link.getName()}, dstDir.list());
+  }
+
+  public void testFileContentChangeEvents() throws IOException {
+    File file = IoTestUtil.createTestFile("file.txt");
+    long stamp = file.lastModified();
+    VirtualFile vFile = myFS.refreshAndFindFileByIoFile(file);
+    assertNotNull(vFile);
+
+    int[] updated = {0};
+    MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect(getTestRootDisposable());
+    connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener.Adapter() {
+      @Override
+      public void after(@NotNull List<? extends VFileEvent> events) {
+        for (VFileEvent event : events) {
+          if (event instanceof VFileContentChangeEvent && vFile.equals(event.getFile())) {
+            updated[0]++;
+            break;
+          }
+        }
+      }
+    });
+
+    FileUtil.writeToFile(file, "content");
+    assertTrue(file.setLastModified(stamp));
+    vFile.refresh(false, false);
+    assertEquals(1, updated[0]);
+
+    FileUtil.writeToFile(file, "more content");
+    assertTrue(file.setLastModified(stamp));
+    vFile.refresh(false, false);
+    assertEquals(2, updated[0]);
   }
 }
